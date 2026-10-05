@@ -292,6 +292,90 @@ pub fnc object_get(Value object, Utf8Text key): Result<Value, String> {
   return Ok(object.object_value[index].value);
 }
 
+fnc hash_mix(int hash, int value): int {
+  // Deliberate wrapping integer arithmetic: hashes are bucket selectors only;
+  // collisions are always resolved with semantic equality.
+  return (hash * 1099511628211) ^ value;
+}
+
+pub fnc bytes_hash(List<int> bytes): int {
+  let int hash = 1469598103934665603;
+  for const byte of bytes do
+    hash = hash_mix(hash, byte);
+  done
+  return hash;
+}
+
+pub fnc text_hash(Utf8Text text): int {
+  return bytes_hash(text.bytes);
+}
+
+pub fnc value_hash(Value value): int {
+  return value_hash_bounded(value, 0, 128);
+}
+
+fnc value_hash_bounded(
+  Value value,
+  int depth,
+  int max_depth
+): int {
+  let int hash = hash_mix(1469598103934665603, value.kind);
+
+  if depth > max_depth then
+    return hash_mix(hash, 127);
+  fi
+
+  if value.kind == 0 then
+    return hash;
+  fi
+
+  if value.kind == 1 then
+    return hash_mix(hash, value.bool_value ? 1 : 0);
+  fi
+
+  if value.kind == 2 then
+    return hash_mix(hash, bytes_hash(value.number_lexeme));
+  fi
+
+  if value.kind == 3 then
+    return hash_mix(hash, text_hash(value.string_value));
+  fi
+
+  if value.kind == 4 then
+    return hash_mix(hash, bytes_hash(value.bytes_value));
+  fi
+
+  if value.kind == 5 then
+    for const item of value.array_value do
+      hash = hash_mix(hash, value_hash_bounded(item, depth + 1, max_depth));
+    done
+    return hash_mix(hash, value.array_value.length);
+  fi
+
+  if value.kind == 6 then
+    for const member of value.object_value do
+      hash = hash_mix(hash, text_hash(member.key));
+      hash = hash_mix(hash, value_hash_bounded(member.value, depth + 1, max_depth));
+    done
+    return hash_mix(hash, value.object_value.length);
+  fi
+
+  if value.kind == 7 then
+    hash = hash_mix(hash, value.extension_type);
+    return hash_mix(hash, bytes_hash(value.bytes_value));
+  fi
+
+  if value.kind == 8 then
+    for const entry of value.map_value do
+      hash = hash_mix(hash, value_hash_bounded(entry.key, depth + 1, max_depth));
+      hash = hash_mix(hash, value_hash_bounded(entry.value, depth + 1, max_depth));
+    done
+    return hash_mix(hash, value.map_value.length);
+  fi
+
+  return hash;
+}
+
 pub fnc value_deep_equal(Value left, Value right): bool {
   return value_deep_equal_bounded(left, right, 0, 128);
 }
