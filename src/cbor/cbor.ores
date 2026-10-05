@@ -460,6 +460,10 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(options) then
+    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+  fi
+
   if input.length > options.max_input_bytes then
     return Err(decode_error("input_limit", 0, "CBOR input exceeds max_input_bytes"));
   fi
@@ -719,6 +723,10 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
+  if !encode_options_valid(options) then
+    return Err(encode_error("invalid_options", "invalid or unsafe encode options"));
+  fi
+
   let CborWriter writer = new CborWriter(
     new List<int>(),
     options,
