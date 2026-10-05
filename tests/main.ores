@@ -1,0 +1,16 @@
+import fnc run_json_tests from './json_test';
+import fnc run_messagepack_tests from './messagepack_test';
+import fnc run_cbor_tests from './cbor_test';
+import fnc run_protobuf_tests from './protobuf_test';
+import fnc run_validation_tests from './validation_test';
+
+pub routine main(): void {
+  run_json_tests();
+  run_messagepack_tests();
+  run_cbor_tests();
+  run_protobuf_tests();
+  run_validation_tests();
+
+  stdio.stdout.println("serialization/validation native tests passed");
+  return;
+}
