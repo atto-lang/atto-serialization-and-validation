@@ -5,6 +5,7 @@ import fnc run_protobuf_tests from './protobuf_test';
 import fnc run_validation_tests from './validation_test';
 import fnc run_metadata_tests from './metadata_test';
 import fnc run_object_codec_tests from './object_codec_test';
+import fnc run_generated_typed_codec_tests from './generated_typed_codec_test';
 
 pub routine main(): void {
   run_json_tests();
@@ -14,6 +15,7 @@ pub routine main(): void {
   run_validation_tests();
   run_metadata_tests();
   run_object_codec_tests();
+  run_generated_typed_codec_tests();
 
   stdio.stdout.println("serialization/validation native tests passed");
   return;
