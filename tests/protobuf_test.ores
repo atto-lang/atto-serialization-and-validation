@@ -15,7 +15,7 @@ pub fnc run_protobuf_tests(): void {
     message,
     default_proto_encode_options()
   );
-  require_true(encoded.is_ok(), "Protobuf message must encode");
+  require_true(encoded.is_err() == false, "Protobuf message must encode");
 
   val List<int> expected = new List<int>(8, 150, 1, 18, 2, 104, 105);
   val List<int> actual = encoded.unwrap();
@@ -34,7 +34,7 @@ pub fnc run_protobuf_tests(): void {
     actual,
     default_proto_decode_options()
   );
-  require_true(decoded.is_ok(), "Protobuf message must decode");
+  require_true(decoded.is_err() == false, "Protobuf message must decode");
 
   val ProtoMessage roundtrip = decoded.unwrap();
   require_int(roundtrip.fields.length, 2, "Protobuf field count");
