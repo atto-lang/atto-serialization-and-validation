@@ -29,6 +29,13 @@ define class DecodedObject as
   pub val int consumed;
 end
 
+define class ObjectDecodeAttempt as
+  // status: 0 ready, 1 metadata failure, 2 decode failure, 3 validation failure.
+  pub val int status;
+  pub val DecodedObject decoded;
+  pub val ObjectCodecError error;
+end
+
 fnc empty_metadata_error(): MetadataError {
   return new MetadataError("", -1, "");
 }
@@ -96,35 +103,52 @@ fnc source_object(
   return value_object(output);
 }
 
-pub fnc decode_json_object(
+fnc empty_decoded_object(): DecodedObject {
+  val Value empty = value_object(new List<WireMember>());
+  return new DecodedObject(empty, empty, 0);
+}
+
+fnc object_codec_error(
+  int kind,
+  MetadataError metadata_error,
+  DecodeError decode_error,
+  ValidationReport validation_report
+): ObjectCodecError {
+  return new ObjectCodecError(
+    kind,
+    metadata_error,
+    decode_error,
+    validation_report
+  );
+}
+
+pub fnc decode_json_object_attempt(
   List<int> input,
   DecodeOptions decode_options,
   CodecTypeMeta metadata,
   ValidationOptions validation_options
-): Result<DecodedObject, ObjectCodecError> {
+): ObjectDecodeAttempt {
   let MetadataCheck checked = check_metadata(metadata);
 
   if !checked.ok then
-    return Err(
-      new ObjectCodecError(
-        0,
-        checked.error,
-        empty_decode_error(),
-        empty_validation_report()
-      )
+    let ObjectCodecError error = object_codec_error(
+      0,
+      checked.error,
+      empty_decode_error(),
+      empty_validation_report()
     );
+    return new ObjectDecodeAttempt(1, empty_decoded_object(), error);
   fi
 
   let DecodeAttempt attempt = decode_attempt(input, decode_options);
   if attempt.status != 0 then
-    return Err(
-      new ObjectCodecError(
-        1,
-        empty_metadata_error(),
-        attempt.error,
-        empty_validation_report()
-      )
+    let ObjectCodecError error = object_codec_error(
+      1,
+      empty_metadata_error(),
+      attempt.error,
+      empty_validation_report()
     );
+    return new ObjectDecodeAttempt(2, empty_decoded_object(), error);
   fi
 
   if attempt.value.kind != 6 then
@@ -140,14 +164,13 @@ pub fnc decode_json_object(
       false
     );
 
-    return Err(
-      new ObjectCodecError(
-        2,
-        empty_metadata_error(),
-        empty_decode_error(),
-        report
-      )
+    let ObjectCodecError error = object_codec_error(
+      2,
+      empty_metadata_error(),
+      empty_decode_error(),
+      report
     );
+    return new ObjectDecodeAttempt(3, empty_decoded_object(), error);
   fi
 
   let ObjectSchema schema = metadata_schema(metadata);
@@ -158,21 +181,49 @@ pub fnc decode_json_object(
   );
 
   if !report_is_valid(report) then
-    return Err(
-      new ObjectCodecError(
-        2,
-        empty_metadata_error(),
-        empty_decode_error(),
-        report
-      )
+    let ObjectCodecError error = object_codec_error(
+      2,
+      empty_metadata_error(),
+      empty_decode_error(),
+      report
     );
+    return new ObjectDecodeAttempt(3, empty_decoded_object(), error);
   fi
 
-  return Ok(
-    new DecodedObject(
-      source_object(attempt.value, metadata),
-      attempt.value,
-      attempt.consumed
+  let DecodedObject decoded = new DecodedObject(
+    source_object(attempt.value, metadata),
+    attempt.value,
+    attempt.consumed
+  );
+
+  return new ObjectDecodeAttempt(
+    0,
+    decoded,
+    object_codec_error(
+      0,
+      empty_metadata_error(),
+      empty_decode_error(),
+      empty_validation_report()
     )
   );
+}
+
+pub fnc decode_json_object(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): Result<DecodedObject, ObjectCodecError> {
+  let ObjectDecodeAttempt attempt = decode_json_object_attempt(
+    input,
+    decode_options,
+    metadata,
+    validation_options
+  );
+
+  if attempt.status == 0 then
+    return Ok(attempt.decoded);
+  fi
+
+  return Err(attempt.error);
 }
