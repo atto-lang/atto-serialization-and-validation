@@ -80,3 +80,29 @@ Rules should run as early as possible:
 - defer only true cross-field rules until the enclosing object completes.
 
 This prevents large invalid payloads from being fully materialized.
+
+
+## Native validation library
+
+`src/validation/validation.ores` now provides the runtime-independent rule/report layer used by generated validators and dynamic payload validation.
+
+Implemented primitives include:
+
+- required and forbidden object fields;
+- expected wire kind;
+- UTF-8 code-point min/max string length;
+- byte min/max length;
+- array min/max item count;
+- unique-array validation;
+- inclusive/exclusive numeric minimum and maximum;
+- ASCII checks;
+- canonical UUID shape checks;
+- basic email shape checks;
+- HTTP/HTTPS URL checks;
+- reject-unknown-field object schemas;
+- fail-fast or bounded error collection;
+- `ValidValue` wrappers through `validate_value_checked` and `validate_object_checked`.
+
+Error reports are bounded by `ValidationOptions.max_errors`, and validation errors retain logical path segments without retaining the entire untrusted input payload.
+
+Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
