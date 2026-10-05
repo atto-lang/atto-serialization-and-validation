@@ -65,7 +65,7 @@ end
 pub fnc default_proto_decode_options(): ProtoDecodeOptions {
   return new ProtoDecodeOptions(
     16 * 1024 * 1024,
-    1000000,
+    65536,
     16 * 1024 * 1024
   );
 }
@@ -76,12 +76,16 @@ pub fnc default_proto_encode_options(): ProtoEncodeOptions {
 
 pub fnc proto_decode_options_valid(ProtoDecodeOptions options): bool {
   return options.max_input_bytes >= 0 &&
+         options.max_input_bytes <= 256 * 1024 * 1024 &&
          options.max_fields >= 0 &&
-         options.max_length_delimited_bytes >= 0;
+         options.max_fields <= 1000000 &&
+         options.max_length_delimited_bytes >= 0 &&
+         options.max_length_delimited_bytes <= 256 * 1024 * 1024;
 }
 
 pub fnc proto_encode_options_valid(ProtoEncodeOptions options): bool {
-  return options.max_output_bytes >= 0;
+  return options.max_output_bytes >= 0 &&
+         options.max_output_bytes <= 256 * 1024 * 1024;
 }
 
 pub fnc proto_varint(int field_number, int value): ProtoField {
