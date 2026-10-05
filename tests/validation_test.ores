@@ -1,0 +1,85 @@
+import fnc require_true, require_int from './assert';
+
+import class Value, Utf8Text, WireMember from '../src/core/value';
+import fnc value_int, value_string, value_object from '../src/core/value';
+import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
+import fnc default_validation_options, string_rule, number_rule, field_rule, object_schema from '../src/validation/validation';
+import fnc validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
+
+pub fnc run_validation_tests(): void {
+  val Utf8Text username_key = new Utf8Text(
+    new List<int>(117, 115, 101, 114, 110, 97, 109, 101)
+  );
+  val Utf8Text age_key = new Utf8Text(
+    new List<int>(97, 103, 101)
+  );
+
+  let List<WireMember> members = new List<WireMember>();
+  members.push(
+    new WireMember(
+      username_key,
+      value_string(new Utf8Text(new List<int>(97, 98)))
+    )
+  );
+  members.push(new WireMember(age_key, value_int(151)));
+
+  let List<FieldRule> fields = new List<FieldRule>();
+  fields.push(
+    field_rule(
+      username_key,
+      true,
+      false,
+      string_rule(3, 64, false, false, false, false)
+    )
+  );
+  fields.push(
+    field_rule(
+      age_key,
+      true,
+      false,
+      number_rule(true, 0.0, false, true, 150.0, false)
+    )
+  );
+
+  val ObjectSchema schema = object_schema(fields, true);
+  val ValidationReport invalid = validate_object(
+    value_object(members),
+    schema,
+    default_validation_options()
+  );
+
+  require_true(!report_is_valid(invalid), "invalid object must fail validation");
+  require_int(invalid.errors.length, 2, "validation must collect both field errors");
+
+  require_true(
+    is_uuid(
+      new Utf8Text(
+        new List<int>(
+          53, 53, 48, 101, 56, 52, 48, 48,
+          45,
+          101, 50, 57, 98,
+          45,
+          52, 49, 100, 52,
+          45,
+          97, 55, 49, 54,
+          45,
+          52, 52, 54, 54, 53, 53, 52, 52, 48, 48, 48, 48
+        )
+      )
+    ),
+    "canonical UUID must validate"
+  );
+
+  require_true(
+    is_email(
+      new Utf8Text(
+        new List<int>(
+          97, 64, 98, 46, 99, 111, 109
+        )
+      )
+    ),
+    "basic email must validate"
+  );
+
+  return;
+}
