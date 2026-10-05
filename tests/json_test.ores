@@ -23,7 +23,7 @@ pub fnc run_json_tests(): void {
   );
 
   val Result<DecodedValue, DecodeError> decoded_result = decode_default(input);
-  require_true(decoded_result.is_ok(), "JSON object should decode");
+  require_true(decoded_result.is_err() == false, "JSON object should decode");
 
   val DecodedValue decoded = decoded_result.unwrap();
   require_int(decoded.value.kind, 6, "JSON root must be object");
@@ -35,7 +35,7 @@ pub fnc run_json_tests(): void {
     decoded.value,
     default_encode_options()
   );
-  require_true(encoded_result.is_ok(), "decoded JSON should re-encode");
+  require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
   require_true(
     bytes_equal(encoded_result.unwrap(), input),
     "canonical JSON should round-trip byte-for-byte"
