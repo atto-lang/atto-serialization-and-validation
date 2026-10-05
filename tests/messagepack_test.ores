@@ -25,13 +25,13 @@ pub fnc run_messagepack_tests(): void {
     source,
     default_encode_options()
   );
-  require_true(encoded.is_ok(), "MessagePack object must encode");
+  require_true(encoded.is_err() == false, "MessagePack object must encode");
 
   val Result<DecodedValue, DecodeError> decoded = decode(
     encoded.unwrap(),
     default_decode_options()
   );
-  require_true(decoded.is_ok(), "MessagePack object must decode");
+  require_true(decoded.is_err() == false, "MessagePack object must decode");
   require_true(
     value_deep_equal(source, decoded.unwrap().value),
     "MessagePack dynamic value must round-trip"
@@ -42,7 +42,7 @@ pub fnc run_messagepack_tests(): void {
     new List<int>(147, 1, 2, 3),
     default_decode_options()
   );
-  require_true(fixed.is_ok(), "MessagePack fixarray should decode");
+  require_true(fixed.is_err() == false, "MessagePack fixarray should decode");
   require_int(fixed.unwrap().value.array_value.length, 3, "MessagePack fixarray length");
 
   return;
