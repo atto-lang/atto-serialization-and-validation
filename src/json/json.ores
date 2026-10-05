@@ -6,7 +6,7 @@
 
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
-import fnc bytes_equal from '../core/value';
+import fnc bytes_equal, text_hash from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
 import fnc default_decode_options, empty_decode_error, decode_error, encode_error from '../core/options';
 
@@ -614,15 +614,65 @@ fnc parse_number(JsonCursor mut cursor): Value {
   return value_number_lexeme(lexeme);
 }
 
-fnc member_index(List<WireMember> members, Utf8Text key): int {
-  let int i = 0;
-  for const member of members do
-    if bytes_equal(member.key.bytes, key.bytes) then
-      return i;
+fnc member_index(
+  List<WireMember> members,
+  Map<int, List<int>> buckets,
+  Utf8Text key
+): int {
+  let int hash = text_hash(key);
+
+  if !buckets.contains(hash) then
+    return -1;
+  fi
+
+  let List<int> candidates = buckets.get(hash);
+  for const index of candidates do
+    if bytes_equal(members[index].key.bytes, key.bytes) then
+      return index;
     fi
+  done
+
+  return -1;
+}
+
+fnc remember_member(
+  Map<int, List<int>> buckets,
+  Utf8Text key,
+  int index
+): void {
+  let int hash = text_hash(key);
+
+  if buckets.contains(hash) then
+    let List<int> candidates = buckets.get(hash);
+    candidates.push(index);
+    return;
+  fi
+
+  let List<int> candidates = new List<int>();
+  candidates.push(index);
+  buckets.set(hash, candidates);
+  return;
+}
+
+fnc object_keys_unique(List<WireMember> members): bool {
+  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  let int i = 0;
+
+  loop do
+    if i >= members.length then
+      break;
+    fi
+
+    let WireMember member = members[i];
+    if member_index(members, buckets, member.key) >= 0 then
+      return false;
+    fi
+
+    remember_member(buckets, member.key, i);
     i = i + 1;
   done
-  return -1;
+
+  return true;
 }
 
 
@@ -679,6 +729,7 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
   let List<WireMember> members = new List<WireMember>();
+  let Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
@@ -722,7 +773,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int existing = member_index(members, key);
+    let int existing = member_index(members, buckets, key);
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(cursor, "duplicate_key", "duplicate JSON object key");
@@ -732,7 +783,9 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       fi
       // first_wins intentionally does not append or replace.
     else
+      let int index = members.length;
       members.push(new WireMember(key, field_value));
+      remember_member(buckets, key, index);
     fi
 
     skip_whitespace(cursor);
@@ -1086,6 +1139,11 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
   fi
 
   if value.kind == 6 then
+    if !object_keys_unique(value.object_value) then
+      writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
+      return;
+    fi
+
     append_output(writer, 123);
 
     let int i = 0;
