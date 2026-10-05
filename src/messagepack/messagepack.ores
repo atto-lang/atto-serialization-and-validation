@@ -11,6 +11,7 @@ import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
+import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
 define class MsgpackCursor as
   pub val List<int> input;
@@ -176,7 +177,7 @@ fnc read_bytes(
     return output;
   fi
 
-  if cursor.index + length > cursor.input.length then
+  if !byte_range_fits(cursor.input.length, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated MessagePack payload");
     return output;
   fi
@@ -567,6 +568,10 @@ pub fnc decode(
 
   if input.length > options.max_input_bytes then
     return Err(decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
+  fi
+
+  if !byte_list_valid(input) then
+    return Err(decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
   fi
 
   let MsgpackCursor cursor = new MsgpackCursor(
