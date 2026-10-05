@@ -6,11 +6,11 @@ import class DecodeOptions, EncodeOptions, EncodeError from '../src/core/options
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
 import fnc codec_field, codec_type from '../src/schema/metadata';
-import class DecodedObject, ObjectCodecError from '../src/schema/object_codec';
+import class DecodedObject, ObjectCodecError, ObjectDecodeAttempt from '../src/schema/object_codec';
 import class MetadataError from '../src/schema/metadata';
 import class DecodeError from '../src/core/options';
-import class ValidationReport, ValidationError from '../src/validation/validation';
-import fnc decode_json_object from '../src/schema/object_codec';
+import class ValidationReport, ValidationError, PathSegment from '../src/validation/validation';
+import fnc decode_json_object, decode_json_object_attempt from '../src/schema/object_codec';
 import fnc any_rule, string_rule, default_validation_options from '../src/validation/validation';
 import fnc encode from '../src/json/json';
 
@@ -59,28 +59,18 @@ fnc user_metadata(): CodecTypeMeta {
 fnc decode_user(
   List<int> input
 ): Result<User, ObjectCodecError> {
-  let Result<DecodedObject, ObjectCodecError> decoded = decode_json_object(
+  let ObjectDecodeAttempt attempt = decode_json_object_attempt(
     input,
     default_decode_options(),
     user_metadata(),
     default_validation_options()
   );
 
-  if decoded.is_err() then
-    return Err(
-      new ObjectCodecError(
-        2,
-        new MetadataError("", -1, ""),
-        new DecodeError("", 0, ""),
-        new ValidationReport(
-          new List<ValidationError>(),
-          false
-        )
-      )
-    );
+  if attempt.status != 0 then
+    return Err(attempt.error);
   fi
 
-  let Value source = decoded.unwrap().source_object;
+  let Value source = attempt.decoded.source_object;
 
   let Result<Value, String> name_value = object_get(
     source,
@@ -94,33 +84,29 @@ fnc decode_user(
     new Utf8Text(new List<int>(97, 103, 101))
   );
 
-  if name_value.is_err() || age_value.is_err() then
-    return Err(
-      new ObjectCodecError(
-        2,
-        new MetadataError("", -1, ""),
-        new DecodeError("", 0, ""),
-        new ValidationReport(
-          new List<ValidationError>(),
-          false
-        )
-      )
-    );
-  fi
-
-  let Value name = name_value.unwrap();
-  let IntParse age = parse_int(age_value.unwrap());
+  // Required-field validation above guarantees both lookups. A failure here is
+  // a compiler/library invariant violation rather than malformed user input.
+  let Value name = name_value.expect("generated codec invariant: display_name missing");
+  let Value age_wire = age_value.expect("generated codec invariant: age missing");
+  let IntParse age = parse_int(age_wire);
 
   if name.kind != 3 || !age.ok then
+    let List<ValidationError> errors = new List<ValidationError>();
+    errors.push(
+      new ValidationError(
+        "typed_conversion",
+        new List<PathSegment>(),
+        "generated User codec could not convert a validated field",
+        -1
+      )
+    );
+
     return Err(
       new ObjectCodecError(
         2,
         new MetadataError("", -1, ""),
         new DecodeError("", 0, ""),
-        new ValidationReport(
-          new List<ValidationError>(),
-          false
-        )
+        new ValidationReport(errors, false)
       )
     );
   fi
@@ -167,9 +153,10 @@ pub fnc run_generated_typed_codec_tests(): void {
     125
   );
 
-  // This test focuses on the direct typed construction/serialization shape.
-  // Error propagation will be generated directly once Result exposes a
-  // non-panicking error projection / the language's ? operator is available.
+  let Result<User, ObjectCodecError> typed = decode_user(input);
+  require_true(typed.is_err() == false, "generated typed decoder must succeed");
+  require_int(typed.unwrap().age, 42, "generated typed decoder age");
+
   let Result<DecodedObject, ObjectCodecError> projected = decode_json_object(
     input,
     default_decode_options(),
