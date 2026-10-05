@@ -45,5 +45,40 @@ pub fnc run_messagepack_tests(): void {
   require_true(fixed.is_err() == false, "MessagePack fixarray should decode");
   require_int(fixed.unwrap().value.array_value.length, 3, "MessagePack fixarray length");
 
+  val int min_int = -9223372036854775807 - 1;
+  val int max_int = 9223372036854775807;
+
+  val Result<List<int>, EncodeError> min_encoded = encode(
+    value_int(min_int),
+    default_encode_options()
+  );
+  require_true(min_encoded.is_err() == false, "MessagePack int64 minimum must encode");
+
+  val Result<DecodedValue, DecodeError> min_decoded = decode(
+    min_encoded.unwrap(),
+    default_decode_options()
+  );
+  require_true(min_decoded.is_err() == false, "MessagePack int64 minimum must decode");
+  require_true(
+    value_deep_equal(value_int(min_int), min_decoded.unwrap().value),
+    "MessagePack int64 minimum must round-trip"
+  );
+
+  val Result<List<int>, EncodeError> max_encoded = encode(
+    value_int(max_int),
+    default_encode_options()
+  );
+  require_true(max_encoded.is_err() == false, "MessagePack int64 maximum must encode");
+
+  val Result<DecodedValue, DecodeError> max_decoded = decode(
+    max_encoded.unwrap(),
+    default_decode_options()
+  );
+  require_true(max_decoded.is_err() == false, "MessagePack int64 maximum must decode");
+  require_true(
+    value_deep_equal(value_int(max_int), max_decoded.unwrap().value),
+    "MessagePack int64 maximum must round-trip"
+  );
+
   return;
 }
