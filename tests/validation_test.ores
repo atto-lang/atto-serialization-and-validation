@@ -3,6 +3,10 @@ import fnc require_true, require_int from './assert';
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc value_int, value_string, value_object from '../src/core/value';
 import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
+import class DecodeOptions from '../src/core/options';
+import fnc default_decode_options from '../src/core/options';
+import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
+import fnc decode_and_validate_object from '../src/json/validated';
 import fnc default_validation_options, string_rule, number_rule, field_rule, object_schema from '../src/validation/validation';
 import fnc validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
@@ -42,6 +46,30 @@ pub fnc run_validation_tests(): void {
   );
 
   val ObjectSchema schema = object_schema(fields, true);
+
+  val List<int> valid_json = new List<int>(
+    123,
+    34, 117, 115, 101, 114, 110, 97, 109, 101, 34,
+    58,
+    34, 97, 98, 99, 100, 34,
+    44,
+    34, 97, 103, 101, 34,
+    58,
+    51, 48,
+    125
+  );
+
+  val Result<ValidatedDecodedValue, JsonPayloadError> checked_json =
+    decode_and_validate_object(
+      valid_json,
+      default_decode_options(),
+      schema,
+      default_validation_options()
+    );
+  require_true(
+    checked_json.is_err() == false,
+    "valid JSON payload must cross decode+validation boundary"
+  );
   val ValidationReport invalid = validate_object(
     value_object(members),
     schema,
