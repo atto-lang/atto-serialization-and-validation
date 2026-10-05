@@ -27,13 +27,13 @@ pub fnc run_cbor_tests(): void {
     source,
     default_encode_options()
   );
-  require_true(encoded.is_ok(), "CBOR object must encode");
+  require_true(encoded.is_err() == false, "CBOR object must encode");
 
   val Result<DecodedValue, DecodeError> decoded = decode(
     encoded.unwrap(),
     default_decode_options()
   );
-  require_true(decoded.is_ok(), "CBOR object must decode");
+  require_true(decoded.is_err() == false, "CBOR object must decode");
   require_true(
     value_deep_equal(source, decoded.unwrap().value),
     "CBOR dynamic value must round-trip"
@@ -44,7 +44,7 @@ pub fnc run_cbor_tests(): void {
     new List<int>(24, 42),
     default_decode_options()
   );
-  require_true(forty_two.is_ok(), "CBOR uint8 argument should decode");
+  require_true(forty_two.is_err() == false, "CBOR uint8 argument should decode");
   require_int(forty_two.unwrap().value.kind, 2, "CBOR integer kind");
 
   return;
