@@ -163,6 +163,56 @@ fnc utf8_expected_width(int first): int {
   return -1;
 }
 
+fnc utf8_prefix_status(
+  List<int> bytes,
+  int index,
+  int expected_width
+): int {
+  // 0 invalid, 1 valid prefix but incomplete, 2 complete and valid.
+  if expected_width < 1 || index < 0 || index >= bytes.length then
+    return 0;
+  fi
+
+  let int available = bytes.length - index;
+  let int check_width = available < expected_width ? available : expected_width;
+  let int first = bytes[index];
+  let int i = 1;
+
+  loop do
+    if i >= check_width then
+      break;
+    fi
+
+    let int byte = bytes[index + i];
+    if byte < 128 || byte > 191 then
+      return 0;
+    fi
+
+    if i == 1 then
+      if first == 224 && byte < 160 then
+        return 0;
+      fi
+      if first == 237 && byte > 159 then
+        return 0;
+      fi
+      if first == 240 && byte < 144 then
+        return 0;
+      fi
+      if first == 244 && byte > 143 then
+        return 0;
+      fi
+    fi
+
+    i = i + 1;
+  done
+
+  if available < expected_width then
+    return 1;
+  fi
+
+  return 2;
+}
+
 fnc utf8_sequence_length(List<int> bytes, int index): int {
   if index < 0 || index >= bytes.length then
     return -1;
@@ -442,16 +492,23 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
 
-      if start + expected_width > cursor.input.length then
+      let int prefix_status = utf8_prefix_status(
+        cursor.input,
+        start,
+        expected_width
+      );
+
+      if prefix_status == 0 then
+        fail(cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
+        return new Utf8Text(output);
+      fi
+
+      if prefix_status == 1 then
         need_more(cursor);
         return new Utf8Text(output);
       fi
 
-      let int width = utf8_sequence_length(cursor.input, start);
-      if width != expected_width then
-        fail(cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
-        return new Utf8Text(output);
-      fi
+      let int width = expected_width;
 
       output.push(byte);
       let int j = 1;
