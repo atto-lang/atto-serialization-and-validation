@@ -11,7 +11,7 @@ import class MetadataError from '../src/schema/metadata';
 import class DecodeError from '../src/core/options';
 import class ValidationReport, ValidationError, PathSegment from '../src/validation/validation';
 import fnc decode_json_object, decode_json_object_attempt from '../src/schema/object_codec';
-import fnc any_rule, string_rule, default_validation_options from '../src/validation/validation';
+import fnc kind_rule, string_rule, default_validation_options from '../src/validation/validation';
 import fnc encode from '../src/json/json';
 
 define class User as
@@ -44,7 +44,7 @@ fnc user_metadata(): CodecTypeMeta {
       2,
       true,
       false,
-      any_rule()
+      kind_rule(2)
     )
   );
 
