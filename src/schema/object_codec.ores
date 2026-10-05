@@ -10,10 +10,10 @@ import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_object from '../core/value';
 import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
 import fnc decode_attempt from '../json/json';
-import class ValidationOptions, ValidationReport, ValidationError, FieldRule, ObjectSchema from '../validation/validation';
+import class ValidationOptions, ValidationReport, ValidationError, PathSegment, FieldRule, ObjectSchema from '../validation/validation';
 import fnc field_rule, object_schema, validate_object, report_is_valid from '../validation/validation';
-import class CodecFieldMeta, CodecTypeMeta, MetadataError from './metadata';
-import fnc validate_metadata, field_by_wire_name from './metadata';
+import class CodecFieldMeta, CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
+import fnc check_metadata, field_by_wire_name from './metadata';
 
 define class ObjectCodecError as
   // kind: 0 metadata, 1 decode, 2 validation.
@@ -102,13 +102,13 @@ pub fnc decode_json_object(
   CodecTypeMeta metadata,
   ValidationOptions validation_options
 ): Result<DecodedObject, ObjectCodecError> {
-  let Result<CodecTypeMeta, MetadataError> checked = validate_metadata(metadata);
+  let MetadataCheck checked = check_metadata(metadata);
 
-  if checked.is_err() then
+  if !checked.ok then
     return Err(
       new ObjectCodecError(
         0,
-        checked.unwrap_safe().unwrap_or(empty_metadata_error()),
+        checked.error,
         empty_decode_error(),
         empty_validation_report()
       )
