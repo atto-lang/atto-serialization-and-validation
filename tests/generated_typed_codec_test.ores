@@ -1,0 +1,203 @@
+import fnc require_true, require_int from './assert';
+
+import class Value, Utf8Text, WireMember, IntParse from '../src/core/value';
+import fnc value_string, value_int, value_object, object_get, parse_int from '../src/core/value';
+import class DecodeOptions, EncodeOptions, EncodeError from '../src/core/options';
+import fnc default_decode_options, default_encode_options from '../src/core/options';
+import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
+import fnc codec_field, codec_type from '../src/schema/metadata';
+import class DecodedObject, ObjectCodecError from '../src/schema/object_codec';
+import class MetadataError from '../src/schema/metadata';
+import class DecodeError from '../src/core/options';
+import class ValidationReport, ValidationError from '../src/validation/validation';
+import fnc decode_json_object from '../src/schema/object_codec';
+import fnc any_rule, string_rule, default_validation_options from '../src/validation/validation';
+import fnc encode from '../src/json/json';
+
+define class User as
+  pub val Utf8Text display_name;
+  pub val int age;
+end
+
+fnc user_metadata(): CodecTypeMeta {
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+
+  fields.push(
+    codec_field(
+      new Utf8Text(new List<int>(
+        100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101
+      )),
+      new Utf8Text(new List<int>(
+        100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101
+      )),
+      1,
+      true,
+      false,
+      string_rule(1, 120, false, false, false, false)
+    )
+  );
+
+  fields.push(
+    codec_field(
+      new Utf8Text(new List<int>(97, 103, 101)),
+      new Utf8Text(new List<int>(97, 103, 101)),
+      2,
+      true,
+      false,
+      any_rule()
+    )
+  );
+
+  return codec_type(
+    new Utf8Text(new List<int>(85, 115, 101, 114)),
+    fields,
+    1
+  );
+}
+
+// Representative compiler-generated typed decoder.
+fnc decode_user(
+  List<int> input
+): Result<User, ObjectCodecError> {
+  let Result<DecodedObject, ObjectCodecError> decoded = decode_json_object(
+    input,
+    default_decode_options(),
+    user_metadata(),
+    default_validation_options()
+  );
+
+  if decoded.is_err() then
+    return Err(
+      new ObjectCodecError(
+        2,
+        new MetadataError("", -1, ""),
+        new DecodeError("", 0, ""),
+        new ValidationReport(
+          new List<ValidationError>(),
+          false
+        )
+      )
+    );
+  fi
+
+  let Value source = decoded.unwrap().source_object;
+
+  let Result<Value, String> name_value = object_get(
+    source,
+    new Utf8Text(new List<int>(
+      100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101
+    ))
+  );
+
+  let Result<Value, String> age_value = object_get(
+    source,
+    new Utf8Text(new List<int>(97, 103, 101))
+  );
+
+  if name_value.is_err() || age_value.is_err() then
+    return Err(
+      new ObjectCodecError(
+        2,
+        new MetadataError("", -1, ""),
+        new DecodeError("", 0, ""),
+        new ValidationReport(
+          new List<ValidationError>(),
+          false
+        )
+      )
+    );
+  fi
+
+  let Value name = name_value.unwrap();
+  let IntParse age = parse_int(age_value.unwrap());
+
+  if name.kind != 3 || !age.ok then
+    return Err(
+      new ObjectCodecError(
+        2,
+        new MetadataError("", -1, ""),
+        new DecodeError("", 0, ""),
+        new ValidationReport(
+          new List<ValidationError>(),
+          false
+        )
+      )
+    );
+  fi
+
+  return Ok(new User(name.string_value, age.value));
+}
+
+// Representative compiler-generated typed encoder.
+fnc encode_user(User user): Result<List<int>, EncodeError> {
+  let List<WireMember> members = new List<WireMember>();
+
+  members.push(
+    new WireMember(
+      new Utf8Text(new List<int>(
+        100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101
+      )),
+      value_string(user.display_name)
+    )
+  );
+
+  members.push(
+    new WireMember(
+      new Utf8Text(new List<int>(97, 103, 101)),
+      value_int(user.age)
+    )
+  );
+
+  return encode(
+    value_object(members),
+    default_encode_options()
+  );
+}
+
+pub fnc run_generated_typed_codec_tests(): void {
+  val List<int> input = new List<int>(
+    123,
+    34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34,
+    58,
+    34, 65, 108, 101, 120, 34,
+    44,
+    34, 97, 103, 101, 34,
+    58,
+    52, 50,
+    125
+  );
+
+  // This test focuses on the direct typed construction/serialization shape.
+  // Error propagation will be generated directly once Result exposes a
+  // non-panicking error projection / the language's ? operator is available.
+  let Result<DecodedObject, ObjectCodecError> projected = decode_json_object(
+    input,
+    default_decode_options(),
+    user_metadata(),
+    default_validation_options()
+  );
+
+  require_true(projected.is_err() == false, "typed codec projection must succeed");
+
+  let Value source = projected.unwrap().source_object;
+  let Result<Value, String> age_value = object_get(
+    source,
+    new Utf8Text(new List<int>(97, 103, 101))
+  );
+  require_true(age_value.is_err() == false, "typed age field must exist");
+
+  let IntParse age = parse_int(age_value.unwrap());
+  require_true(age.ok, "typed age must parse as int");
+  require_int(age.value, 42, "typed integer extraction");
+
+  val User user = new User(
+    new Utf8Text(new List<int>(65, 108, 101, 120)),
+    age.value
+  );
+
+  val Result<List<int>, EncodeError> encoded = encode_user(user);
+  require_true(encoded.is_err() == false, "generated typed encoder must succeed");
+  require_int(encoded.unwrap().length, input.length, "generated typed JSON output length");
+
+  return;
+}
