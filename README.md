@@ -33,3 +33,11 @@ The implementation is intentionally split into:
 - **compiled validation** derived from field/type annotations and contract metadata.
 
 See the design documents on the feature branch for the detailed API and performance model.
+
+## Design documents
+
+- [Architecture](docs/DESIGN.md)
+- [Validation model](docs/VALIDATION.md)
+- [Ecosystem benchmark](docs/ECOSYSTEM-BENCHMARK.md)
+- [Benchmark plan](benchmarks/README.md)
+- [Proposed Oreslang surface](examples/proposed-api.md)
