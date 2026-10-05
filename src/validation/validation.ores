@@ -453,12 +453,12 @@ pub fnc is_email(Utf8Text text): bool {
   if !is_ascii(text) then
     return false;
   fi
-  if text.bytes.length < 3 then
+
+  if text.bytes.length < 3 || text.bytes.length > 254 then
     return false;
   fi
 
   let int at = -1;
-  let int dot_after_at = -1;
   let int i = 0;
 
   loop do
@@ -473,10 +473,6 @@ pub fnc is_email(Utf8Text text): bool {
         return false;
       fi
       at = i;
-    elseif byte == 46 then
-      if at >= 0 then
-        dot_after_at = i;
-      fi
     elseif byte <= 32 || byte == 127 then
       return false;
     fi
@@ -488,11 +484,64 @@ pub fnc is_email(Utf8Text text): bool {
     return false;
   fi
 
-  if dot_after_at <= at + 1 || dot_after_at >= text.bytes.length - 1 then
+  if at > 64 then
     return false;
   fi
 
-  return true;
+  if text.bytes[0] == 46 || text.bytes[at - 1] == 46 then
+    return false;
+  fi
+
+  // Basic local-part shape: no consecutive dots.
+  i = 1;
+  loop do
+    if i >= at then
+      break;
+    fi
+    if text.bytes[i] == 46 && text.bytes[i - 1] == 46 then
+      return false;
+    fi
+    i = i + 1;
+  done
+
+  // Basic domain-name shape: at least two non-empty labels; labels use
+  // letters/digits/hyphens and cannot begin/end with a hyphen.
+  let bool saw_dot = false;
+  let int label_start = at + 1;
+  i = label_start;
+
+  loop do
+    if i > text.bytes.length then
+      break;
+    fi
+
+    let bool at_end = i == text.bytes.length;
+    let int byte = at_end ? 46 : text.bytes[i];
+
+    if byte == 46 then
+      if i == label_start then
+        return false;
+      fi
+      if text.bytes[label_start] == 45 || text.bytes[i - 1] == 45 then
+        return false;
+      fi
+      if !at_end then
+        saw_dot = true;
+      fi
+      label_start = i + 1;
+    else
+      if !is_ascii_letter_or_digit(byte) && byte != 45 then
+        return false;
+      fi
+    fi
+
+    if at_end then
+      break;
+    fi
+    i = i + 1;
+  done
+
+  return saw_dot;
 }
 
 fnc starts_with_ascii(Utf8Text text, List<int> prefix): bool {
