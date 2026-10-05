@@ -62,7 +62,7 @@ end
 pub fnc default_proto_decode_options(): ProtoDecodeOptions {
   return new ProtoDecodeOptions(
     16 * 1024 * 1024,
-    1_000_000,
+    1000000,
     16 * 1024 * 1024
   );
 }
