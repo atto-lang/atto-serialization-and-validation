@@ -12,6 +12,11 @@ define class WireMember as
   pub val Value value;
 end
 
+define class MapEntry as
+  pub val Value key;
+  pub val Value value;
+end
+
 define class IntParse as
   pub val bool ok;
   pub val int value;
@@ -20,7 +25,7 @@ end
 define class Value as
   // kind:
   // 0 null, 1 bool, 2 number, 3 utf8 string, 4 bytes,
-  // 5 array, 6 object/map, 7 extension.
+  // 5 array, 6 string-key object, 7 extension, 8 general map.
   pub val int kind;
   pub val bool bool_value;
   pub val List<int> number_lexeme;
@@ -28,6 +33,7 @@ define class Value as
   pub val List<int> bytes_value;
   pub val List<Value> array_value;
   pub val List<WireMember> object_value;
+  pub val List<MapEntry> map_value;
   pub val int extension_type;
 end
 
@@ -39,6 +45,7 @@ pub fnc bytes_kind(): int { return 4; }
 pub fnc array_kind(): int { return 5; }
 pub fnc object_kind(): int { return 6; }
 pub fnc extension_kind(): int { return 7; }
+pub fnc map_kind(): int { return 8; }
 
 fnc empty_text(): Utf8Text {
   return new Utf8Text(new List<int>());
@@ -50,6 +57,10 @@ fnc empty_value_list(): List<Value> {
 
 fnc empty_member_list(): List<WireMember> {
   return new List<WireMember>();
+}
+
+fnc empty_map_entries(): List<MapEntry> {
+  return new List<MapEntry>();
 }
 
 fnc empty_bytes(): List<int> {
@@ -69,6 +80,7 @@ pub fnc value_null(): Value {
     empty_bytes(),
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -82,6 +94,7 @@ pub fnc value_bool(bool value): Value {
     empty_bytes(),
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -95,6 +108,7 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
     empty_bytes(),
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -152,6 +166,7 @@ pub fnc value_string(Utf8Text value): Value {
     empty_bytes(),
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -165,6 +180,7 @@ pub fnc value_bytes(List<int> value): Value {
     value,
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -178,6 +194,7 @@ pub fnc value_array(List<Value> values): Value {
     empty_bytes(),
     values,
     empty_member_list(),
+    empty_map_entries(),
     0
   );
 }
@@ -191,6 +208,7 @@ pub fnc value_object(List<WireMember> members): Value {
     empty_bytes(),
     empty_value_list(),
     members,
+    empty_map_entries(),
     0
   );
 }
@@ -204,7 +222,22 @@ pub fnc value_extension(int extension_type, List<int> payload): Value {
     payload,
     empty_value_list(),
     empty_member_list(),
+    empty_map_entries(),
     extension_type
+  );
+}
+
+pub fnc value_map(List<MapEntry> entries): Value {
+  return new Value(
+    8,
+    false,
+    empty_bytes(),
+    empty_text(),
+    empty_bytes(),
+    empty_value_list(),
+    empty_member_list(),
+    entries,
+    0
   );
 }
 
@@ -350,6 +383,31 @@ fnc value_deep_equal_bounded(
       return false;
     fi
     return bytes_equal(left.bytes_value, right.bytes_value);
+  fi
+
+  if left.kind == 8 then
+    if left.map_value.length != right.map_value.length then
+      return false;
+    fi
+
+    let int i = 0;
+    loop do
+      if i >= left.map_value.length then
+        break;
+      fi
+
+      let MapEntry a = left.map_value[i];
+      let MapEntry b = right.map_value[i];
+
+      if !value_deep_equal_bounded(a.key, b.key, depth + 1, max_depth) then
+        return false;
+      fi
+      if !value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
+        return false;
+      fi
+      i = i + 1;
+    done
+    return true;
   fi
 
   return false;
