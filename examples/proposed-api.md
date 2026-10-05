@@ -3,20 +3,20 @@
 This is a design sketch, not yet a parser conformance test.
 
 ```ores
-@serializable
-@unknown_fields(reject)
+@Serializable
+@UnknownFields(reject)
 define class User as
-  @required
-  @min_length(3)
-  @max_length(64)
+  @Required
+  @MinLength(3)
+  @MaxLength(64)
   val string username;
 
-  @required
-  @range(0, 150)
+  @Required
+  @Range(0, 150)
   val int age;
 
-  @wire_name("display_name")
-  @max_length(120)
+  @WireName("display_name")
+  @MaxLength(120)
   val string displayName;
 end
 
