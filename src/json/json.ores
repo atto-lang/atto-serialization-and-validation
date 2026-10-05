@@ -31,6 +31,16 @@ define class JsonIncrementalDecoder as
   pub let List<int> buffer;
   pub val DecodeOptions options;
   pub let bool complete;
+
+  // O(total input) structural scan state.
+  // mode: 0 leading, 1 container, 2 root string, 3 literal, 4 number.
+  pub let int scan_index;
+  pub let int mode;
+  pub let int depth;
+  pub let bool in_string;
+  pub let bool escaped;
+  pub let int literal_target;
+  pub let int literal_seen;
 end
 
 fnc fail(JsonCursor mut cursor, String code, String message): void {
@@ -1054,7 +1064,153 @@ pub fnc encode(
 pub fnc new_incremental_decoder(
   DecodeOptions options
 ): JsonIncrementalDecoder {
-  return new JsonIncrementalDecoder(new List<int>(), options, false);
+  return new JsonIncrementalDecoder(
+    new List<int>(),
+    options,
+    false,
+    0,
+    0,
+    0,
+    false,
+    false,
+    0,
+    0
+  );
+}
+
+fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
+  // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
+  loop do
+    if decoder.scan_index >= decoder.buffer.length then
+      return 0;
+    fi
+
+    let int byte = decoder.buffer[decoder.scan_index];
+
+    if decoder.mode == 0 then
+      if is_whitespace(byte) then
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      if byte == 123 || byte == 91 then
+        decoder.mode = 1;
+        decoder.depth = 1;
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      if byte == 34 then
+        decoder.mode = 2;
+        decoder.in_string = true;
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      if byte == 116 || byte == 110 then
+        decoder.mode = 3;
+        decoder.literal_target = 4;
+        decoder.literal_seen = 1;
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      if byte == 102 then
+        decoder.mode = 3;
+        decoder.literal_target = 5;
+        decoder.literal_seen = 1;
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      if byte == 45 || is_digit(byte) then
+        decoder.mode = 4;
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      return 2;
+    fi
+
+    if decoder.mode == 1 then
+      if decoder.in_string then
+        if decoder.escaped then
+          decoder.escaped = false;
+        elseif byte == 92 then
+          decoder.escaped = true;
+        elseif byte == 34 then
+          decoder.in_string = false;
+        fi
+      else
+        if byte == 34 then
+          decoder.in_string = true;
+        elseif byte == 123 || byte == 91 then
+          decoder.depth = decoder.depth + 1;
+        elseif byte == 125 || byte == 93 then
+          decoder.depth = decoder.depth - 1;
+          if decoder.depth == 0 then
+            decoder.scan_index = decoder.scan_index + 1;
+            return 1;
+          fi
+          if decoder.depth < 0 then
+            return 2;
+          fi
+        fi
+      fi
+
+      decoder.scan_index = decoder.scan_index + 1;
+      continue;
+    fi
+
+    if decoder.mode == 2 then
+      if decoder.escaped then
+        decoder.escaped = false;
+      elseif byte == 92 then
+        decoder.escaped = true;
+      elseif byte == 34 then
+        decoder.in_string = false;
+        decoder.scan_index = decoder.scan_index + 1;
+        return 1;
+      fi
+
+      decoder.scan_index = decoder.scan_index + 1;
+      continue;
+    fi
+
+    if decoder.mode == 3 then
+      decoder.literal_seen = decoder.literal_seen + 1;
+      decoder.scan_index = decoder.scan_index + 1;
+
+      if decoder.literal_seen >= decoder.literal_target then
+        return 1;
+      fi
+
+      continue;
+    fi
+
+    // Root numbers are complete only when a delimiter is observed. At EOF,
+    // finish() performs the final parse and publishes a terminal number.
+    if decoder.mode == 4 then
+      if is_whitespace(byte) then
+        decoder.scan_index = decoder.scan_index + 1;
+        return 1;
+      fi
+
+      if is_digit(byte) ||
+         byte == 45 ||
+         byte == 43 ||
+         byte == 46 ||
+         byte == 101 ||
+         byte == 69 then
+        decoder.scan_index = decoder.scan_index + 1;
+        continue;
+      fi
+
+      return 2;
+    fi
+  done
+
+  return 0;
 }
 
 pub fnc feed(
@@ -1109,35 +1265,39 @@ pub fnc feed(
     decoder.buffer.push(byte);
   done
 
+  let int scan_status = scan_incremental(decoder);
+
+  if scan_status == 0 then
+    return new DecodeStep(
+      0,
+      value_null(),
+      decoder.buffer.length,
+      decode_error("need_more", decoder.buffer.length, "incomplete JSON value")
+    );
+  fi
+
   let DecodeAttempt attempt = decode_attempt(decoder.buffer, decoder.options);
 
-  if attempt.status == 1 then
-    return new DecodeStep(0, value_null(), attempt.consumed, attempt.error);
+  if attempt.status == 0 then
+    decoder.complete = true;
+    return new DecodeStep(
+      1,
+      attempt.value,
+      attempt.consumed,
+      empty_decode_error()
+    );
   fi
 
   if attempt.status == 2 then
     return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
   fi
 
-  // A number ending exactly at the current chunk boundary may legally continue
-  // in the next chunk (for example "1" + ".5"). Require either a structural
-  // delimiter/whitespace or an explicit finish() before publishing it.
-  if attempt.value.kind == 2 &&
-     attempt.consumed == decoder.buffer.length &&
-     decoder.buffer.length > 0 then
-    let int last = decoder.buffer[decoder.buffer.length - 1];
-    if !is_whitespace(last) then
-      return new DecodeStep(
-        0,
-        value_null(),
-        attempt.consumed,
-        decode_error("need_more", attempt.consumed, "number may continue in the next chunk")
-      );
-    fi
-  fi
-
-  decoder.complete = true;
-  return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
+  return new DecodeStep(
+    0,
+    value_null(),
+    attempt.consumed,
+    attempt.error
+  );
 }
 
 pub fnc finish(JsonIncrementalDecoder mut decoder): DecodeStep {
