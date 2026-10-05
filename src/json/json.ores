@@ -602,7 +602,6 @@ fnc member_index(List<WireMember> members, Utf8Text key): int {
   return -1;
 }
 
-fnc parse_value(JsonCursor mut cursor, int depth): Value;
 
 fnc parse_array(JsonCursor mut cursor, int depth): Value {
   let List<Value> values = new List<Value>();
