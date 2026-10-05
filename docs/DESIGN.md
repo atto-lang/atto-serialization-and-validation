@@ -100,20 +100,20 @@ Validation metadata is generated from Oreslang annotations/attributes and may al
 
 Initial field/type vocabulary:
 
-- `@required`
-- `@min_length(n)`
-- `@max_length(n)`
-- `@length(min, max)`
-- `@min(n)`, `@max(n)`, `@range(min, max)`
-- `@min_items(n)`, `@max_items(n)`
-- `@pattern("...")`
-- `@email`, `@uuid`, `@url`
-- `@one_of(...)`
-- `@validate_nested`
-- `@custom_validator(name)`
-- `@wire_name("external_name")`
-- `@field_number(n)` for Protobuf/codegen interop
-- `@unknown_fields(ignore|reject|preserve)`
+- `@Required`
+- `@MinLength(n)`
+- `@MaxLength(n)`
+- `@Length(min, max)`
+- `@Min(n)`, `@Max(n)`, `@Range(min, max)`
+- `@MinItems(n)`, `@MaxItems(n)`
+- `@Pattern("...")`
+- `@Email`, `@Uuid`, `@Url`
+- `@OneOf(...)`
+- `@ValidateNested`
+- `@CustomValidator(name)`
+- `@WireName("external_name")`
+- `@FieldNumber(n)` for Protobuf/codegen interop
+- `@UnknownFields(ignore|reject|preserve)`
 
 Compiler spelling can evolve, but all forms should lower to one static metadata representation.
 
