@@ -6,7 +6,7 @@
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
 import fnc object_find_index from '../core/value';
-import fnc utf8_is_valid, utf8_codepoint_count from '../json/json';
+import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
 define class PathSegment as
   // kind: 0 root, 1 object key, 2 array index.
