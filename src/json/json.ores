@@ -147,6 +147,22 @@ fnc append_output(JsonWriter mut writer, int byte): void {
   return;
 }
 
+fnc utf8_expected_width(int first): int {
+  if first >= 0 && first < 128 then
+    return 1;
+  fi
+  if first >= 194 && first <= 223 then
+    return 2;
+  fi
+  if first >= 224 && first <= 239 then
+    return 3;
+  fi
+  if first >= 240 && first <= 244 then
+    return 4;
+  fi
+  return -1;
+}
+
 fnc utf8_sequence_length(List<int> bytes, int index): int {
   if index < 0 || index >= bytes.length then
     return -1;
@@ -419,14 +435,21 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       // consume() already advanced over the first byte; validate against the
       // original source starting one byte earlier and copy the remaining bytes.
       let int start = cursor.index - 1;
+      let int expected_width = utf8_expected_width(byte);
+
+      if expected_width < 2 then
+        fail(cursor, "invalid_utf8", "invalid UTF-8 lead byte in JSON string");
+        return new Utf8Text(output);
+      fi
+
+      if start + expected_width > cursor.input.length then
+        need_more(cursor);
+        return new Utf8Text(output);
+      fi
+
       let int width = utf8_sequence_length(cursor.input, start);
-      if width < 2 then
-        // A potentially valid multibyte scalar may simply be split by a chunk.
-        if start + 4 > cursor.input.length then
-          need_more(cursor);
-        else
-          fail(cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
-        fi
+      if width != expected_width then
+        fail(cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
         return new Utf8Text(output);
       fi
 
@@ -794,6 +817,19 @@ pub fnc decode_attempt(
     );
   fi
 
+  let int byte_index = 0;
+  for const byte of input do
+    if byte < 0 || byte > 255 then
+      return new DecodeAttempt(
+        2,
+        value_null(),
+        byte_index,
+        decode_error("invalid_byte", byte_index, "JSON input bytes must be 0..255")
+      );
+    fi
+    byte_index = byte_index + 1;
+  done
+
   let JsonCursor cursor = new JsonCursor(
     input,
     options,
@@ -1138,6 +1174,43 @@ pub fnc feed(
   fi
 
   if attempt.status == 2 then
+    return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
+  fi
+
+  // A number ending exactly at the current chunk boundary may legally continue
+  // in the next chunk (for example "1" + ".5"). Require either a structural
+  // delimiter/whitespace or an explicit finish() before publishing it.
+  if attempt.value.kind == 2 &&
+     attempt.consumed == decoder.buffer.length &&
+     decoder.buffer.length > 0 then
+    let int last = decoder.buffer[decoder.buffer.length - 1];
+    if !is_whitespace(last) then
+      return new DecodeStep(
+        0,
+        value_null(),
+        attempt.consumed,
+        decode_error("need_more", attempt.consumed, "number may continue in the next chunk")
+      );
+    fi
+  fi
+
+  decoder.complete = true;
+  return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
+}
+
+pub fnc finish(JsonIncrementalDecoder mut decoder): DecodeStep {
+  if decoder.complete then
+    return new DecodeStep(
+      2,
+      value_null(),
+      0,
+      decode_error("decoder_complete", 0, "incremental decoder already completed a value")
+    );
+  fi
+
+  let DecodeAttempt attempt = decode_attempt(decoder.buffer, decoder.options);
+
+  if attempt.status != 0 then
     return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
   fi
 
