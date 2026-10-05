@@ -4,7 +4,7 @@
 // records so standalone validation and decode-time validation share semantics.
 
 import class Value, Utf8Text, WireMember from '../core/value';
-import fnc bytes_equal, text_equal, value_deep_equal, value_hash from '../core/value';
+import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../json/json';
 
@@ -220,6 +220,133 @@ pub fnc object_schema(
   bool reject_unknown_fields
 ): ObjectSchema {
   return new ObjectSchema(fields, reject_unknown_fields);
+}
+
+
+pub fnc validation_options_valid(ValidationOptions options): bool {
+  return options.max_errors >= 0 && options.max_errors <= 4096;
+}
+
+pub fnc value_rule_valid(ValueRule rule): bool {
+  if rule.expected_kind < -1 || rule.expected_kind > 8 then
+    return false;
+  fi
+
+  if rule.min_length < -1 ||
+     rule.max_length < -1 ||
+     rule.min_items < -1 ||
+     rule.max_items < -1 then
+    return false;
+  fi
+
+  if rule.min_length >= 0 &&
+     rule.max_length >= 0 &&
+     rule.min_length > rule.max_length then
+    return false;
+  fi
+
+  if rule.min_items >= 0 &&
+     rule.max_items >= 0 &&
+     rule.min_items > rule.max_items then
+    return false;
+  fi
+
+  let bool has_length_constraint =
+    rule.min_length >= 0 || rule.max_length >= 0;
+  if has_length_constraint &&
+     rule.expected_kind != 3 &&
+     rule.expected_kind != 4 then
+    return false;
+  fi
+
+  if (rule.require_ascii ||
+      rule.require_email ||
+      rule.require_uuid ||
+      rule.require_url) &&
+     rule.expected_kind != 3 then
+    return false;
+  fi
+
+  if (rule.min_items >= 0 ||
+      rule.max_items >= 0 ||
+      rule.require_unique_items) &&
+     rule.expected_kind != 5 then
+    return false;
+  fi
+
+  if (rule.has_min_number || rule.has_max_number) &&
+     rule.expected_kind != 2 then
+    return false;
+  fi
+
+  if rule.has_min_number && rule.has_max_number then
+    if rule.min_number > rule.max_number then
+      return false;
+    fi
+
+    if rule.min_number == rule.max_number &&
+       (rule.min_exclusive || rule.max_exclusive) then
+      return false;
+    fi
+  fi
+
+  return true;
+}
+
+fnc config_report(
+  String code,
+  String message
+): ValidationReport {
+  let List<ValidationError> errors = new List<ValidationError>();
+  errors.push(
+    new ValidationError(
+      code,
+      new List<PathSegment>(),
+      message,
+      -1
+    )
+  );
+  return new ValidationReport(errors, false);
+}
+
+fnc object_schema_valid(ObjectSchema schema): bool {
+  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  let int i = 0;
+
+  loop do
+    if i >= schema.fields.length then
+      break;
+    fi
+
+    let FieldRule field = schema.fields[i];
+
+    if field.required && field.forbidden then
+      return false;
+    fi
+
+    if !value_rule_valid(field.value_rule) then
+      return false;
+    fi
+
+    let int hash = text_hash(field.key);
+    if buckets.contains(hash) then
+      let List<int> candidates = buckets.get(hash);
+      for const index of candidates do
+        if text_equal(schema.fields[index].key, field.key) then
+          return false;
+        fi
+      done
+      candidates.push(i);
+    else
+      let List<int> candidates = new List<int>();
+      candidates.push(i);
+      buckets.set(hash, candidates);
+    fi
+
+    i = i + 1;
+  done
+
+  return true;
 }
 
 fnc empty_key(): Utf8Text {
@@ -700,6 +827,20 @@ pub fnc validate_value(
   ValueRule rule,
   ValidationOptions options
 ): ValidationReport {
+  if !validation_options_valid(options) then
+    return config_report(
+      "invalid_options",
+      "validation options are outside supported bounds"
+    );
+  fi
+
+  if !value_rule_valid(rule) then
+    return config_report(
+      "invalid_rule",
+      "validation rule is contradictory or incompatible with its value kind"
+    );
+  fi
+
   let ValidationReport report = new ValidationReport(
     new List<ValidationError>(),
     false
@@ -724,6 +865,20 @@ pub fnc validate_object(
   ObjectSchema schema,
   ValidationOptions options
 ): ValidationReport {
+  if !validation_options_valid(options) then
+    return config_report(
+      "invalid_options",
+      "validation options are outside supported bounds"
+    );
+  fi
+
+  if !object_schema_valid(schema) then
+    return config_report(
+      "invalid_schema",
+      "object schema contains duplicate, contradictory, or invalid field rules"
+    );
+  fi
+
   let ValidationReport report = new ValidationReport(
     new List<ValidationError>(),
     false
