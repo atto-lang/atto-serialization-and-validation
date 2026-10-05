@@ -84,3 +84,37 @@ pub fnc empty_decode_error(): DecodeError {
 pub fnc encode_error(String code, String message): EncodeError {
   return new EncodeError(code, message);
 }
+
+
+pub fnc max_supported_depth(): int {
+  return 128;
+}
+
+pub fnc decode_options_valid(DecodeOptions options): bool {
+  if options.duplicate_key_policy < 0 || options.duplicate_key_policy > 2 then
+    return false;
+  fi
+
+  if options.max_depth < 0 || options.max_depth > max_supported_depth() then
+    return false;
+  fi
+
+  if options.max_input_bytes < 0 ||
+     options.max_string_bytes < 0 ||
+     options.max_binary_bytes < 0 ||
+     options.max_number_bytes <= 0 ||
+     options.max_array_entries < 0 ||
+     options.max_map_entries < 0 then
+    return false;
+  fi
+
+  return true;
+}
+
+pub fnc encode_options_valid(EncodeOptions options): bool {
+  if options.max_depth < 0 || options.max_depth > max_supported_depth() then
+    return false;
+  fi
+
+  return options.max_output_bytes >= 0;
+}
