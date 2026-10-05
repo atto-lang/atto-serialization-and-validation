@@ -1,12 +1,12 @@
 // Native MessagePack dynamic codec.
 //
-// Baseline supports the integer, UTF-8 string, binary, array, string-key map,
-// boolean/null, and extension families. Float32/float64 and 64-bit integer
-// markers are rejected explicitly until Oreslang exposes exact portable
-// float-bit and unsigned-64 primitives.
+// Supports signed int64, uint64 values that fit Oreslang signed int, UTF-8
+// strings, binary, arrays, string-key maps, boolean/null, and extensions.
+// Float32/float64 remain explicit errors until exact portable float-bit
+// primitives are available.
 
-import class Value, Utf8Text, WireMember from '../core/value';
-import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_extension from '../core/value';
+import class Value, Utf8Text, WireMember, IntParse from '../core/value';
+import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_extension, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error from '../core/options';
@@ -96,6 +96,27 @@ fnc read_uint_be(MsgpackCursor mut cursor, int width): int {
 }
 
 fnc read_signed(MsgpackCursor mut cursor, int width): int {
+  if width == 8 then
+    let int first = read_u8(cursor);
+    if cursor.failed then
+      return 0;
+    fi
+
+    let int value = first >= 128 ? first - 256 : first;
+    let int i = 1;
+    loop do
+      if i >= 8 then
+        break;
+      fi
+      value = (value * 256) + read_u8(cursor);
+      if cursor.failed then
+        return 0;
+      fi
+      i = i + 1;
+    done
+    return value;
+  fi
+
   let int raw = read_uint_be(cursor, width);
   if cursor.failed then
     return 0;
@@ -110,6 +131,36 @@ fnc read_signed(MsgpackCursor mut cursor, int width): int {
   fi
 
   return raw >= 2147483648 ? raw - 4294967296 : raw;
+}
+
+fnc read_uint64_checked(MsgpackCursor mut cursor): int {
+  let int first = read_u8(cursor);
+  if cursor.failed then
+    return 0;
+  fi
+
+  if first >= 128 then
+    cursor_fail(
+      cursor,
+      "uint64_range",
+      "MessagePack uint64 exceeds Oreslang signed int range"
+    );
+    return 0;
+  fi
+
+  let int value = first;
+  let int i = 1;
+  loop do
+    if i >= 8 then
+      break;
+    fi
+    value = (value * 256) + read_u8(cursor);
+    if cursor.failed then
+      return 0;
+    fi
+    i = i + 1;
+  done
+  return value;
 }
 
 fnc read_bytes(
@@ -391,8 +442,7 @@ fnc decode_value(
     return value_int(read_uint_be(cursor, 4));
   fi
   if marker == 207 then
-    cursor_fail(cursor, "unsupported_uint64", "MessagePack uint64 is not supported by the baseline codec");
-    return value_null();
+    return value_int(read_uint64_checked(cursor));
   fi
 
   // Signed integer widths.
@@ -406,8 +456,7 @@ fnc decode_value(
     return value_int(read_signed(cursor, 4));
   fi
   if marker == 211 then
-    cursor_fail(cursor, "unsupported_int64", "MessagePack int64 is not supported by the baseline codec");
-    return value_null();
+    return value_int(read_signed(cursor, 8));
   fi
 
   // Fixed extension widths.
@@ -485,58 +534,6 @@ pub fnc decode(
   return Ok(new DecodedValue(value, cursor.index));
 }
 
-fnc parse_integer(Value value): ParsedInteger {
-  if value.kind != 2 || value.number_lexeme.length == 0 then
-    return new ParsedInteger(false, 0);
-  fi
-
-  let int i = 0;
-  let bool negative = false;
-
-  if value.number_lexeme[0] == 45 then
-    negative = true;
-    i = 1;
-    if i >= value.number_lexeme.length then
-      return new ParsedInteger(false, 0);
-    fi
-  fi
-
-  let int result = 0;
-
-  loop do
-    if i >= value.number_lexeme.length then
-      break;
-    fi
-
-    let int byte = value.number_lexeme[i];
-    if byte < 48 || byte > 57 then
-      return new ParsedInteger(false, 0);
-    fi
-
-    let int digit = byte - 48;
-
-    // Baseline MessagePack integer support is signed/unsigned 32-bit.
-    if result > 429496729 then
-      return new ParsedInteger(false, 0);
-    fi
-    if result == 429496729 && digit > 5 then
-      return new ParsedInteger(false, 0);
-    fi
-
-    result = (result * 10) + digit;
-    i = i + 1;
-  done
-
-  if negative then
-    if result > 2147483648 then
-      return new ParsedInteger(false, 0);
-    fi
-    return new ParsedInteger(true, 0 - result);
-  fi
-
-  return new ParsedInteger(true, result);
-}
-
 fnc append_byte(MsgpackWriter mut writer, int byte): void {
   if writer.failed then
     return;
@@ -594,6 +591,40 @@ fnc append_uint_be(
   return;
 }
 
+fnc append_signed64(
+  MsgpackWriter mut writer,
+  int value
+): void {
+  let List<int> reversed = new List<int>();
+  let int current = value;
+  let int i = 0;
+
+  loop do
+    if i >= 8 then
+      break;
+    fi
+
+    let int byte = current % 256;
+    if byte < 0 then
+      byte = byte + 256;
+    fi
+
+    reversed.push(byte);
+    current = (current - byte) / 256;
+    i = i + 1;
+  done
+
+  let int j = 7;
+  loop do
+    if j < 0 then
+      break;
+    fi
+    append_byte(writer, reversed[j]);
+    j = j - 1;
+  done
+  return;
+}
+
 fnc append_bytes(
   MsgpackWriter mut writer,
   List<int> bytes
@@ -639,6 +670,12 @@ fnc encode_integer(
     return;
   fi
 
+  if value >= 0 then
+    append_byte(writer, 207);
+    append_uint_be(writer, value, 8);
+    return;
+  fi
+
   if value >= -128 then
     append_byte(writer, 208);
     append_byte(writer, value < 0 ? 256 + value : value);
@@ -653,11 +690,12 @@ fnc encode_integer(
 
   if value >= -2147483648 then
     append_byte(writer, 210);
-    append_uint_be(writer, value < 0 ? 4294967296 + value : value, 4);
+    append_uint_be(writer, 4294967296 + value, 4);
     return;
   fi
 
-  writer_fail(writer, "integer_range", "integer is outside baseline MessagePack 32-bit range");
+  append_byte(writer, 211);
+  append_signed64(writer, value);
   return;
 }
 
@@ -775,12 +813,12 @@ fnc encode_value(
   fi
 
   if value.kind == 2 then
-    let ParsedInteger parsed = parse_integer(value);
+    let IntParse parsed = parse_int(value);
     if !parsed.ok then
       writer_fail(
         writer,
         "unsupported_number",
-        "baseline MessagePack encoder currently accepts integer number Values only"
+        "MessagePack encoder accepts exact integer number Values on this path"
       );
       return;
     fi
