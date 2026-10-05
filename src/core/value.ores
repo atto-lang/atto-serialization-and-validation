@@ -353,10 +353,20 @@ fnc value_hash_bounded(
   fi
 
   if value.kind == 6 then
+    let int aggregate_xor = 0;
+    let int aggregate_sum = 0;
+
     for const member of value.object_value do
-      hash = hash_mix(hash, text_hash(member.key));
-      hash = hash_mix(hash, value_hash_bounded(member.value, depth + 1, max_depth));
+      let int pair_hash = hash_mix(
+        text_hash(member.key),
+        value_hash_bounded(member.value, depth + 1, max_depth)
+      );
+      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_sum = aggregate_sum + pair_hash;
     done
+
+    hash = hash_mix(hash, aggregate_xor);
+    hash = hash_mix(hash, aggregate_sum);
     return hash_mix(hash, value.object_value.length);
   fi
 
@@ -366,10 +376,20 @@ fnc value_hash_bounded(
   fi
 
   if value.kind == 8 then
+    let int aggregate_xor = 0;
+    let int aggregate_sum = 0;
+
     for const entry of value.map_value do
-      hash = hash_mix(hash, value_hash_bounded(entry.key, depth + 1, max_depth));
-      hash = hash_mix(hash, value_hash_bounded(entry.value, depth + 1, max_depth));
+      let int pair_hash = hash_mix(
+        value_hash_bounded(entry.key, depth + 1, max_depth),
+        value_hash_bounded(entry.value, depth + 1, max_depth)
+      );
+      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_sum = aggregate_sum + pair_hash;
     done
+
+    hash = hash_mix(hash, aggregate_xor);
+    hash = hash_mix(hash, aggregate_sum);
     return hash_mix(hash, value.map_value.length);
   fi
 
@@ -442,23 +462,48 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
+    let Map<int, List<int>> buckets = new Map<int, List<int>>();
     let int i = 0;
+
     loop do
-      if i >= left.object_value.length then
+      if i >= right.object_value.length then
         break;
       fi
 
-      let WireMember a = left.object_value[i];
-      let WireMember b = right.object_value[i];
-
-      if !text_equal(a.key, b.key) then
-        return false;
-      fi
-      if !value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
-        return false;
+      let int hash = text_hash(right.object_value[i].key);
+      if buckets.contains(hash) then
+        let List<int> indices = buckets.get(hash);
+        indices.push(i);
+      else
+        let List<int> indices = new List<int>();
+        indices.push(i);
+        buckets.set(hash, indices);
       fi
       i = i + 1;
     done
+
+    for const a of left.object_value do
+      let int hash = text_hash(a.key);
+      if !buckets.contains(hash) then
+        return false;
+      fi
+
+      let bool matched = false;
+      let List<int> indices = buckets.get(hash);
+      for const index of indices do
+        let WireMember b = right.object_value[index];
+        if text_equal(a.key, b.key) &&
+           value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
+          matched = true;
+          break;
+        fi
+      done
+
+      if !matched then
+        return false;
+      fi
+    done
+
     return true;
   fi
 
@@ -474,23 +519,53 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
+    let Map<int, List<int>> buckets = new Map<int, List<int>>();
     let int i = 0;
+
     loop do
-      if i >= left.map_value.length then
+      if i >= right.map_value.length then
         break;
       fi
 
-      let MapEntry a = left.map_value[i];
-      let MapEntry b = right.map_value[i];
+      let int hash = value_hash_bounded(
+        right.map_value[i].key,
+        depth + 1,
+        max_depth
+      );
 
-      if !value_deep_equal_bounded(a.key, b.key, depth + 1, max_depth) then
-        return false;
-      fi
-      if !value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
-        return false;
+      if buckets.contains(hash) then
+        let List<int> indices = buckets.get(hash);
+        indices.push(i);
+      else
+        let List<int> indices = new List<int>();
+        indices.push(i);
+        buckets.set(hash, indices);
       fi
       i = i + 1;
     done
+
+    for const a of left.map_value do
+      let int hash = value_hash_bounded(a.key, depth + 1, max_depth);
+      if !buckets.contains(hash) then
+        return false;
+      fi
+
+      let bool matched = false;
+      let List<int> indices = buckets.get(hash);
+      for const index of indices do
+        let MapEntry b = right.map_value[index];
+        if value_deep_equal_bounded(a.key, b.key, depth + 1, max_depth) &&
+           value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
+          matched = true;
+          break;
+        fi
+      done
+
+      if !matched then
+        return false;
+      fi
+    done
+
     return true;
   fi
 
