@@ -47,6 +47,22 @@ pub fnc run_cbor_tests(): void {
   require_true(forty_two.is_err() == false, "CBOR uint8 argument should decode");
   require_int(forty_two.unwrap().value.kind, 2, "CBOR integer kind");
 
+  // { 1: 2 } is a general CBOR map, not a JSON-shaped object.
+  val Result<DecodedValue, DecodeError> general_map = decode(
+    new List<int>(161, 1, 2),
+    default_decode_options()
+  );
+  require_true(general_map.is_err() == false, "CBOR integer-key map must decode");
+  require_int(general_map.unwrap().value.kind, 8, "integer-key CBOR map kind");
+  require_int(general_map.unwrap().value.map_value.length, 1, "integer-key CBOR map size");
+
+  val Result<List<int>, EncodeError> general_map_encoded = encode(
+    general_map.unwrap().value,
+    default_encode_options()
+  );
+  require_true(general_map_encoded.is_err() == false, "CBOR general map must re-encode");
+  require_int(general_map_encoded.unwrap()[0], 161, "CBOR general map header");
+
   val int min_int = -9223372036854775807 - 1;
   val int max_int = 9223372036854775807;
 
