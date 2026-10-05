@@ -74,6 +74,16 @@ pub fnc default_proto_encode_options(): ProtoEncodeOptions {
   return new ProtoEncodeOptions(16 * 1024 * 1024);
 }
 
+pub fnc proto_decode_options_valid(ProtoDecodeOptions options): bool {
+  return options.max_input_bytes >= 0 &&
+         options.max_fields >= 0 &&
+         options.max_length_delimited_bytes >= 0;
+}
+
+pub fnc proto_encode_options_valid(ProtoEncodeOptions options): bool {
+  return options.max_output_bytes >= 0;
+}
+
 pub fnc proto_varint(int field_number, int value): ProtoField {
   return new ProtoField(field_number, 0, true, value, new List<int>());
 }
@@ -243,7 +253,7 @@ fnc read_payload(
     return output;
   fi
 
-  if cursor.index + length > cursor.input.length then
+  if length > cursor.input.length - cursor.index then
     cursor_fail(cursor, "unexpected_eof", "truncated Protobuf field payload");
     return output;
   fi
@@ -265,6 +275,10 @@ pub fnc decode_message(
   List<int> input,
   ProtoDecodeOptions options
 ): Result<ProtoMessage, ProtoError> {
+  if !proto_decode_options_valid(options) then
+    return Err(new ProtoError("invalid_options", 0, "invalid or unsafe Protobuf decode options"));
+  fi
+
   if input.length > options.max_input_bytes then
     return Err(new ProtoError("input_limit", 0, "Protobuf input exceeds max_input_bytes"));
   fi
@@ -497,6 +511,10 @@ pub fnc encode_message(
   ProtoMessage message,
   ProtoEncodeOptions options
 ): Result<List<int>, ProtoError> {
+  if !proto_encode_options_valid(options) then
+    return Err(new ProtoError("invalid_options", 0, "invalid or unsafe Protobuf encode options"));
+  fi
+
   let ProtoWriter writer = new ProtoWriter(
     new List<int>(),
     options,
