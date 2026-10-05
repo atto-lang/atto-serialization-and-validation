@@ -165,7 +165,7 @@ Dynamic Protobuf decoding requires a descriptor/schema; raw unknown Protobuf byt
 
 ### CBOR
 
-CBOR follows the MessagePack-style binary value path and is the fourth initial backend because it exercises tags, binary strings, integers, and indefinite/streamed containers.
+CBOR follows the MessagePack-style binary value path. The current baseline implements definite-length integers, text, bytes, arrays, maps, booleans, and null; tags, floats, and indefinite-length items are rejected explicitly until their exact representations and streaming contracts land.
 
 ## Performance model
 
