@@ -5,7 +5,7 @@ import fnc bytes_equal, value_deep_equal from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode_default, encode, new_incremental_decoder, feed, utf8_is_valid from '../src/json/json';
+import fnc decode_default, encode, new_incremental_decoder, feed, finish, utf8_is_valid from '../src/json/json';
 
 pub fnc run_json_tests(): void {
   val List<int> input = new List<int>(
@@ -61,6 +61,13 @@ pub fnc run_json_tests(): void {
   );
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
+
+  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  val DecodeStep number_partial = feed(number_decoder, new List<int>(49));
+  require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
+
+  val DecodeStep number_finished = finish(number_decoder);
+  require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
   require_true(
     utf8_is_valid(new List<int>(240, 159, 152, 128)),
