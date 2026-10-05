@@ -61,8 +61,8 @@ pub fnc default_decode_options(): DecodeOptions {
     4 * 1024 * 1024,
     16 * 1024 * 1024,
     1024,
-    1000000,
-    1000000
+    65536,
+    65536
   );
 }
 
@@ -100,11 +100,17 @@ pub fnc decode_options_valid(DecodeOptions options): bool {
   fi
 
   if options.max_input_bytes < 0 ||
+     options.max_input_bytes > 256 * 1024 * 1024 ||
      options.max_string_bytes < 0 ||
+     options.max_string_bytes > 64 * 1024 * 1024 ||
      options.max_binary_bytes < 0 ||
+     options.max_binary_bytes > 256 * 1024 * 1024 ||
      options.max_number_bytes <= 0 ||
+     options.max_number_bytes > 1024 * 1024 ||
      options.max_array_entries < 0 ||
-     options.max_map_entries < 0 then
+     options.max_array_entries > 1000000 ||
+     options.max_map_entries < 0 ||
+     options.max_map_entries > 1000000 then
     return false;
   fi
 
@@ -116,5 +122,6 @@ pub fnc encode_options_valid(EncodeOptions options): bool {
     return false;
   fi
 
-  return options.max_output_bytes >= 0;
+  return options.max_output_bytes >= 0 &&
+         options.max_output_bytes <= 256 * 1024 * 1024;
 }
