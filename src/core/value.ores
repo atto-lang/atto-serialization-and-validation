@@ -12,6 +12,11 @@ define class WireMember as
   pub val Value value;
 end
 
+define class IntParse as
+  pub val bool ok;
+  pub val int value;
+end
+
 define class Value as
   // kind:
   // 0 null, 1 bool, 2 number, 3 utf8 string, 4 bytes,
@@ -348,4 +353,63 @@ fnc value_deep_equal_bounded(
   fi
 
   return false;
+}
+
+
+pub fnc parse_int(Value value): IntParse {
+  if value.kind != 2 then
+    return new IntParse(false, 0);
+  fi
+
+  let List<int> bytes = value.number_lexeme;
+  if bytes.length == 0 then
+    return new IntParse(false, 0);
+  fi
+
+  let int i = 0;
+  let bool negative = false;
+
+  if bytes[0] == 45 then
+    negative = true;
+    i = 1;
+    if i >= bytes.length then
+      return new IntParse(false, 0);
+    fi
+  fi
+
+  // Accumulate positive values positively and negative values negatively so
+  // the signed minimum does not require a positive 2^63 intermediate.
+  let int result = 0;
+
+  loop do
+    if i >= bytes.length then
+      break;
+    fi
+
+    let int byte = bytes[i];
+    if byte < 48 || byte > 57 then
+      return new IntParse(false, 0);
+    fi
+
+    let int digit = byte - 48;
+
+    if negative then
+      // min int64 is (-9223372036854775807 - 1)
+      val int min_int = -9223372036854775807 - 1;
+      if result < (min_int + digit) / 10 then
+        return new IntParse(false, 0);
+      fi
+      result = (result * 10) - digit;
+    else
+      val int max_int = 9223372036854775807;
+      if result > (max_int - digit) / 10 then
+        return new IntParse(false, 0);
+      fi
+      result = (result * 10) + digit;
+    fi
+
+    i = i + 1;
+  done
+
+  return new IntParse(true, result);
 }
