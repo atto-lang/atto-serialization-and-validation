@@ -21,11 +21,12 @@ Dynamic payloads use a closed tagged value model:
 - string
 - bytes
 - array
-- map
+- string-key object
+- general map with dynamic keys
 - extension value (MessagePack)
 - raw/unknown field bytes where a format can preserve them
 
-JSON maps use string keys. MessagePack dynamic maps may use any scalar key internally, with a convenience strict-string-map mode for JSON-shaped APIs.
+JSON objects use string keys. MessagePack and CBOR maps preserve non-string keys in the general-map `Value` kind; maps whose keys are all UTF-8 text materialize as the string-key object kind for convenient record-shaped APIs.
 
 For maximum throughput, the library should expose both:
 
