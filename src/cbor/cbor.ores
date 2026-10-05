@@ -5,8 +5,8 @@
 // Indefinite-length containers, tags, and float16/32/64 fail explicitly until
 // their exact dynamic representation is finalized.
 
-import class Value, Utf8Text, WireMember, IntParse from '../core/value';
-import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, parse_int from '../core/value';
+import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value';
+import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_deep_equal, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error from '../core/options';
@@ -183,10 +183,13 @@ fnc read_bytes(
   return output;
 }
 
-fnc member_index(List<WireMember> members, Utf8Text key): int {
+fnc map_entry_index(
+  List<MapEntry> entries,
+  Value key
+): int {
   let int i = 0;
-  for const member of members do
-    if bytes_equal(member.key.bytes, key.bytes) then
+  for const entry of entries do
+    if value_deep_equal(entry.key, key) then
       return i;
     fi
     i = i + 1;
@@ -252,11 +255,12 @@ fnc decode_map(
   int count,
   int depth
 ): Value {
-  let List<WireMember> members = new List<WireMember>();
+  let List<MapEntry> entries = new List<MapEntry>();
+  let bool all_text_keys = true;
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "CBOR map exceeds max_map_entries");
-    return value_object(members);
+    return value_map(entries);
   fi
 
   let int i = 0;
@@ -265,37 +269,44 @@ fnc decode_map(
       break;
     fi
 
-    let Value key_value = decode_value(cursor, depth + 1);
+    let Value key = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_object(members);
-    fi
-
-    if key_value.kind != 3 then
-      cursor_fail(cursor, "map_key_type", "dynamic CBOR maps require UTF-8 text keys");
-      return value_object(members);
+      return value_map(entries);
     fi
 
     let Value member_value = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_object(members);
+      return value_map(entries);
     fi
 
-    let int existing = member_index(members, key_value.string_value);
+    if key.kind != 3 then
+      all_text_keys = false;
+    fi
+
+    let int existing = map_entry_index(entries, key);
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
-        cursor_fail(cursor, "duplicate_key", "duplicate CBOR text map key");
-        return value_object(members);
+        cursor_fail(cursor, "duplicate_key", "duplicate CBOR map key");
+        return value_map(entries);
       elseif cursor.options.duplicate_key_policy == 2 then
-        members[existing] = new WireMember(key_value.string_value, member_value);
+        entries[existing] = new MapEntry(key, member_value);
       fi
     else
-      members.push(new WireMember(key_value.string_value, member_value));
+      entries.push(new MapEntry(key, member_value));
     fi
 
     i = i + 1;
   done
 
-  return value_object(members);
+  if all_text_keys then
+    let List<WireMember> members = new List<WireMember>();
+    for const entry of entries do
+      members.push(new WireMember(entry.key.string_value, entry.value));
+    done
+    return value_object(members);
+  fi
+
+  return value_map(entries);
 }
 
 fnc decode_value(
@@ -618,6 +629,19 @@ fnc encode_value(
     done
     return;
   fi
+
+  if value.kind == 8 then
+    append_head(writer, 5, value.map_value.length);
+    for const entry of value.map_value do
+      encode_value(writer, entry.key, depth + 1);
+      encode_value(writer, entry.value, depth + 1);
+      if writer.failed then
+        return;
+      fi
+    done
+    return;
+  fi
+
 
   writer_fail(
     writer,
