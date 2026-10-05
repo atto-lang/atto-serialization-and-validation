@@ -1,6 +1,6 @@
 // Native CBOR dynamic codec.
 //
-// Implements canonical definite-length signed int64 / bounded uint64 integers,
+// Emits shortest-form definite-length signed int64 / bounded uint64 integers,
 // UTF-8 text, byte strings, arrays, string-key maps, booleans, and null.
 // Indefinite-length containers, tags, and float16/32/64 fail explicitly until
 // their exact dynamic representation is finalized.
