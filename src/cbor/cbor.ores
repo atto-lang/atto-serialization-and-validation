@@ -1,12 +1,12 @@
 // Native CBOR dynamic codec.
 //
-// The baseline implements canonical definite-length integers, UTF-8 text,
-// byte strings, arrays, string-key maps, booleans, and null. Indefinite-length
-// containers, tags, float16/32/64, and 64-bit additional-information values
-// fail explicitly until their exact dynamic representation is finalized.
+// Implements canonical definite-length signed int64 / bounded uint64 integers,
+// UTF-8 text, byte strings, arrays, string-key maps, booleans, and null.
+// Indefinite-length containers, tags, and float16/32/64 fail explicitly until
+// their exact dynamic representation is finalized.
 
-import class Value, Utf8Text, WireMember from '../core/value';
-import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object from '../core/value';
+import class Value, Utf8Text, WireMember, IntParse from '../core/value';
+import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error from '../core/options';
@@ -25,11 +25,6 @@ define class CborWriter as
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
-end
-
-define class CborInteger as
-  pub val bool ok;
-  pub val int value;
 end
 
 fnc cursor_fail(
@@ -114,8 +109,33 @@ fnc read_argument(
   fi
 
   if additional == 27 then
-    cursor_fail(cursor, "unsupported_uint64", "CBOR 64-bit arguments are not supported by the baseline codec");
-    return 0;
+    let int first = read_u8(cursor);
+    if cursor.failed then
+      return 0;
+    fi
+
+    if first >= 128 then
+      cursor_fail(
+        cursor,
+        "uint64_range",
+        "CBOR uint64 argument exceeds Oreslang signed int range"
+      );
+      return 0;
+    fi
+
+    let int value = first;
+    let int i = 1;
+    loop do
+      if i >= 8 then
+        break;
+      fi
+      value = (value * 256) + read_u8(cursor);
+      if cursor.failed then
+        return 0;
+      fi
+      i = i + 1;
+    done
+    return value;
   fi
 
   if additional == 31 then
@@ -404,52 +424,6 @@ pub fnc decode(
   return Ok(new DecodedValue(value, cursor.index));
 }
 
-fnc parse_integer(Value value): CborInteger {
-  if value.kind != 2 || value.number_lexeme.length == 0 then
-    return new CborInteger(false, 0);
-  fi
-
-  let int i = 0;
-  let bool negative = false;
-
-  if value.number_lexeme[0] == 45 then
-    negative = true;
-    i = 1;
-    if i >= value.number_lexeme.length then
-      return new CborInteger(false, 0);
-    fi
-  fi
-
-  let int result = 0;
-  loop do
-    if i >= value.number_lexeme.length then
-      break;
-    fi
-
-    let int byte = value.number_lexeme[i];
-    if byte < 48 || byte > 57 then
-      return new CborInteger(false, 0);
-    fi
-
-    let int digit = byte - 48;
-    if result > 429496729 then
-      return new CborInteger(false, 0);
-    fi
-    if result == 429496729 && digit > 5 then
-      return new CborInteger(false, 0);
-    fi
-
-    result = (result * 10) + digit;
-    i = i + 1;
-  done
-
-  if negative then
-    return new CborInteger(true, 0 - result);
-  fi
-
-  return new CborInteger(true, result);
-}
-
 fnc append_byte(CborWriter mut writer, int byte): void {
   if writer.failed then
     return;
@@ -553,7 +527,8 @@ fnc append_head(
     return;
   fi
 
-  writer_fail(writer, "argument_range", "CBOR baseline supports arguments through uint32");
+  append_byte(writer, (major * 32) + 27);
+  append_uint_be(writer, argument, 8);
   return;
 }
 
@@ -582,12 +557,12 @@ fnc encode_value(
   fi
 
   if value.kind == 2 then
-    let CborInteger parsed = parse_integer(value);
+    let IntParse parsed = parse_int(value);
     if !parsed.ok then
       writer_fail(
         writer,
         "unsupported_number",
-        "baseline CBOR encoder currently accepts integer number Values only"
+        "CBOR encoder accepts exact integer number Values on this path"
       );
       return;
     fi
