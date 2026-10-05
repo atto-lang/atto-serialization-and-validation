@@ -8,6 +8,8 @@
 import class Utf8Text from '../core/value';
 import fnc text_equal from '../core/value';
 import class ValueRule from '../validation/validation';
+import fnc value_rule_valid from '../validation/validation';
+import fnc utf8_is_valid from '../core/utf8';
 
 define class CodecFieldMeta as
   pub val Utf8Text source_name;
@@ -90,38 +92,54 @@ pub fnc check_metadata(
 
     let CodecFieldMeta field = metadata.fields[i];
 
-    if field.source_name.bytes.length == 0 then
+    if field.source_name.bytes.length == 0 ||
+       !utf8_is_valid(field.source_name.bytes) then
       return new MetadataCheck(
         false,
         metadata,
         new MetadataError(
-          "empty_source_name",
+          "invalid_source_name",
           i,
-          "codec field source name cannot be empty"
+          "codec field source name must be non-empty valid UTF-8"
         )
       );
     fi
 
-    if field.wire_name.bytes.length == 0 then
+    if field.wire_name.bytes.length == 0 ||
+       !utf8_is_valid(field.wire_name.bytes) then
       return new MetadataCheck(
         false,
         metadata,
         new MetadataError(
-          "empty_wire_name",
+          "invalid_wire_name",
           i,
-          "codec field wire name cannot be empty"
+          "codec field wire name must be non-empty valid UTF-8"
         )
       );
     fi
 
-    if field.field_number < 0 || field.field_number > 536870911 then
+    if field.field_number < 0 ||
+       field.field_number > 536870911 ||
+       (field.field_number >= 19000 && field.field_number <= 19999) then
       return new MetadataCheck(
         false,
         metadata,
         new MetadataError(
           "field_number",
           i,
-          "field number must be 0 or a valid Protobuf field number"
+          "field number must be 0 or a non-reserved Protobuf field number"
+        )
+      );
+    fi
+
+    if !value_rule_valid(field.validation) then
+      return new MetadataCheck(
+        false,
+        metadata,
+        new MetadataError(
+          "invalid_validation_rule",
+          i,
+          "codec field contains an invalid validation rule"
         )
       );
     fi
