@@ -32,7 +32,6 @@ fnc user_metadata(): CodecTypeMeta {
       )),
       1,
       true,
-      false,
       string_rule(1, 120, false, false, false, false)
     )
   );
@@ -43,7 +42,6 @@ fnc user_metadata(): CodecTypeMeta {
       new Utf8Text(new List<int>(97, 103, 101)),
       2,
       true,
-      false,
       kind_rule(2)
     )
   );
