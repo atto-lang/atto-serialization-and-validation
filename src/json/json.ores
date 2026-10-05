@@ -8,7 +8,7 @@ import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
 import fnc bytes_equal, text_hash from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
-import fnc default_decode_options, empty_decode_error, decode_error, encode_error from '../core/options';
+import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 
 define class JsonCursor as
   pub val List<int> input;
@@ -861,6 +861,15 @@ pub fnc decode_attempt(
   List<int> input,
   DecodeOptions options
 ): DecodeAttempt {
+  if !decode_options_valid(options) then
+    return new DecodeAttempt(
+      2,
+      value_null(),
+      0,
+      decode_error("invalid_options", 0, "invalid or unsafe JSON decode options")
+    );
+  fi
+
   if input.length > options.max_input_bytes then
     return new DecodeAttempt(
       2,
@@ -1178,6 +1187,10 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
+  if !encode_options_valid(options) then
+    return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
+  fi
+
   let JsonWriter writer = new JsonWriter(
     new List<int>(),
     options,
