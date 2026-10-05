@@ -10,7 +10,7 @@ import fnc value_null, value_bool, value_int, value_string, value_bytes, value_a
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error from '../core/options';
-import fnc utf8_is_valid from '../json/json';
+import fnc utf8_is_valid from '../core/utf8';
 
 define class MsgpackCursor as
   pub val List<int> input;
