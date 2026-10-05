@@ -27,11 +27,6 @@ define class MsgpackWriter as
   pub let EncodeError error;
 end
 
-define class ParsedInteger as
-  pub val bool ok;
-  pub val int value;
-end
-
 fnc cursor_fail(
   MsgpackCursor mut cursor,
   String code,
