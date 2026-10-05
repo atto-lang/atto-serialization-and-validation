@@ -13,7 +13,6 @@ pub fnc run_metadata_tests(): void {
       new Utf8Text(new List<int>(117, 115, 101, 114, 95, 110, 97, 109, 101)),
       1,
       true,
-      false,
       any_rule()
     )
   );
@@ -38,7 +37,6 @@ pub fnc run_metadata_tests(): void {
       new Utf8Text(new List<int>(97)),
       new Utf8Text(new List<int>(98)),
       1,
-      false,
       false,
       any_rule()
     )
