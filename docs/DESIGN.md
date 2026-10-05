@@ -21,11 +21,12 @@ Dynamic payloads use a closed tagged value model:
 - string
 - bytes
 - array
-- map
+- string-key object
+- general map with dynamic keys
 - extension value (MessagePack)
 - raw/unknown field bytes where a format can preserve them
 
-JSON maps use string keys. MessagePack dynamic maps may use any scalar key internally, with a convenience strict-string-map mode for JSON-shaped APIs.
+JSON objects use string keys. MessagePack and CBOR maps preserve non-string keys in the general-map `Value` kind; maps whose keys are all UTF-8 text materialize as the string-key object kind for convenient record-shaped APIs.
 
 For maximum throughput, the library should expose both:
 
@@ -164,7 +165,7 @@ Dynamic Protobuf decoding requires a descriptor/schema; raw unknown Protobuf byt
 
 ### CBOR
 
-CBOR follows the MessagePack-style binary value path and is the fourth initial backend because it exercises tags, binary strings, integers, and indefinite/streamed containers.
+CBOR follows the MessagePack-style binary value path. The current baseline implements definite-length integers, text, bytes, arrays, maps, booleans, and null; tags, floats, and indefinite-length items are rejected explicitly until their exact representations and streaming contracts land.
 
 ## Performance model
 
@@ -185,3 +186,37 @@ Track throughput, allocations/value, peak resident bytes, and tail latency.
 All parsers must be non-recursive or enforce a hard depth bound, reject integer/length overflows, cap allocations before reserving memory, and never trust declared container/string lengths before bounds checks.
 
 Unknown/untrusted actors must receive only ordinary Oreslang values/handles from this library; codec internals or host VM objects must never escape into guest code.
+
+
+## Implementation status
+
+The native implementation uses a single dynamic `Value` contract across formats. Dynamic object values are represented as an ordered `List<WireMember>` rather than immediately collapsing into a map. This is intentional:
+
+- JSON/CBOR/MessagePack duplicate-key policy can be enforced deterministically;
+- source/wire order can be preserved;
+- field names stay as validated UTF-8 bytes rather than requiring host/JVM strings;
+- generated typed decoders can dispatch directly without first allocating a `Map`.
+
+Callers that need a map-shaped view can materialize one after duplicate/unknown-field policy is resolved.
+
+### Current native layers
+
+```text
+List<int> wire bytes
+       |
+       +--> JSON --------+
+       +--> MessagePack -+--> Value --> validation --> ValidValue
+       +--> CBOR --------+
+       |
+       +--> Protobuf wire fields --> generated/schema-aware typed decoder
+```
+
+JSON is a byte-oriented parser with strict UTF-8 and Unicode escape handling. The incremental JSON decoder currently retains chunks and re-runs the bounded parser over the accumulated buffer; this establishes correct arbitrary-boundary semantics first. A later optimization can retain parser state/tape positions between feeds without changing the public result contract.
+
+MessagePack and CBOR share the dynamic `Value` model while preserving binary-vs-text distinctions. Protobuf deliberately exposes numbered `ProtoField` values because a schema-less Protobuf payload does not have meaningful field names.
+
+### Typed generated codecs
+
+The native dynamic/wire layers are implemented. Fully generated direct-to-class/struct codecs remain a compiler integration layer: compiler metadata from `@FromJson`, `@WireName`, `@FieldNumber`, validation annotations, TypeSpec, or JSON Schema should generate ordinary Oreslang decode/encode functions that call these wire primitives. They must not use runtime reflection.
+
+This separation is deliberate: generic wire correctness belongs in this repository; static field discovery and ABI metadata belong in the Oreslang compiler/build pipeline.
