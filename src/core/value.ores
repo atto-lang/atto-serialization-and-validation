@@ -406,6 +406,10 @@ fnc value_deep_equal_bounded(
   int depth,
   int max_depth
 ): bool {
+  if left == right then
+    return true;
+  fi
+
   if depth > max_depth then
     return false;
   fi
@@ -463,12 +467,15 @@ fnc value_deep_equal_bounded(
     fi
 
     let Map<int, List<int>> buckets = new Map<int, List<int>>();
+    let List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
       if i >= right.object_value.length then
         break;
       fi
+
+      used.push(false);
 
       let int hash = text_hash(right.object_value[i].key);
       if buckets.contains(hash) then
@@ -491,9 +498,14 @@ fnc value_deep_equal_bounded(
       let bool matched = false;
       let List<int> indices = buckets.get(hash);
       for const index of indices do
+        if used[index] then
+          continue;
+        fi
+
         let WireMember b = right.object_value[index];
         if text_equal(a.key, b.key) &&
            value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
+          used[index] = true;
           matched = true;
           break;
         fi
@@ -520,12 +532,15 @@ fnc value_deep_equal_bounded(
     fi
 
     let Map<int, List<int>> buckets = new Map<int, List<int>>();
+    let List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
       if i >= right.map_value.length then
         break;
       fi
+
+      used.push(false);
 
       let int hash = value_hash_bounded(
         right.map_value[i].key,
@@ -553,9 +568,14 @@ fnc value_deep_equal_bounded(
       let bool matched = false;
       let List<int> indices = buckets.get(hash);
       for const index of indices do
+        if used[index] then
+          continue;
+        fi
+
         let MapEntry b = right.map_value[index];
         if value_deep_equal_bounded(a.key, b.key, depth + 1, max_depth) &&
            value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
+          used[index] = true;
           matched = true;
           break;
         fi
