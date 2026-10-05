@@ -1070,15 +1070,42 @@ pub fnc feed(
     );
   fi
 
+  if !decode_options_valid(decoder.options) then
+    return new DecodeStep(
+      2,
+      value_null(),
+      decoder.buffer.length,
+      decode_error("invalid_options", decoder.buffer.length, "invalid or unsafe JSON decode options")
+    );
+  fi
+
+  if chunk.length > decoder.options.max_input_bytes - decoder.buffer.length then
+    return new DecodeStep(
+      2,
+      value_null(),
+      decoder.buffer.length,
+      decode_error("input_limit", decoder.buffer.length, "JSON input exceeds max_input_bytes")
+    );
+  fi
+
+  let int chunk_index = 0;
   for const byte of chunk do
-    if decoder.buffer.length >= decoder.options.max_input_bytes then
+    if byte < 0 || byte > 255 then
       return new DecodeStep(
         2,
         value_null(),
         decoder.buffer.length,
-        decode_error("input_limit", decoder.buffer.length, "JSON input exceeds max_input_bytes")
+        decode_error(
+          "invalid_byte",
+          decoder.buffer.length + chunk_index,
+          "JSON input bytes must be 0..255"
+        )
       );
     fi
+    chunk_index = chunk_index + 1;
+  done
+
+  for const byte of chunk do
     decoder.buffer.push(byte);
   done
 
