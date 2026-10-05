@@ -19,7 +19,6 @@ define class CodecFieldMeta as
   pub val int field_number;
 
   pub val bool required;
-  pub val bool preserve_unknown;
   pub val ValueRule validation;
 end
 
@@ -48,7 +47,6 @@ pub fnc codec_field(
   Utf8Text wire_name,
   int field_number,
   bool required,
-  bool preserve_unknown,
   ValueRule validation
 ): CodecFieldMeta {
   return new CodecFieldMeta(
@@ -56,7 +54,6 @@ pub fnc codec_field(
     wire_name,
     field_number,
     required,
-    preserve_unknown,
     validation
   );
 }
