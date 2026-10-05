@@ -5,9 +5,9 @@
 // that never returns an invalid Value as a successful result.
 
 import class Value from '../core/value';
-import class DecodeOptions, DecodeError, DecodedValue from '../core/options';
-import class ValidationOptions, ValidationReport, ObjectSchema, ValidValue from '../validation/validation';
-import fnc decode from './json';
+import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
+import class ValidationOptions, ValidationReport, ValidationError, ObjectSchema, ValidValue from '../validation/validation';
+import fnc decode_attempt from './json';
 import fnc validate_object, report_is_valid from '../validation/validation';
 
 define class JsonPayloadError as
@@ -39,21 +39,20 @@ pub fnc decode_and_validate_object(
   ObjectSchema schema,
   ValidationOptions validation_options
 ): Result<ValidatedDecodedValue, JsonPayloadError> {
-  let Result<DecodedValue, DecodeError> decoded = decode(input, decode_options);
+  let DecodeAttempt attempt = decode_attempt(input, decode_options);
 
-  if decoded.is_err() then
+  if attempt.status != 0 then
     return Err(
       new JsonPayloadError(
         0,
-        decoded.unwrap_safe().unwrap_or(empty_decode_error()),
+        attempt.error,
         empty_validation_report()
       )
     );
   fi
 
-  let DecodedValue materialized = decoded.unwrap();
   let ValidationReport report = validate_object(
-    materialized.value,
+    attempt.value,
     schema,
     validation_options
   );
@@ -70,8 +69,8 @@ pub fnc decode_and_validate_object(
 
   return Ok(
     new ValidatedDecodedValue(
-      new ValidValue(materialized.value),
-      materialized.consumed
+      new ValidValue(attempt.value),
+      attempt.consumed
     )
   );
 }
