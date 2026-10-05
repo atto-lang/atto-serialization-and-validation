@@ -35,6 +35,12 @@ define class MetadataError as
   pub val String message;
 end
 
+define class MetadataCheck as
+  pub val bool ok;
+  pub val CodecTypeMeta metadata;
+  pub val MetadataError error;
+end
+
 pub fnc codec_field(
   Utf8Text source_name,
   Utf8Text wire_name,
@@ -61,11 +67,13 @@ pub fnc codec_type(
   return new CodecTypeMeta(type_name, fields, unknown_field_policy);
 }
 
-pub fnc validate_metadata(
+pub fnc check_metadata(
   CodecTypeMeta metadata
-): Result<CodecTypeMeta, MetadataError> {
+): MetadataCheck {
   if metadata.unknown_field_policy < 0 || metadata.unknown_field_policy > 2 then
-    return Err(
+    return new MetadataCheck(
+      false,
+      metadata,
       new MetadataError(
         "unknown_field_policy",
         -1,
@@ -83,7 +91,9 @@ pub fnc validate_metadata(
     let CodecFieldMeta field = metadata.fields[i];
 
     if field.source_name.bytes.length == 0 then
-      return Err(
+      return new MetadataCheck(
+        false,
+        metadata,
         new MetadataError(
           "empty_source_name",
           i,
@@ -93,7 +103,9 @@ pub fnc validate_metadata(
     fi
 
     if field.wire_name.bytes.length == 0 then
-      return Err(
+      return new MetadataCheck(
+        false,
+        metadata,
         new MetadataError(
           "empty_wire_name",
           i,
@@ -103,7 +115,9 @@ pub fnc validate_metadata(
     fi
 
     if field.field_number < 0 || field.field_number > 536870911 then
-      return Err(
+      return new MetadataCheck(
+        false,
+        metadata,
         new MetadataError(
           "field_number",
           i,
@@ -121,7 +135,9 @@ pub fnc validate_metadata(
       let CodecFieldMeta previous = metadata.fields[j];
 
       if text_equal(previous.source_name, field.source_name) then
-        return Err(
+        return new MetadataCheck(
+          false,
+          metadata,
           new MetadataError(
             "duplicate_source_name",
             i,
@@ -131,7 +147,9 @@ pub fnc validate_metadata(
       fi
 
       if text_equal(previous.wire_name, field.wire_name) then
-        return Err(
+        return new MetadataCheck(
+          false,
+          metadata,
           new MetadataError(
             "duplicate_wire_name",
             i,
@@ -142,7 +160,9 @@ pub fnc validate_metadata(
 
       if field.field_number > 0 &&
          previous.field_number == field.field_number then
-        return Err(
+        return new MetadataCheck(
+          false,
+          metadata,
           new MetadataError(
             "duplicate_field_number",
             i,
@@ -157,7 +177,21 @@ pub fnc validate_metadata(
     i = i + 1;
   done
 
-  return Ok(metadata);
+  return new MetadataCheck(
+    true,
+    metadata,
+    new MetadataError("", -1, "")
+  );
+}
+
+pub fnc validate_metadata(
+  CodecTypeMeta metadata
+): Result<CodecTypeMeta, MetadataError> {
+  let MetadataCheck checked = check_metadata(metadata);
+  if checked.ok then
+    return Ok(metadata);
+  fi
+  return Err(checked.error);
 }
 
 pub fnc field_by_wire_name(
