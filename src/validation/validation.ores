@@ -518,15 +518,51 @@ pub fnc is_url(Utf8Text text): bool {
     return false;
   fi
 
-  if starts_with_ascii(text, new List<int>(104, 116, 116, 112, 58, 47, 47)) then
-    return text.bytes.length > 7;
+  let int host_start = -1;
+
+  if starts_with_ascii(
+    text,
+    new List<int>(104, 116, 116, 112, 58, 47, 47)
+  ) then
+    host_start = 7;
+  elseif starts_with_ascii(
+    text,
+    new List<int>(104, 116, 116, 112, 115, 58, 47, 47)
+  ) then
+    host_start = 8;
+  else
+    return false;
   fi
 
-  if starts_with_ascii(text, new List<int>(104, 116, 116, 112, 115, 58, 47, 47)) then
-    return text.bytes.length > 8;
+  if host_start >= text.bytes.length then
+    return false;
   fi
 
-  return false;
+  // The basic validator intentionally handles only absolute HTTP(S) URLs.
+  // Reject whitespace/control bytes and require a non-empty authority before
+  // path/query/fragment delimiters. Full RFC 3986 normalization is out of scope.
+  let bool saw_authority = false;
+  let int i = host_start;
+
+  loop do
+    if i >= text.bytes.length then
+      break;
+    fi
+
+    let int byte = text.bytes[i];
+    if byte <= 32 || byte == 127 then
+      return false;
+    fi
+
+    if byte == 47 || byte == 63 || byte == 35 then
+      break;
+    fi
+
+    saw_authority = true;
+    i = i + 1;
+  done
+
+  return saw_authority;
 }
 
 pub fnc parse_number(Value value): ParsedNumber {
