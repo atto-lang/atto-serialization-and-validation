@@ -103,6 +103,28 @@ pub fnc any_rule(): ValueRule {
   );
 }
 
+
+pub fnc kind_rule(int expected_kind): ValueRule {
+  return new ValueRule(
+    expected_kind,
+    -1,
+    -1,
+    -1,
+    -1,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    0.0,
+    false,
+    false,
+    0.0,
+    false
+  );
+}
+
 pub fnc string_rule(
   int min_length,
   int max_length,
