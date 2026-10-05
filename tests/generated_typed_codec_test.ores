@@ -177,6 +177,21 @@ pub fnc run_generated_typed_codec_tests(): void {
   require_true(age.ok, "typed age must parse as int");
   require_int(age.value, 42, "typed integer extraction");
 
+  val List<int> wrong_age_type = new List<int>(
+    123,
+    34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34,
+    58,
+    34, 65, 108, 101, 120, 34,
+    44,
+    34, 97, 103, 101, 34,
+    58,
+    34, 52, 50, 34,
+    125
+  );
+
+  val Result<User, ObjectCodecError> wrong_age = decode_user(wrong_age_type);
+  require_true(wrong_age.is_err(), "generated int field must reject a JSON string before construction");
+
   val User user = new User(
     new Utf8Text(new List<int>(65, 108, 101, 120)),
     age.value
