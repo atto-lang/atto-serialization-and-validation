@@ -45,6 +45,22 @@ pub fnc run_messagepack_tests(): void {
   require_true(fixed.is_err() == false, "MessagePack fixarray should decode");
   require_int(fixed.unwrap().value.array_value.length, 3, "MessagePack fixarray length");
 
+  // { 1: 2 } is a general MessagePack map, not a JSON-shaped object.
+  val Result<DecodedValue, DecodeError> general_map = decode(
+    new List<int>(129, 1, 2),
+    default_decode_options()
+  );
+  require_true(general_map.is_err() == false, "MessagePack integer-key map must decode");
+  require_int(general_map.unwrap().value.kind, 8, "integer-key MessagePack map kind");
+  require_int(general_map.unwrap().value.map_value.length, 1, "integer-key MessagePack map size");
+
+  val Result<List<int>, EncodeError> general_map_encoded = encode(
+    general_map.unwrap().value,
+    default_encode_options()
+  );
+  require_true(general_map_encoded.is_err() == false, "MessagePack general map must re-encode");
+  require_int(general_map_encoded.unwrap()[0], 129, "MessagePack general map header");
+
   val int min_int = -9223372036854775807 - 1;
   val int max_int = 9223372036854775807;
 
