@@ -45,5 +45,40 @@ pub fnc run_protobuf_tests(): void {
   require_int(field_two.length, 1, "Protobuf field lookup");
   require_int(field_two[0].payload.length, 2, "Protobuf length-delimited payload");
 
+  // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
+  // so the raw wire bytes must be preserved exactly.
+  val List<int> uint64_max = new List<int>(
+    8,
+    255, 255, 255, 255, 255, 255, 255, 255, 255, 1
+  );
+
+  val Result<ProtoMessage, ProtoError> raw_decoded = decode_message(
+    uint64_max,
+    default_proto_decode_options()
+  );
+  require_true(raw_decoded.is_err() == false, "Protobuf uint64 max must decode as preserved raw varint");
+
+  val ProtoField raw_field = raw_decoded.unwrap().fields[0];
+  require_true(!raw_field.varint_fits_int, "uint64 max must not be narrowed into signed int");
+  require_int(raw_field.payload.length, 10, "uint64 max raw varint byte count");
+
+  val Result<List<int>, ProtoError> raw_reencoded = encode_message(
+    raw_decoded.unwrap(),
+    default_proto_encode_options()
+  );
+  require_true(raw_reencoded.is_err() == false, "preserved uint64 max must re-encode");
+
+  val List<int> raw_bytes = raw_reencoded.unwrap();
+  require_int(raw_bytes.length, uint64_max.length, "preserved uint64 max encoded length");
+
+  let int j = 0;
+  loop do
+    if j >= uint64_max.length then
+      break;
+    fi
+    require_int(raw_bytes[j], uint64_max[j], "preserved uint64 max byte mismatch");
+    j = j + 1;
+  done
+
   return;
 }
