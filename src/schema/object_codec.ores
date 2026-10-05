@@ -1,0 +1,178 @@
+// Metadata-driven JSON object decode.
+//
+// This is the generic bridge between wire bytes and generated typed
+// constructors. It resolves wire names, validates required/unknown fields, runs
+// shared ValueRule validation, and returns an object Value keyed by source
+// field names. Generated class/struct codecs can then construct concrete values
+// with direct field writes and no reflection.
+
+import class Value, Utf8Text, WireMember from '../core/value';
+import fnc value_object from '../core/value';
+import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
+import fnc decode_attempt from '../json/json';
+import class ValidationOptions, ValidationReport, ValidationError, FieldRule, ObjectSchema from '../validation/validation';
+import fnc field_rule, object_schema, validate_object, report_is_valid from '../validation/validation';
+import class CodecFieldMeta, CodecTypeMeta, MetadataError from './metadata';
+import fnc validate_metadata, field_by_wire_name from './metadata';
+
+define class ObjectCodecError as
+  // kind: 0 metadata, 1 decode, 2 validation.
+  pub val int kind;
+  pub val MetadataError metadata_error;
+  pub val DecodeError decode_error;
+  pub val ValidationReport validation_report;
+end
+
+define class DecodedObject as
+  pub val Value source_object;
+  pub val Value wire_object;
+  pub val int consumed;
+end
+
+fnc empty_metadata_error(): MetadataError {
+  return new MetadataError("", -1, "");
+}
+
+fnc empty_decode_error(): DecodeError {
+  return new DecodeError("", 0, "");
+}
+
+fnc empty_validation_report(): ValidationReport {
+  return new ValidationReport(
+    new List<ValidationError>(),
+    false
+  );
+}
+
+fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
+  let List<FieldRule> fields = new List<FieldRule>();
+
+  for const field of metadata.fields do
+    fields.push(
+      field_rule(
+        field.wire_name,
+        field.required,
+        false,
+        field.validation
+      )
+    );
+  done
+
+  return object_schema(
+    fields,
+    metadata.unknown_field_policy == 1
+  );
+}
+
+fnc source_object(
+  Value wire_object,
+  CodecTypeMeta metadata
+): Value {
+  let List<WireMember> output = new List<WireMember>();
+
+  for const member of wire_object.object_value do
+    let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
+      metadata,
+      member.key
+    );
+
+    if selected.is_err() then
+      // ignore unknown fields unless preserve was requested.
+      if metadata.unknown_field_policy == 2 then
+        output.push(member);
+      fi
+      continue;
+    fi
+
+    let CodecFieldMeta field = selected.unwrap();
+    output.push(
+      new WireMember(
+        field.source_name,
+        member.value
+      )
+    );
+  done
+
+  return value_object(output);
+}
+
+pub fnc decode_json_object(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): Result<DecodedObject, ObjectCodecError> {
+  let Result<CodecTypeMeta, MetadataError> checked = validate_metadata(metadata);
+
+  if checked.is_err() then
+    return Err(
+      new ObjectCodecError(
+        0,
+        checked.unwrap_safe().unwrap_or(empty_metadata_error()),
+        empty_decode_error(),
+        empty_validation_report()
+      )
+    );
+  fi
+
+  let DecodeAttempt attempt = decode_attempt(input, decode_options);
+  if attempt.status != 0 then
+    return Err(
+      new ObjectCodecError(
+        1,
+        empty_metadata_error(),
+        attempt.error,
+        empty_validation_report()
+      )
+    );
+  fi
+
+  if attempt.value.kind != 6 then
+    let ValidationReport report = new ValidationReport(
+      new List<ValidationError>(
+        new ValidationError(
+          "type",
+          new List<PathSegment>(),
+          "metadata-driven JSON decode requires an object root",
+          0
+        )
+      ),
+      false
+    );
+
+    return Err(
+      new ObjectCodecError(
+        2,
+        empty_metadata_error(),
+        empty_decode_error(),
+        report
+      )
+    );
+  fi
+
+  let ObjectSchema schema = metadata_schema(metadata);
+  let ValidationReport report = validate_object(
+    attempt.value,
+    schema,
+    validation_options
+  );
+
+  if !report_is_valid(report) then
+    return Err(
+      new ObjectCodecError(
+        2,
+        empty_metadata_error(),
+        empty_decode_error(),
+        report
+      )
+    );
+  fi
+
+  return Ok(
+    new DecodedObject(
+      source_object(attempt.value, metadata),
+      attempt.value,
+      attempt.consumed
+    )
+  );
+}
