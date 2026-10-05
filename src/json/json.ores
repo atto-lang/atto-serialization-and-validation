@@ -7,7 +7,148 @@
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
 import fnc bytes_equal, text_hash from '../core/value';
-import fnc read_hex4(JsonCursor mut cursor): int {
+import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
+import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+
+define class JsonCursor as
+  pub val List<int> input;
+  pub val DecodeOptions options;
+  pub let int index;
+  pub let bool failed;
+  pub let bool incomplete;
+  pub let DecodeError error;
+end
+
+define class JsonWriter as
+  pub let List<int> output;
+  pub val EncodeOptions options;
+  pub let bool failed;
+  pub let EncodeError error;
+end
+
+define class JsonIncrementalDecoder as
+  pub let List<int> buffer;
+  pub val DecodeOptions options;
+  pub let bool complete;
+end
+
+fnc fail(JsonCursor mut cursor, String code, String message): void {
+  if cursor.failed || cursor.incomplete then
+    return;
+  fi
+  cursor.failed = true;
+  cursor.error = decode_error(code, cursor.index, message);
+  return;
+}
+
+fnc need_more(JsonCursor mut cursor): void {
+  if cursor.failed then
+    return;
+  fi
+  cursor.incomplete = true;
+  cursor.error = decode_error("unexpected_eof", cursor.index, "incomplete JSON value");
+  return;
+}
+
+fnc writer_fail(JsonWriter mut writer, String code, String message): void {
+  if writer.failed then
+    return;
+  fi
+  writer.failed = true;
+  writer.error = encode_error(code, message);
+  return;
+}
+
+fnc is_whitespace(int byte): bool {
+  return byte == 32 || byte == 9 || byte == 10 || byte == 13;
+}
+
+fnc is_digit(int byte): bool {
+  return byte >= 48 && byte <= 57;
+}
+
+fnc is_nonzero_digit(int byte): bool {
+  return byte >= 49 && byte <= 57;
+}
+
+fnc is_hex_digit(int byte): bool {
+  if byte >= 48 && byte <= 57 then
+    return true;
+  fi
+  if byte >= 65 && byte <= 70 then
+    return true;
+  fi
+  return byte >= 97 && byte <= 102;
+}
+
+fnc hex_value(int byte): int {
+  if byte >= 48 && byte <= 57 then
+    return byte - 48;
+  fi
+  if byte >= 65 && byte <= 70 then
+    return 10 + (byte - 65);
+  fi
+  if byte >= 97 && byte <= 102 then
+    return 10 + (byte - 97);
+  fi
+  return -1;
+}
+
+fnc skip_whitespace(JsonCursor mut cursor): void {
+  loop do
+    if cursor.index >= cursor.input.length then
+      break;
+    fi
+    if !is_whitespace(cursor.input[cursor.index]) then
+      break;
+    fi
+    cursor.index = cursor.index + 1;
+  done
+  return;
+}
+
+fnc peek(JsonCursor mut cursor): int {
+  if cursor.index >= cursor.input.length then
+    need_more(cursor);
+    return -1;
+  fi
+  return cursor.input[cursor.index];
+}
+
+fnc consume(JsonCursor mut cursor): int {
+  let int byte = peek(cursor);
+  if cursor.failed || cursor.incomplete then
+    return -1;
+  fi
+  cursor.index = cursor.index + 1;
+  return byte;
+}
+
+fnc expect_byte(JsonCursor mut cursor, int expected, String message): void {
+  let int actual = consume(cursor);
+  if cursor.failed || cursor.incomplete then
+    return;
+  fi
+  if actual != expected then
+    fail(cursor, "unexpected_byte", message);
+  fi
+  return;
+}
+
+fnc append_output(JsonWriter mut writer, int byte): void {
+  if writer.failed then
+    return;
+  fi
+  if writer.output.length >= writer.options.max_output_bytes then
+    writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
+    return;
+  fi
+  writer.output.push(byte);
+  return;
+}
+
+fnc read_hex4(JsonCursor mut cursor): int {
   let int value = 0;
   let int i = 0;
 
