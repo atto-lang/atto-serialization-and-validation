@@ -18,7 +18,6 @@ pub fnc run_object_codec_tests(): void {
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
       1,
       true,
-      false,
       string_rule(1, 120, false, false, false, false)
     )
   );
@@ -29,7 +28,6 @@ pub fnc run_object_codec_tests(): void {
       new Utf8Text(new List<int>(97, 103, 101)),
       2,
       true,
-      false,
       any_rule()
     )
   );
