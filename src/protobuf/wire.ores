@@ -1,3 +1,5 @@
+import fnc byte_list_valid, byte_range_fits from '../core/bytes';
+
 // Native Protocol Buffers wire codec.
 //
 // This layer intentionally operates on numbered wire fields rather than
@@ -257,7 +259,7 @@ fnc read_payload(
     return output;
   fi
 
-  if length > cursor.input.length - cursor.index then
+  if !byte_range_fits(cursor.input.length, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated Protobuf field payload");
     return output;
   fi
@@ -285,6 +287,10 @@ pub fnc decode_message(
 
   if input.length > options.max_input_bytes then
     return Err(new ProtoError("input_limit", 0, "Protobuf input exceeds max_input_bytes"));
+  fi
+
+  if !byte_list_valid(input) then
+    return Err(new ProtoError("invalid_byte", 0, "Protobuf input values must all be bytes 0..255"));
   fi
 
   let ProtoCursor cursor = new ProtoCursor(
