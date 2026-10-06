@@ -38,6 +38,7 @@ See the design documents on the feature branch for the detailed API and performa
 
 - [Architecture](docs/DESIGN.md)
 - [Std-lib/core migration and format hardening](docs/STDLIB_MIGRATION.md)
+- [Format-specific semantic models](docs/FORMAT_MODELS.md)
 - [Validation model](docs/VALIDATION.md)
 - [Ecosystem benchmark](docs/ECOSYSTEM-BENCHMARK.md)
 - [Benchmark plan](benchmarks/README.md)
