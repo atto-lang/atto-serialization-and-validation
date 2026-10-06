@@ -27,6 +27,10 @@ pub async fnc decode_one_from_channel(
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
+  if options.allow_trailing_data then
+    return Err(decode_error("framing_required", 0, "one-value channel decode cannot allow trailing data; use an explicit framed/sequence decoder"));
+  fi
+
   let JsonIncrementalDecoder decoder = new_incremental_decoder(options);
 
   loop do
