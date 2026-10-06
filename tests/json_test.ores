@@ -23,7 +23,7 @@ pub fnc run_json_tests(): void {
     125
   );
 
-  val Result<DecodedValue, DecodeError> decoded_result = decode_default(rt take input);
+  val Result<DecodedValue, DecodeError> decoded_result = decode_default(input);
   require_true(decoded_result.is_err() == false, "JSON object should decode");
 
   val DecodedValue decoded = decoded_result.unwrap();
@@ -38,22 +38,7 @@ pub fnc run_json_tests(): void {
   );
   require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
   require_true(
-    bytes_equal(
-      encoded_result.unwrap(),
-      new List<int>(
-        123,
-        34, 120, 34,
-        58,
-        91,
-        49,
-        44,
-        116, 114, 117, 101,
-        44,
-        110, 117, 108, 108,
-        93,
-        125
-      )
-    ),
+    bytes_equal(encoded_result.unwrap(), input),
     "canonical JSON should round-trip byte-for-byte"
   );
 
