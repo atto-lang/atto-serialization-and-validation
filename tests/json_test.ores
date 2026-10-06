@@ -5,7 +5,7 @@ import fnc bytes_equal, value_deep_equal from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode, decode_default, encode, new_incremental_decoder, feed, finish from '../src/json/json';
+import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid from '../src/core/utf8';
 
 pub fnc run_json_tests(): void {
@@ -68,25 +68,24 @@ pub fnc run_json_tests(): void {
   require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
 
   let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep first = feed(decoder, new List<int>(123, 34, 120));
+  val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
-  val DecodeStep second = feed(
-    decoder,
+  val DecodeStep second = decoder.feed(
     new List<int>(34, 58, 49, 125)
   );
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
   let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep number_partial = feed(number_decoder, new List<int>(49));
+  val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
-  val DecodeStep number_finished = finish(number_decoder);
+  val DecodeStep number_finished = number_decoder.finish();
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
   let JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep bad_utf8 = feed(
+  val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     bad_utf8_decoder,
     new List<int>(34, 226, 40)
   );
