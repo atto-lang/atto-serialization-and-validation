@@ -41,6 +41,247 @@ define class JsonIncrementalDecoder as
   pub let bool escaped;
   pub let int literal_target;
   pub let int literal_seen;
+
+  private scan_incremental(mut self)(): int {
+    // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
+    loop do
+      if self.scan_index >= self.buffer.length then
+        return 0;
+      fi
+  
+      let int byte = self.buffer[self.scan_index];
+  
+      if self.mode == 0 then
+        if is_whitespace(byte) then
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        if byte == 123 || byte == 91 then
+          self.mode = 1;
+          self.depth = 1;
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        if byte == 34 then
+          self.mode = 2;
+          self.in_string = true;
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        if byte == 116 || byte == 110 then
+          self.mode = 3;
+          self.literal_target = 4;
+          self.literal_seen = 1;
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        if byte == 102 then
+          self.mode = 3;
+          self.literal_target = 5;
+          self.literal_seen = 1;
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        if byte == 45 || is_digit(byte) then
+          self.mode = 4;
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        return 2;
+      fi
+  
+      if self.mode == 1 then
+        if self.in_string then
+          if self.escaped then
+            self.escaped = false;
+          elseif byte == 92 then
+            self.escaped = true;
+          elseif byte == 34 then
+            self.in_string = false;
+          fi
+        else
+          if byte == 34 then
+            self.in_string = true;
+          elseif byte == 123 || byte == 91 then
+            self.depth = self.depth + 1;
+          elseif byte == 125 || byte == 93 then
+            self.depth = self.depth - 1;
+            if self.depth == 0 then
+              self.scan_index = self.scan_index + 1;
+              return 1;
+            fi
+            if self.depth < 0 then
+              return 2;
+            fi
+          fi
+        fi
+  
+        self.scan_index = self.scan_index + 1;
+        continue;
+      fi
+  
+      if self.mode == 2 then
+        if self.escaped then
+          self.escaped = false;
+        elseif byte == 92 then
+          self.escaped = true;
+        elseif byte == 34 then
+          self.in_string = false;
+          self.scan_index = self.scan_index + 1;
+          return 1;
+        fi
+  
+        self.scan_index = self.scan_index + 1;
+        continue;
+      fi
+  
+      if self.mode == 3 then
+        self.literal_seen = self.literal_seen + 1;
+        self.scan_index = self.scan_index + 1;
+  
+        if self.literal_seen >= self.literal_target then
+          return 1;
+        fi
+  
+        continue;
+      fi
+  
+      // Root numbers are complete only when a delimiter is observed. At EOF,
+      // finish() performs the final parse and publishes a terminal number.
+      if self.mode == 4 then
+        if is_whitespace(byte) then
+          self.scan_index = self.scan_index + 1;
+          return 1;
+        fi
+  
+        if is_digit(byte) ||
+           byte == 45 ||
+           byte == 43 ||
+           byte == 46 ||
+           byte == 101 ||
+           byte == 69 then
+          self.scan_index = self.scan_index + 1;
+          continue;
+        fi
+  
+        return 2;
+      fi
+    done
+  
+    return 0;
+  }
+  
+  pub feed(mut self)(
+    List<int> chunk
+  ): DecodeStep {
+    if self.complete then
+      return new DecodeStep(
+        2,
+        value_null(),
+        0,
+        decode_error("decoder_complete", 0, "incremental self already completed a value")
+      );
+    fi
+  
+    if !decode_options_valid(self.options) then
+      return new DecodeStep(
+        2,
+        value_null(),
+        self.buffer.length,
+        decode_error("invalid_options", self.buffer.length, "invalid or unsafe JSON decode options")
+      );
+    fi
+  
+    if chunk.length > self.options.max_input_bytes - self.buffer.length then
+      return new DecodeStep(
+        2,
+        value_null(),
+        self.buffer.length,
+        decode_error("input_limit", self.buffer.length, "JSON input exceeds max_input_bytes")
+      );
+    fi
+  
+    let int chunk_index = 0;
+    for const byte of chunk do
+      if byte < 0 || byte > 255 then
+        return new DecodeStep(
+          2,
+          value_null(),
+          self.buffer.length,
+          decode_error(
+            "invalid_byte",
+            self.buffer.length + chunk_index,
+            "JSON input bytes must be 0..255"
+          )
+        );
+      fi
+      chunk_index = chunk_index + 1;
+    done
+  
+    for const byte of chunk do
+      self.buffer.push(byte);
+    done
+  
+    let int scan_status = self.scan_incremental();
+  
+    if scan_status == 0 then
+      return new DecodeStep(
+        0,
+        value_null(),
+        self.buffer.length,
+        decode_error("need_more", self.buffer.length, "incomplete JSON value")
+      );
+    fi
+  
+    let DecodeAttempt attempt = decode_attempt(self.buffer, self.options);
+  
+    if attempt.status == 0 then
+      self.complete = true;
+      return new DecodeStep(
+        1,
+        attempt.value,
+        attempt.consumed,
+        empty_decode_error()
+      );
+    fi
+  
+    if attempt.status == 2 then
+      return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
+    fi
+  
+    return new DecodeStep(
+      0,
+      value_null(),
+      attempt.consumed,
+      attempt.error
+    );
+  }
+  
+  pub finish(mut self)(): DecodeStep {
+    if self.complete then
+      return new DecodeStep(
+        2,
+        value_null(),
+        0,
+        decode_error("decoder_complete", 0, "incremental self already completed a value")
+      );
+    fi
+  
+    let DecodeAttempt attempt = decode_attempt(self.buffer, self.options);
+  
+    if attempt.status != 0 then
+      return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
+    fi
+  
+    self.complete = true;
+    return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
+  }
 end
 
 fnc fail(JsonCursor mut cursor, String code, String message): void {
@@ -1128,244 +1369,4 @@ pub fnc new_incremental_decoder(
   );
 }
 
-fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
-  // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
-  loop do
-    if decoder.scan_index >= decoder.buffer.length then
-      return 0;
-    fi
 
-    let int byte = decoder.buffer[decoder.scan_index];
-
-    if decoder.mode == 0 then
-      if is_whitespace(byte) then
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      if byte == 123 || byte == 91 then
-        decoder.mode = 1;
-        decoder.depth = 1;
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      if byte == 34 then
-        decoder.mode = 2;
-        decoder.in_string = true;
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      if byte == 116 || byte == 110 then
-        decoder.mode = 3;
-        decoder.literal_target = 4;
-        decoder.literal_seen = 1;
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      if byte == 102 then
-        decoder.mode = 3;
-        decoder.literal_target = 5;
-        decoder.literal_seen = 1;
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      if byte == 45 || is_digit(byte) then
-        decoder.mode = 4;
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      return 2;
-    fi
-
-    if decoder.mode == 1 then
-      if decoder.in_string then
-        if decoder.escaped then
-          decoder.escaped = false;
-        elseif byte == 92 then
-          decoder.escaped = true;
-        elseif byte == 34 then
-          decoder.in_string = false;
-        fi
-      else
-        if byte == 34 then
-          decoder.in_string = true;
-        elseif byte == 123 || byte == 91 then
-          decoder.depth = decoder.depth + 1;
-        elseif byte == 125 || byte == 93 then
-          decoder.depth = decoder.depth - 1;
-          if decoder.depth == 0 then
-            decoder.scan_index = decoder.scan_index + 1;
-            return 1;
-          fi
-          if decoder.depth < 0 then
-            return 2;
-          fi
-        fi
-      fi
-
-      decoder.scan_index = decoder.scan_index + 1;
-      continue;
-    fi
-
-    if decoder.mode == 2 then
-      if decoder.escaped then
-        decoder.escaped = false;
-      elseif byte == 92 then
-        decoder.escaped = true;
-      elseif byte == 34 then
-        decoder.in_string = false;
-        decoder.scan_index = decoder.scan_index + 1;
-        return 1;
-      fi
-
-      decoder.scan_index = decoder.scan_index + 1;
-      continue;
-    fi
-
-    if decoder.mode == 3 then
-      decoder.literal_seen = decoder.literal_seen + 1;
-      decoder.scan_index = decoder.scan_index + 1;
-
-      if decoder.literal_seen >= decoder.literal_target then
-        return 1;
-      fi
-
-      continue;
-    fi
-
-    // Root numbers are complete only when a delimiter is observed. At EOF,
-    // finish() performs the final parse and publishes a terminal number.
-    if decoder.mode == 4 then
-      if is_whitespace(byte) then
-        decoder.scan_index = decoder.scan_index + 1;
-        return 1;
-      fi
-
-      if is_digit(byte) ||
-         byte == 45 ||
-         byte == 43 ||
-         byte == 46 ||
-         byte == 101 ||
-         byte == 69 then
-        decoder.scan_index = decoder.scan_index + 1;
-        continue;
-      fi
-
-      return 2;
-    fi
-  done
-
-  return 0;
-}
-
-pub fnc feed(
-  JsonIncrementalDecoder mut decoder,
-  List<int> chunk
-): DecodeStep {
-  if decoder.complete then
-    return new DecodeStep(
-      2,
-      value_null(),
-      0,
-      decode_error("decoder_complete", 0, "incremental decoder already completed a value")
-    );
-  fi
-
-  if !decode_options_valid(decoder.options) then
-    return new DecodeStep(
-      2,
-      value_null(),
-      decoder.buffer.length,
-      decode_error("invalid_options", decoder.buffer.length, "invalid or unsafe JSON decode options")
-    );
-  fi
-
-  if chunk.length > decoder.options.max_input_bytes - decoder.buffer.length then
-    return new DecodeStep(
-      2,
-      value_null(),
-      decoder.buffer.length,
-      decode_error("input_limit", decoder.buffer.length, "JSON input exceeds max_input_bytes")
-    );
-  fi
-
-  let int chunk_index = 0;
-  for const byte of chunk do
-    if byte < 0 || byte > 255 then
-      return new DecodeStep(
-        2,
-        value_null(),
-        decoder.buffer.length,
-        decode_error(
-          "invalid_byte",
-          decoder.buffer.length + chunk_index,
-          "JSON input bytes must be 0..255"
-        )
-      );
-    fi
-    chunk_index = chunk_index + 1;
-  done
-
-  for const byte of chunk do
-    decoder.buffer.push(byte);
-  done
-
-  let int scan_status = scan_incremental(decoder);
-
-  if scan_status == 0 then
-    return new DecodeStep(
-      0,
-      value_null(),
-      decoder.buffer.length,
-      decode_error("need_more", decoder.buffer.length, "incomplete JSON value")
-    );
-  fi
-
-  let DecodeAttempt attempt = decode_attempt(decoder.buffer, decoder.options);
-
-  if attempt.status == 0 then
-    decoder.complete = true;
-    return new DecodeStep(
-      1,
-      attempt.value,
-      attempt.consumed,
-      empty_decode_error()
-    );
-  fi
-
-  if attempt.status == 2 then
-    return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
-  fi
-
-  return new DecodeStep(
-    0,
-    value_null(),
-    attempt.consumed,
-    attempt.error
-  );
-}
-
-pub fnc finish(JsonIncrementalDecoder mut decoder): DecodeStep {
-  if decoder.complete then
-    return new DecodeStep(
-      2,
-      value_null(),
-      0,
-      decode_error("decoder_complete", 0, "incremental decoder already completed a value")
-    );
-  fi
-
-  let DecodeAttempt attempt = decode_attempt(decoder.buffer, decoder.options);
-
-  if attempt.status != 0 then
-    return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
-  fi
-
-  decoder.complete = true;
-  return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
-}
