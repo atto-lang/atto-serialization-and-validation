@@ -185,7 +185,7 @@ define class JsonIncrementalDecoder as
         2,
         value_null(),
         0,
-        decode_error("decoder_complete", 0, "incremental self already completed a value")
+        decode_error("decoder_complete", 0, "incremental decoder already completed a value")
       );
     fi
   
@@ -269,7 +269,7 @@ define class JsonIncrementalDecoder as
         2,
         value_null(),
         0,
-        decode_error("decoder_complete", 0, "incremental self already completed a value")
+        decode_error("decoder_complete", 0, "incremental decoder already completed a value")
       );
     fi
   
