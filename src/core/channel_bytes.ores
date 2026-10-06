@@ -1,0 +1,71 @@
+// Bounded byte transport over native Oreslang channels.
+//
+// Some(chunk) carries bytes; None is EOF. This helper owns only its local
+// accumulator. Channel payloads remain ordinary data and no callback/parser
+// capability crosses the transport boundary.
+//
+// Today this copies validated bytes into the accumulator. A future native
+// segmented byte buffer may consume whole chunks with explicit rt take, but
+// ordinary calls must not hide ownership transfer.
+
+import fnc byte_list_valid from './bytes';
+
+define class ByteStreamError as
+  pub val String code;
+  pub val int offset;
+  pub val String message;
+end
+
+pub async fnc collect_bytes_from_channel(
+  Channel<Option<List<int>>> input,
+  int max_bytes
+): Result<List<int>, ByteStreamError> {
+  if max_bytes < 0 then
+    return Err(new ByteStreamError("invalid_limit", 0, "max_bytes cannot be negative"));
+  fi
+
+  let List<int> output = new List<int>();
+
+  loop do
+    val Option<List<int>> frame = await (nb readch input);
+    if frame.is_none() then
+      return Ok(output);
+    fi
+
+    val List<int> chunk = frame.unwrap();
+
+    if chunk.length > max_bytes - output.length then
+      return Err(
+        new ByteStreamError(
+          "input_limit",
+          output.length,
+          "byte stream exceeds configured max_bytes"
+        )
+      );
+    fi
+
+    if !byte_list_valid(chunk) then
+      let int i = 0;
+      loop do
+        if i >= chunk.length then
+          break;
+        fi
+        if chunk[i] < 0 || chunk[i] > 255 then
+          return Err(
+            new ByteStreamError(
+              "invalid_byte",
+              output.length + i,
+              "channel payload values must be bytes 0..255"
+            )
+          );
+        fi
+        i = i + 1;
+      done
+      return Err(new ByteStreamError("invalid_byte", output.length, "invalid byte chunk"));
+    fi
+
+    for const byte of chunk do
+      output.push(byte);
+    done
+  done
+}
