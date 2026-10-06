@@ -356,11 +356,27 @@ fnc parse_literal(
   return value;
 }
 
+fnc push_number_byte(
+  JsonCursor mut cursor,
+  List<int> mut lexeme,
+  int byte
+): bool {
+  if lexeme.length >= cursor.options.max_number_bytes then
+    fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
+    return false;
+  fi
+
+  lexeme.push(byte);
+  return true;
+}
+
 fnc parse_number(JsonCursor mut cursor): Value {
   let List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
-    lexeme.push(45);
+    if !push_number_byte(cursor, lexeme, 45) then
+      return value_number_lexeme(lexeme);
+    fi
     cursor.index = cursor.index + 1;
   fi
 
@@ -372,7 +388,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
   let int first = cursor.input[cursor.index];
 
   if first == 48 then
-    lexeme.push(first);
+    if !push_number_byte(cursor, lexeme, first) then
+      return value_number_lexeme(lexeme);
+    fi
     cursor.index = cursor.index + 1;
     if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
       fail(cursor, "invalid_number", "JSON number cannot contain a leading zero");
@@ -387,7 +405,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      lexeme.push(byte);
+      if !push_number_byte(cursor, lexeme, byte) then
+        return value_number_lexeme(lexeme);
+      fi
       cursor.index = cursor.index + 1;
     done
   else
@@ -396,7 +416,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
   fi
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
-    lexeme.push(46);
+    if !push_number_byte(cursor, lexeme, 46) then
+      return value_number_lexeme(lexeme);
+    fi
     cursor.index = cursor.index + 1;
 
     if cursor.index >= cursor.input.length then
@@ -416,7 +438,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      lexeme.push(byte);
+      if !push_number_byte(cursor, lexeme, byte) then
+        return value_number_lexeme(lexeme);
+      fi
       cursor.index = cursor.index + 1;
     done
   fi
@@ -424,7 +448,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
   if cursor.index < cursor.input.length then
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
-      lexeme.push(byte);
+      if !push_number_byte(cursor, lexeme, byte) then
+        return value_number_lexeme(lexeme);
+      fi
       cursor.index = cursor.index + 1;
 
       if cursor.index >= cursor.input.length then
@@ -434,7 +460,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
 
       let int sign = cursor.input[cursor.index];
       if sign == 43 || sign == 45 then
-        lexeme.push(sign);
+        if !push_number_byte(cursor, lexeme, sign) then
+          return value_number_lexeme(lexeme);
+        fi
         cursor.index = cursor.index + 1;
       fi
 
@@ -455,7 +483,9 @@ fnc parse_number(JsonCursor mut cursor): Value {
         if !is_digit(exp_byte) then
           break;
         fi
-        lexeme.push(exp_byte);
+        if !push_number_byte(cursor, lexeme, exp_byte) then
+          return value_number_lexeme(lexeme);
+        fi
         cursor.index = cursor.index + 1;
       done
     fi
