@@ -35,7 +35,8 @@ pub async fnc decode_one_from_channel(
   let JsonIncrementalDecoder decoder = new_incremental_decoder(options);
 
   loop do
-    val Option<List<int>> frame = await (nb readch input);
+    val Future<Option<List<int>>> pending = nb readch input;
+    val Option<List<int>> frame = await pending;
 
     if frame.is_none() then
       val DecodeStep terminal = decoder.finish();
@@ -53,7 +54,8 @@ pub async fnc decode_one_from_channel(
       // and the second frame silently abandoned by this one-value API.
       let int received = decoder.buffer.length;
       loop do
-        val Option<List<int>> tail = await (nb readch input);
+        val Future<Option<List<int>>> pending_tail = nb readch input;
+        val Option<List<int>> tail = await pending_tail;
         if tail.is_none() then
           return Ok(new DecodedValue(step.value, step.consumed));
         fi
