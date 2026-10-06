@@ -86,7 +86,6 @@ pub fnc run_json_tests(): void {
 
   let JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
-    bad_utf8_decoder,
     new List<int>(34, 226, 40)
   );
   require_int(
