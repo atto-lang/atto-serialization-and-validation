@@ -5,8 +5,9 @@
 //
 // The input channel carries Some(byte_chunk). None means EOF and is needed for
 // roots (notably numbers) whose completion can only be proven at end-of-stream.
-// A structurally complete JSON value may return before an EOF frame is consumed;
-// producer lifetime/cancellation remains owned by the caller.
+// This is a strict EOF-framed one-value decoder: even after a complete JSON
+// root, it drains through EOF and rejects trailing non-whitespace bytes.
+// Explicit sequence/framing APIs must retain unconsumed bytes separately.
 //
 // Ordinary Oreslang arguments are managed references. JsonIncrementalDecoder.feed() reads a chunk and
 // copies only its bytes into the decoder's bounded accumulator. Do not introduce
@@ -47,7 +48,42 @@ pub async fnc decode_one_from_channel(
     val DecodeStep step = decoder.feed(frame.unwrap());
 
     if step.status == 1 then
-      return Ok(new DecodedValue(step.value, step.consumed));
+      // A complete root is not proof of end-of-message. Without this drain,
+      // {"ok":true} followed by a second channel frame would be accepted
+      // and the second frame silently abandoned by this one-value API.
+      let int received = decoder.buffer.length;
+      loop do
+        val Option<List<int>> tail = await (nb readch input);
+        if tail.is_none() then
+          return Ok(new DecodedValue(step.value, step.consumed));
+        fi
+
+        val List<int> bytes = tail.unwrap();
+        if bytes.length > options.max_input_bytes - received then
+          return Err(decode_error(
+            "input_limit",
+            received,
+            "JSON channel input exceeds max_input_bytes"
+          ));
+        fi
+
+        let int i = 0;
+        loop do
+          if i >= bytes.length then
+            break;
+          fi
+          let int byte = bytes[i];
+          if byte != 32 && byte != 9 && byte != 10 && byte != 13 then
+            return Err(decode_error(
+              "trailing_data",
+              received + i,
+              "non-whitespace after the completed JSON value"
+            ));
+          fi
+          i = i + 1;
+        done
+        received = received + bytes.length;
+      done
     fi
 
     if step.status == 2 then
