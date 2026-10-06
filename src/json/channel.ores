@@ -8,7 +8,7 @@
 // A structurally complete JSON value may return before an EOF frame is consumed;
 // producer lifetime/cancellation remains owned by the caller.
 //
-// Ordinary Oreslang arguments are managed references. feed() reads a chunk and
+// Ordinary Oreslang arguments are managed references. JsonIncrementalDecoder.feed() reads a chunk and
 // copies only its bytes into the decoder's bounded accumulator. Do not introduce
 // C/Rust-style &/* syntax here. A future zero-copy chunk path may explicitly
 // consume storage with rt take once that ownership lowering is on the compiler
@@ -17,7 +17,7 @@
 import class DecodeOptions, DecodeError, DecodedValue, DecodeStep from '../core/options';
 import class JsonIncrementalDecoder from './json';
 import fnc decode_options_valid, decode_error from '../core/options';
-import fnc new_incremental_decoder, feed, finish from './json';
+import fnc new_incremental_decoder from './json';
 
 pub async fnc decode_one_from_channel(
   Channel<Option<List<int>>> input,
@@ -37,14 +37,14 @@ pub async fnc decode_one_from_channel(
     val Option<List<int>> frame = await (nb readch input);
 
     if frame.is_none() then
-      val DecodeStep terminal = finish(decoder);
+      val DecodeStep terminal = decoder.finish();
       if terminal.status == 1 then
         return Ok(new DecodedValue(terminal.value, terminal.consumed));
       fi
       return Err(terminal.error);
     fi
 
-    val DecodeStep step = feed(decoder, frame.unwrap());
+    val DecodeStep step = decoder.feed(frame.unwrap());
 
     if step.status == 1 then
       return Ok(new DecodedValue(step.value, step.consumed));
