@@ -1,10 +1,13 @@
 import fnc require_true, require_int from './assert';
 
-import class DecodeError, DecodedValue from '../src/core/options';
+import class DecodeOptions, DecodeError, DecodedValue from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 
 import class ProtoMessage, ProtoError from '../src/protobuf/wire';
 import fnc default_proto_decode_options from '../src/protobuf/wire';
+
+import class ByteStreamResult from '../src/core/channel_bytes';
+import fnc collect_bytes_from_channel from '../src/core/channel_bytes';
 
 import fnc decode_messagepack_from_channel from '../src/messagepack/channel';
 import fnc decode_cbor_from_channel from '../src/cbor/channel';
@@ -51,6 +54,31 @@ pub async fnc run_channel_codec_tests(): void {
   val Result<DecodedValue, DecodeError> invalid_result =
     await decode_messagepack_from_channel(invalid, default_decode_options());
   require_true(invalid_result.is_err(), "channel byte validation must reject values outside 0..255");
+
+  val DecodeOptions trailing_allowed = new DecodeOptions(
+    0, true, 128, 64, 64, 64, 64, 16, 16
+  );
+
+  val Channel<Option<List<int>>> unframed_msgpack = Channel.new<Option<List<int>>>(1);
+  val Result<DecodedValue, DecodeError> msgpack_framing =
+    await decode_messagepack_from_channel(unframed_msgpack, trailing_allowed);
+  require_true(
+    msgpack_framing.is_err(),
+    "MessagePack channel decode must reject trailing-data mode without explicit framing"
+  );
+
+  val Channel<Option<List<int>>> unframed_cbor = Channel.new<Option<List<int>>>(1);
+  val Result<DecodedValue, DecodeError> cbor_framing =
+    await decode_cbor_from_channel(unframed_cbor, trailing_allowed);
+  require_true(
+    cbor_framing.is_err(),
+    "CBOR channel decode must reject trailing-data mode without explicit framing"
+  );
+
+  val Channel<Option<List<int>>> oversized_stream = Channel.new<Option<List<int>>>(1);
+  val ByteStreamResult oversized =
+    await collect_bytes_from_channel(oversized_stream, 268435457);
+  require_true(!oversized.ok, "generic channel collector must enforce an absolute byte cap");
 
   return;
 }
