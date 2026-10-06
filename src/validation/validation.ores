@@ -318,7 +318,7 @@ fnc config_report(
 }
 
 pub fnc max_schema_fields(): int {
-  return 65536;
+  return 4096;
 }
 
 pub fnc max_schema_key_bytes(): int {
