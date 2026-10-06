@@ -1,6 +1,6 @@
 import class DecodeOptions, DecodeError, DecodedValue from '../core/options';
 import fnc decode_options_valid, decode_error from '../core/options';
-import class ByteStreamError from '../core/channel_bytes';
+import class ByteStreamError, ByteStreamResult from '../core/channel_bytes';
 import fnc collect_bytes_from_channel from '../core/channel_bytes';
 import fnc decode from './messagepack';
 
@@ -12,13 +12,13 @@ pub async fnc decode_messagepack_from_channel(
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
-  val Result<List<int>, ByteStreamError> collected =
+  val ByteStreamResult collected =
     await collect_bytes_from_channel(input, options.max_input_bytes);
 
-  if collected.is_err() then
-    val ByteStreamError error = collected.unwrap_err();
+  if !collected.ok then
+    val ByteStreamError error = collected.error;
     return Err(decode_error(error.code, error.offset, error.message));
   fi
 
-  return decode(collected.unwrap(), options);
+  return decode(collected.bytes, options);
 }
