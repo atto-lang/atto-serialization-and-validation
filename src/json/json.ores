@@ -213,6 +213,13 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       return new Utf8Text(output);
     fi
 
+    // Every non-quote JSON string token emits at least one UTF-8 byte.
+    // Enforce the configured limit before allocation rather than after copying.
+    if output.length >= cursor.options.max_string_bytes then
+      fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+      return new Utf8Text(output);
+    fi
+
     if byte == 92 then
       if cursor.index >= cursor.input.length then
         need_more(cursor);
@@ -268,6 +275,14 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
           return new Utf8Text(output);
         fi
 
+        let int encoded_width = codepoint <= 127 ? 1 :
+                                codepoint <= 2047 ? 2 :
+                                codepoint <= 65535 ? 3 : 4;
+        if encoded_width > cursor.options.max_string_bytes - output.length then
+          fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+          return new Utf8Text(output);
+        fi
+
         if !utf8_append_codepoint(output, codepoint) then
           fail(cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
           return new Utf8Text(output);
@@ -306,6 +321,11 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       fi
 
       let int width = expected_width;
+
+      if width > cursor.options.max_string_bytes - output.length then
+        fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+        return new Utf8Text(output);
+      fi
 
       output.push(byte);
       let int j = 1;
