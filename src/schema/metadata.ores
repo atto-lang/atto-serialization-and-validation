@@ -6,7 +6,7 @@
 // representation.
 
 import class Utf8Text from '../core/value';
-import fnc text_equal from '../core/value';
+import fnc text_equal, text_hash from '../core/value';
 import class ValueRule from '../validation/validation';
 import fnc value_rule_valid from '../validation/validation';
 import fnc utf8_is_valid from '../core/utf8';
@@ -66,6 +66,14 @@ pub fnc codec_type(
   return new CodecTypeMeta(type_name, fields, unknown_field_policy);
 }
 
+pub fnc max_codec_fields(): int {
+  return 65536;
+}
+
+pub fnc max_codec_name_bytes(): int {
+  return 4096;
+}
+
 pub fnc check_metadata(
   CodecTypeMeta metadata
 ): MetadataCheck {
@@ -81,6 +89,35 @@ pub fnc check_metadata(
     );
   fi
 
+  if metadata.type_name.bytes.length == 0 ||
+     metadata.type_name.bytes.length > max_codec_name_bytes() ||
+     !utf8_is_valid(metadata.type_name.bytes) then
+    return new MetadataCheck(
+      false,
+      metadata,
+      new MetadataError(
+        "invalid_type_name",
+        -1,
+        "codec type name must be non-empty bounded valid UTF-8"
+      )
+    );
+  fi
+
+  if metadata.fields.length > max_codec_fields() then
+    return new MetadataCheck(
+      false,
+      metadata,
+      new MetadataError(
+        "field_limit",
+        -1,
+        "codec metadata exceeds the maximum supported field count"
+      )
+    );
+  fi
+
+  let Map<int, List<int>> source_buckets = new Map<int, List<int>>();
+  let Map<int, List<int>> wire_buckets = new Map<int, List<int>>();
+  let Map<int, List<int>> number_buckets = new Map<int, List<int>>();
   let int i = 0;
   loop do
     if i >= metadata.fields.length then
@@ -90,6 +127,7 @@ pub fnc check_metadata(
     let CodecFieldMeta field = metadata.fields[i];
 
     if field.source_name.bytes.length == 0 ||
+       field.source_name.bytes.length > max_codec_name_bytes() ||
        !utf8_is_valid(field.source_name.bytes) then
       return new MetadataCheck(
         false,
@@ -97,12 +135,13 @@ pub fnc check_metadata(
         new MetadataError(
           "invalid_source_name",
           i,
-          "codec field source name must be non-empty valid UTF-8"
+          "codec field source name must be non-empty bounded valid UTF-8"
         )
       );
     fi
 
     if field.wire_name.bytes.length == 0 ||
+       field.wire_name.bytes.length > max_codec_name_bytes() ||
        !utf8_is_valid(field.wire_name.bytes) then
       return new MetadataCheck(
         false,
@@ -110,7 +149,7 @@ pub fnc check_metadata(
         new MetadataError(
           "invalid_wire_name",
           i,
-          "codec field wire name must be non-empty valid UTF-8"
+          "codec field wire name must be non-empty bounded valid UTF-8"
         )
       );
     fi
@@ -141,40 +180,54 @@ pub fnc check_metadata(
       );
     fi
 
-    let int j = 0;
-    loop do
-      if j >= i then
-        break;
-      fi
+    let int source_hash = text_hash(field.source_name);
+    if source_buckets.contains(source_hash) then
+      let List<int> candidates = source_buckets.get(source_hash);
+      for const index of candidates do
+        if text_equal(metadata.fields[index].source_name, field.source_name) then
+          return new MetadataCheck(
+            false,
+            metadata,
+            new MetadataError(
+              "duplicate_source_name",
+              i,
+              "duplicate source field name in codec metadata"
+            )
+          );
+        fi
+      done
+      candidates.push(i);
+    else
+      let List<int> candidates = new List<int>();
+      candidates.push(i);
+      source_buckets.set(source_hash, candidates);
+    fi
 
-      let CodecFieldMeta previous = metadata.fields[j];
+    let int wire_hash = text_hash(field.wire_name);
+    if wire_buckets.contains(wire_hash) then
+      let List<int> candidates = wire_buckets.get(wire_hash);
+      for const index of candidates do
+        if text_equal(metadata.fields[index].wire_name, field.wire_name) then
+          return new MetadataCheck(
+            false,
+            metadata,
+            new MetadataError(
+              "duplicate_wire_name",
+              i,
+              "duplicate wire field name in codec metadata"
+            )
+          );
+        fi
+      done
+      candidates.push(i);
+    else
+      let List<int> candidates = new List<int>();
+      candidates.push(i);
+      wire_buckets.set(wire_hash, candidates);
+    fi
 
-      if text_equal(previous.source_name, field.source_name) then
-        return new MetadataCheck(
-          false,
-          metadata,
-          new MetadataError(
-            "duplicate_source_name",
-            i,
-            "duplicate source field name in codec metadata"
-          )
-        );
-      fi
-
-      if text_equal(previous.wire_name, field.wire_name) then
-        return new MetadataCheck(
-          false,
-          metadata,
-          new MetadataError(
-            "duplicate_wire_name",
-            i,
-            "duplicate wire field name in codec metadata"
-          )
-        );
-      fi
-
-      if field.field_number > 0 &&
-         previous.field_number == field.field_number then
+    if field.field_number > 0 then
+      if number_buckets.contains(field.field_number) then
         return new MetadataCheck(
           false,
           metadata,
@@ -185,9 +238,10 @@ pub fnc check_metadata(
           )
         );
       fi
-
-      j = j + 1;
-    done
+      let List<int> indices = new List<int>();
+      indices.push(i);
+      number_buckets.set(field.field_number, indices);
+    fi
 
     i = i + 1;
   done
