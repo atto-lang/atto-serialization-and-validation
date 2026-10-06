@@ -12,11 +12,11 @@ IMPORT_RE = re.compile(
     r"^\s*import\s+(class|fnc|interface|trait|struct|types)\s+(.+?)\s+from\s+['\"]([^'\"]+)['\"]\s*;\s*$"
 )
 DECL_PATTERNS = {
-    "class": lambda name: re.compile(rf"\bdefine\s+(?:pub\s+)?class\s+{re.escape(name)}\b|\bdefine\s+class\s+{re.escape(name)}\b"),
+    "class": lambda name: re.compile(rf"\b(?:pub\s+define\s+class|define\s+(?:pub\s+)?class)\s+{re.escape(name)}\b"),
     "fnc": lambda name: re.compile(rf"\b(?:pub\s+)?(?:async\s+|nlex\s+|pure\s+)*fnc\s+{re.escape(name)}\b"),
-    "interface": lambda name: re.compile(rf"\bdefine\s+(?:pub\s+)?interface\s+{re.escape(name)}\b|\bdefine\s+interface\s+{re.escape(name)}\b"),
-    "trait": lambda name: re.compile(rf"\bdefine\s+(?:pub\s+)?trait\s+{re.escape(name)}\b|\bdefine\s+trait\s+{re.escape(name)}\b"),
-    "struct": lambda name: re.compile(rf"\bdefine\s+(?:pub\s+)?struct\s+{re.escape(name)}\b|\bdefine\s+struct\s+{re.escape(name)}\b"),
+    "interface": lambda name: re.compile(rf"\b(?:pub\s+define\s+interface|define\s+(?:pub\s+)?interface)\s+{re.escape(name)}\b"),
+    "trait": lambda name: re.compile(rf"\b(?:pub\s+define\s+trait|define\s+(?:pub\s+)?trait)\s+{re.escape(name)}\b"),
+    "struct": lambda name: re.compile(rf"\b(?:pub\s+define\s+struct|define\s+(?:pub\s+)?struct)\s+{re.escape(name)}\b"),
     "types": lambda name: re.compile(rf"\b(?:type|define\s+(?:pub\s+)?(?:class|interface|trait|struct))\s+{re.escape(name)}\b"),
 }
 
@@ -93,8 +93,11 @@ def main() -> int:
             # C/Rust pointer forms without banning legitimate bitwise operators.
             if re.search(r"&\s*mut\b", code):
                 fail(errors, path, line_no, "Rust-style &mut ownership syntax is forbidden")
-            if re.search(r"\b[A-Za-z_][A-Za-z0-9_<>,]*\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\b", code):
+            if re.search(r"\b[A-Z][A-Za-z0-9_<>,]*\*\s*[A-Za-z_][A-Za-z0-9_]*\b", code) or \
+               re.search(r"\b(?:int|float|bool|String|string)\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\b", code):
                 fail(errors, path, line_no, "C-style pointer declaration syntax is forbidden")
+            if re.search(r"(?:^|[=(,:;])\s*\*[A-Za-z_][A-Za-z0-9_]*\b", code):
+                fail(errors, path, line_no, "unary pointer dereference syntax is forbidden")
 
             # Channel payloads are data, not executable authority.
             if re.search(r"Channel\s*<[^>]*(?:Fnc|routine|->)", code):
