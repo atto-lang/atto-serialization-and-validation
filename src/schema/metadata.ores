@@ -67,7 +67,7 @@ pub fnc codec_type(
 }
 
 pub fnc max_codec_fields(): int {
-  return 65536;
+  return 4096;
 }
 
 pub fnc max_codec_name_bytes(): int {
