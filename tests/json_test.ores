@@ -108,5 +108,41 @@ pub fnc run_json_tests(): void {
   );
   require_true(input_limited.is_err(), "JSON max_input_bytes must fail closed");
 
+  val DecodeOptions one_number_byte = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 1, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> number_exact = decode(
+    new List<int>(49),
+    one_number_byte
+  );
+  require_true(!number_exact.is_err(), "JSON number at max_number_bytes must succeed");
+
+  val Result<DecodedValue, DecodeError> number_over = decode(
+    new List<int>(49, 50),
+    one_number_byte
+  );
+  require_true(number_over.is_err(), "JSON number over max_number_bytes must reject before growth");
+
+  val DecodeOptions one_string_byte = new DecodeOptions(
+    0, false, 128, 64, 1, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> string_exact = decode(
+    new List<int>(34, 97, 34),
+    one_string_byte
+  );
+  require_true(!string_exact.is_err(), "JSON string at max_string_bytes must succeed");
+
+  val Result<DecodedValue, DecodeError> utf8_over = decode(
+    new List<int>(34, 195, 169, 34),
+    one_string_byte
+  );
+  require_true(utf8_over.is_err(), "JSON multibyte UTF-8 must preflight max_string_bytes");
+
+  val Result<DecodedValue, DecodeError> escaped_utf8_over = decode(
+    new List<int>(34, 92, 117, 48, 48, 101, 57, 34),
+    one_string_byte
+  );
+  require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
+
   return;
 }
