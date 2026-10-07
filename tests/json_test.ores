@@ -23,7 +23,7 @@ pub fnc run_json_tests(): void {
     125
   );
 
-  val Result<DecodedValue, DecodeError> decoded_result = decode_default(input);
+  val Result<DecodedValue, DecodeError> decoded_result = decode_default(rt borrow input);
   require_true(decoded_result.is_err() == false, "JSON object should decode");
 
   val DecodedValue decoded = decoded_result.unwrap();
@@ -49,24 +49,26 @@ pub fnc run_json_tests(): void {
     34, 120, 34, 58, 50,
     125
   );
-  val Result<DecodedValue, DecodeError> duplicate_result = decode_default(duplicate);
+  val Result<DecodedValue, DecodeError> duplicate_result = decode_default(rt borrow duplicate);
   require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
 
   val DecodeOptions duplicate_first = new DecodeOptions(
     1, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> first_wins = decode(duplicate, duplicate_first);
+  val Result<DecodedValue, DecodeError> first_wins = decode(rt borrow duplicate, duplicate_first);
   require_true(!first_wins.is_err(), "JSON first-wins duplicate policy must decode");
-  require_int(first_wins.unwrap().value.object_value.length, 1, "JSON first-wins must keep one member");
-  require_int(first_wins.unwrap().value.object_value[0].value.number_lexeme[0], 49, "JSON first-wins must preserve first value");
+  val DecodedValue first_value = first_wins.unwrap();
+  require_int(first_value.value.object_value.length, 1, "JSON first-wins must keep one member");
+  require_int(first_value.value.object_value[0].value.number_lexeme[0], 49, "JSON first-wins must preserve first value");
 
   val DecodeOptions duplicate_last = new DecodeOptions(
     2, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> last_wins = decode(duplicate, duplicate_last);
+  val Result<DecodedValue, DecodeError> last_wins = decode(rt borrow duplicate, duplicate_last);
   require_true(!last_wins.is_err(), "JSON last-wins duplicate policy must decode");
-  require_int(last_wins.unwrap().value.object_value.length, 1, "JSON last-wins must keep one member");
-  require_int(last_wins.unwrap().value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
+  val DecodedValue last_value = last_wins.unwrap();
+  require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
+  require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
 
   let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
