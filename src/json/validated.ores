@@ -42,10 +42,12 @@ pub fnc decode_and_validate_object(
     return Err(new JsonPayloadError(0, attempt.error, empty_validation_report()));
   fi
 
-  // Validation observes the decoded value; successful validation must not
-  // consume the value that crosses the trust boundary as ValidValue.
+  // Borrow checking requires a named owner, not a field projection.
+  // Preserve the consumed-byte count separately before moving the value.
+  val Value decoded_payload = attempt.value;
+  val int consumed = attempt.consumed;
   let ValidationReport report = validate_object(
-    rt borrow attempt.value,
+    rt borrow decoded_payload,
     schema,
     validation_options
   );
@@ -55,7 +57,7 @@ pub fnc decode_and_validate_object(
   fi
 
   return Ok(new ValidatedDecodedValue(
-    new ValidValue(attempt.value),
-    attempt.consumed
+    new ValidValue(decoded_payload),
+    consumed
   ));
 }
