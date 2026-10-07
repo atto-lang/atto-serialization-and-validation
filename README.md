@@ -104,3 +104,17 @@ The test program exercises JSON, incremental JSON, UTF-8 rejection, duplicate-ke
 ## Compiler compatibility checkpoint (2026-10-06)
 
 This repository tracks the latest 10 compiler PRs as **unmerged proposals**, without changing its stable compiler pin or API behavior. See [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md) for oreslang-serialization-and-validation-specific migration invariants, dependencies and validation gates.
+
+## Runner CI and native-suite coverage
+
+The `Test runner contracts` workflow checks shell syntax and uses a compiler
+test double to prove repository-root execution, paths containing spaces,
+explicit compiler selection, PATH fallback, exact output/exit-code propagation,
+and failure when the compiler is missing. It uses read-only permissions and no
+secrets. The runner now works when launched outside this repository.
+
+This is a launcher gate, not codec conformance evidence. A 2026-10-07 probe
+against compiler `5ffc52d9297d175307094d530293c69f1cafc7cd` stopped at the
+unexported `Value` class imported from `src/core/value.ores`. Resolve public
+exports and subsequent ownership diagnostics, then validate all codec fixtures
+before selecting a supported compiler pin and enabling a native-suite CI job.
