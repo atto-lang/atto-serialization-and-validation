@@ -53,17 +53,18 @@ pub fnc run_protobuf_tests(): void {
   );
 
   val Result<ProtoMessage, ProtoError> raw_decoded = decode_message(
-    uint64_max,
+    rt borrow uint64_max,
     default_proto_decode_options()
   );
   require_true(raw_decoded.is_err() == false, "Protobuf uint64 max must decode as preserved raw varint");
 
-  val ProtoField raw_field = raw_decoded.unwrap().fields[0];
+  val ProtoMessage raw_roundtrip = raw_decoded.unwrap();
+  val ProtoField raw_field = raw_roundtrip.fields[0];
   require_true(!raw_field.varint_fits_int, "uint64 max must not be narrowed into signed int");
   require_int(raw_field.payload.length, 10, "uint64 max raw varint byte count");
 
   val Result<List<int>, ProtoError> raw_reencoded = encode_message(
-    raw_decoded.unwrap(),
+    raw_roundtrip,
     default_proto_encode_options()
   );
   require_true(raw_reencoded.is_err() == false, "preserved uint64 max must re-encode");
