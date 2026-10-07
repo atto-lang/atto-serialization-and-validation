@@ -100,13 +100,13 @@ pub fnc run_generated_typed_codec_tests(): void {
     125
   );
 
-  let Result<User, ObjectCodecError> typed = decode_user(rt borrow input);
+  let Result<User, ObjectCodecError> typed = decode_user(rt copy input);
   require_true(typed.is_err() == false, "generated typed decoder must succeed");
   val User typed_user = typed.unwrap();
   require_int(typed_user.age, 42, "generated typed decoder age");
 
   let Result<DecodedObject, ObjectCodecError> projected = decode_json_object(
-    input,
+    rt copy input,
     default_decode_options(),
     user_metadata(),
     default_validation_options()
