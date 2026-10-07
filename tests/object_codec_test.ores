@@ -11,7 +11,6 @@ import fnc decode_json_object from '../src/schema/object_codec';
 
 pub fnc run_object_codec_tests(): void {
   let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
-
   fields.push(
     codec_field(
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101)),
@@ -21,7 +20,6 @@ pub fnc run_object_codec_tests(): void {
       string_rule(1, 120, false, false, false, false)
     )
   );
-
   fields.push(
     codec_field(
       new Utf8Text(new List<int>(97, 103, 101)),
@@ -53,15 +51,12 @@ pub fnc run_object_codec_tests(): void {
   val Result<DecodedObject, ObjectCodecError> decoded = decode_json_object(
     input,
     default_decode_options(),
-    metadata,
+    rt borrow metadata,
     default_validation_options()
   );
-
   require_true(decoded.is_err() == false, "metadata-driven JSON object must decode");
-
   val DecodedObject object = decoded.unwrap();
   require_int(object.source_object.object_value.length, 2, "source object field count");
-
   require_int(
     object.source_object.object_value[0].key.bytes[7],
     95,
@@ -87,10 +82,9 @@ pub fnc run_object_codec_tests(): void {
   val Result<DecodedObject, ObjectCodecError> rejected = decode_json_object(
     unknown,
     default_decode_options(),
-    metadata,
+    rt borrow metadata,
     default_validation_options()
   );
-
   require_true(rejected.is_err(), "reject-unknown metadata must reject unknown JSON fields");
   return;
 }
