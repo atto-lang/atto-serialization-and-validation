@@ -100,3 +100,7 @@ ORESLANG_BIN=/path/to/oreslang ./scripts/test.sh
 ```
 
 The test program exercises JSON, incremental JSON, UTF-8 rejection, duplicate-key policy, MessagePack, CBOR, Protobuf wire round-trips, and validation.
+
+## Compiler compatibility checkpoint (2026-10-06)
+
+This repository tracks the latest 10 compiler PRs as **unmerged proposals**, without changing its stable compiler pin or API behavior. See [docs/compiler-pr-sync.md](docs/compiler-pr-sync.md) for oreslang-serialization-and-validation-specific migration invariants, dependencies and validation gates.
