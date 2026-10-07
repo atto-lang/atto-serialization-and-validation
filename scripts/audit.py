@@ -88,10 +88,13 @@ def main() -> int:
             # branches still use the structural `fi` terminator, so the static
             # audit must not reject `} fi`, `} elif`, or `} elseif` forms.
 
-            # Userland serialization must remain pointer-free. These catch
-            # C/Rust pointer forms without banning legitimate bitwise operators.
+            # Userland serialization must remain pointer-free. Keep ordinary
+            # bitwise `a & b` legal, but reject `&value`, `&T`, and `&mut` when
+            # ampersand appears in a unary/type ownership position.
             if re.search(r"&\s*mut\b", code):
                 fail(errors, path, line_no, "Rust-style &mut ownership syntax is forbidden")
+            if re.search(r"(?:^|[=(,:;<\[]|\breturn\s+)\s*&\s*[A-Za-z_][A-Za-z0-9_]*\b", code):
+                fail(errors, path, line_no, "pointer-style unary/type ampersand ownership syntax is forbidden; use rt borrow/take/copy/share")
             if re.search(r"\b[A-Z][A-Za-z0-9_<>,]*\*\s*[A-Za-z_][A-Za-z0-9_]*\b", code) or \
                re.search(r"\b(?:int|float|bool|String|string)\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\b", code):
                 fail(errors, path, line_no, "C-style pointer declaration syntax is forbidden")
