@@ -90,5 +90,74 @@ pub fnc run_json_tests(): void {
     "overlong UTF-8 must be rejected"
   );
 
+  // TJSV-facing negative wire corpus: an Oreslang decoder must never
+  // silently accept malformed JSON that a Draft 2020-12 peer rejects.
+  // These reject at the JSON syntax/Unicode boundary before schema validation.
+  val Result<DecodedValue, DecodeError> trailing_array_comma =
+    decode_default(new List<int>(91, 49, 44, 93));
+  require_true(
+    trailing_array_comma.is_err(),
+    "array trailing comma must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> trailing_object_comma =
+    decode_default(new List<int>(123, 34, 120, 34, 58, 49, 44, 125));
+  require_true(
+    trailing_object_comma.is_err(),
+    "object trailing comma must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> leading_zero =
+    decode_default(new List<int>(48, 49));
+  require_true(leading_zero.is_err(), "JSON leading zero must reject");
+
+  val Result<DecodedValue, DecodeError> non_finite_literal =
+    decode_default(new List<int>(78, 97, 78));
+  require_true(non_finite_literal.is_err(), "NaN token is not JSON");
+
+  val Result<DecodedValue, DecodeError> invalid_escape =
+    decode_default(new List<int>(34, 92, 113, 34));
+  require_true(invalid_escape.is_err(), "unknown JSON escape must reject");
+
+  val Result<DecodedValue, DecodeError> unpaired_high_surrogate =
+    decode_default(new List<int>(34, 92, 117, 68, 56, 48, 48, 34));
+  require_true(
+    unpaired_high_surrogate.is_err(),
+    "unpaired high surrogate must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> unpaired_low_surrogate =
+    decode_default(new List<int>(34, 92, 117, 68, 67, 48, 48, 34));
+  require_true(
+    unpaired_low_surrogate.is_err(),
+    "unpaired low surrogate must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> invalid_unicode_hex =
+    decode_default(new List<int>(34, 92, 117, 90, 90, 90, 90, 34));
+  require_true(
+    invalid_unicode_hex.is_err(),
+    "non-hex Unicode escape must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> unescaped_control =
+    decode_default(new List<int>(34, 10, 34));
+  require_true(
+    unescaped_control.is_err(),
+    "raw control byte inside JSON string must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> valid_surrogate_pair =
+    decode_default(
+      new List<int>(
+        34, 92, 117, 68, 56, 51, 68,
+        92, 117, 68, 69, 48, 48, 34
+      )
+    );
+  require_true(
+    !valid_surrogate_pair.is_err(),
+    "valid UTF-16 surrogate pair escape must decode"
+  );
+
   return;
 }
