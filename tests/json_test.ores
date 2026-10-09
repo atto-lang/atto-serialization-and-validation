@@ -70,26 +70,26 @@ pub fnc run_json_tests(): void {
   require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
 
   let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep first = feed(decoder, new List<int>(123, 34, 120));
+  val DecodeStep first = feed(rt borrow mut decoder, new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
   val DecodeStep second = feed(
-    decoder,
+    rt borrow mut decoder,
     new List<int>(34, 58, 49, 125)
   );
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
   let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep number_partial = feed(number_decoder, new List<int>(49));
+  val DecodeStep number_partial = feed(rt borrow mut number_decoder, new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
-  val DecodeStep number_finished = finish(number_decoder);
+  val DecodeStep number_finished = finish(rt borrow mut number_decoder);
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
   let JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep bad_utf8 = feed(
-    bad_utf8_decoder,
+    rt borrow mut bad_utf8_decoder,
     new List<int>(34, 226, 40)
   );
   require_int(
@@ -170,32 +170,32 @@ pub fnc run_json_tests(): void {
 
   // UTF-8 scan state must resume precisely across arbitrary chunk boundaries.
   let JsonIncrementalDecoder unicode_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep unicode_prefix = feed(unicode_decoder, new List<int>(34, 240));
+  val DecodeStep unicode_prefix = feed(rt borrow mut unicode_decoder, new List<int>(34, 240));
   require_int(unicode_prefix.status, 0, "split four-byte Unicode scalar needs more bytes");
-  val DecodeStep unicode_middle = feed(unicode_decoder, new List<int>(159, 152));
+  val DecodeStep unicode_middle = feed(rt borrow mut unicode_decoder, new List<int>(159, 152));
   require_int(unicode_middle.status, 0, "split Unicode continuation remains incomplete");
-  val DecodeStep unicode_end = feed(unicode_decoder, new List<int>(128, 34));
+  val DecodeStep unicode_end = feed(rt borrow mut unicode_decoder, new List<int>(128, 34));
   require_int(unicode_end.status, 1, "valid split UTF-8 string must decode");
 
   let JsonIncrementalDecoder invalid_lead_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep invalid_lead = feed(invalid_lead_decoder, new List<int>(34, 192));
+  val DecodeStep invalid_lead = feed(rt borrow mut invalid_lead_decoder, new List<int>(34, 192));
   require_int(invalid_lead.status, 2, "overlong UTF-8 lead byte must reject immediately");
 
   let JsonIncrementalDecoder invalid_surrogate_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep surrogate_prefix = feed(invalid_surrogate_decoder, new List<int>(34, 237));
+  val DecodeStep surrogate_prefix = feed(rt borrow mut invalid_surrogate_decoder, new List<int>(34, 237));
   require_int(surrogate_prefix.status, 0, "split surrogate prefix awaits second byte");
-  val DecodeStep surrogate_invalid = feed(invalid_surrogate_decoder, new List<int>(160));
+  val DecodeStep surrogate_invalid = feed(rt borrow mut invalid_surrogate_decoder, new List<int>(160));
   require_int(surrogate_invalid.status, 2, "UTF-8 surrogate must reject across chunks");
 
   let JsonIncrementalDecoder nested_invalid_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep nested_invalid = feed(
-    nested_invalid_decoder,
+    rt borrow mut nested_invalid_decoder,
     new List<int>(123, 34, 107, 34, 58, 34, 226, 40)
   );
   require_int(nested_invalid.status, 2, "malformed UTF-8 in nested string must reject early");
 
   let JsonIncrementalDecoder raw_control_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep raw_control = feed(raw_control_decoder, new List<int>(34, 10));
+  val DecodeStep raw_control = feed(rt borrow mut raw_control_decoder, new List<int>(34, 10));
   require_int(raw_control.status, 2, "unescaped JSON control byte must reject immediately");
   return;
 }
