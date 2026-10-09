@@ -22,5 +22,7 @@ jobs:
           while IFS= read -r -d '' script; do
             bash -n "$script"
           done < <(find scripts -type f -name '*.sh' -print0)
+      - name: Verify native import/export closure
+        run: bash scripts/check-exports.sh
       - name: Verify runner failure and invocation contracts
         run: bash scripts/test-runner.sh
