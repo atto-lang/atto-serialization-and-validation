@@ -80,5 +80,37 @@ pub fnc run_protobuf_tests(): void {
     j = j + 1;
   done
 
+
+  // Without a schema, a nested Protobuf message is a length-delimited byte
+  // payload; callers must supply a descriptor/known type to decode its fields.
+  // outer field 1 = bytes([field 1 = varint 1]).
+  val Result<ProtoMessage, ProtoError> nested_wire = decode_message(
+    new List<int>(10, 2, 8, 1),
+    default_proto_decode_options()
+  );
+  require_true(!nested_wire.is_err(), "nested Protobuf raw payload must decode");
+  val ProtoMessage outer = nested_wire.unwrap();
+  require_int(outer.fields.length, 1, "nested Protobuf outer field count");
+  require_int(outer.fields[0].wire_type, 2, "nested Protobuf stays length-delimited without descriptor");
+
+  val Result<ProtoMessage, ProtoError> inner = decode_message(
+    outer.fields[0].payload,
+    default_proto_decode_options()
+  );
+  require_true(!inner.is_err(), "known nested Protobuf payload must decode explicitly");
+  require_int(inner.unwrap().fields[0].varint_value, 1, "nested field value");
+
+  val Result<ProtoMessage, ProtoError> truncated_nested = decode_message(
+    new List<int>(10, 3, 8, 1),
+    default_proto_decode_options()
+  );
+  require_true(truncated_nested.is_err(), "truncated nested Protobuf bytes must reject");
+
+  val Result<ProtoMessage, ProtoError> truncated_varint = decode_message(
+    new List<int>(8, 128),
+    default_proto_decode_options()
+  );
+  require_true(truncated_varint.is_err(), "unterminated Protobuf varint must reject");
+
   return;
 }
