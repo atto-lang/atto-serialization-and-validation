@@ -650,3 +650,59 @@ pub fnc parse_int(Value value): IntParse {
 
   return new IntParse(true, result);
 }
+
+
+// Reflection-free traversal of values decoded from unknown wire schemas.
+// String-key objects, arbitrary-key binary maps, and array indices all use
+// the same closed Value key. This never materializes Java/JVM objects.
+pub fnc value_lookup(Value container, Value key): Result<Value, String> {
+  if container.kind == 6 then
+    if key.kind != 3 then
+      return Err("string-key object requires a UTF-8 string key");
+    fi
+    return object_get(container, key.string_value);
+  fi
+
+  if container.kind == 8 then
+    for const entry of container.map_value do
+      if value_deep_equal(entry.key, key) then
+        return Ok(entry.value);
+      fi
+    done
+    return Err("general map key not found");
+  fi
+
+  if container.kind == 5 then
+    let IntParse index = parse_int(key);
+    if !index.ok || index.value < 0 ||
+       index.value >= container.array_value.length then
+      return Err("array index must be an in-bounds integer");
+    fi
+    return Ok(container.array_value[index.value]);
+  fi
+
+  return Err("dynamic lookup requires an object, map, or array");
+}
+
+// Path segments are Value strings for JSON/object keys, Value numbers for
+// array indices, and arbitrary Values for MessagePack/CBOR map keys.
+// Empty path denotes the root. Bounded iteration avoids unbounded paths.
+pub fnc value_lookup_path(
+  Value root,
+  List<Value> segments
+): Result<Value, String> {
+  if segments.length > 128 then
+    return Err("dynamic path exceeds maximum length of 128");
+  fi
+
+  let Value current = root;
+  for const segment of segments do
+    let Result<Value, String> next = value_lookup(current, segment);
+    if next.is_err() then
+      return Err("dynamic path segment not found or has wrong type");
+    fi
+    current = next.unwrap();
+  done
+
+  return Ok(current);
+}
