@@ -114,7 +114,7 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   if value == 0 then
     output.add(48);
@@ -126,7 +126,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
     output.add(45);
   fi
 
-  let List<int> reversed = new List<int>();
+  val List<int> reversed = new List<int>();
   loop do
     if current == 0 then
       break;
@@ -467,7 +467,7 @@ fnc value_deep_equal_bounded(
     fi
 
     let Map<int, List<int>> buckets = new Map<int, List<int>>();
-    let List<bool> used = new List<bool>();
+    val List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
@@ -482,7 +482,7 @@ fnc value_deep_equal_bounded(
         let List<int> indices = buckets.get(hash);
         indices.add(i);
       else
-        let List<int> indices = new List<int>();
+        val List<int> indices = new List<int>();
         indices.add(i);
         buckets.set(hash, indices);
       fi
@@ -532,7 +532,7 @@ fnc value_deep_equal_bounded(
     fi
 
     let Map<int, List<int>> buckets = new Map<int, List<int>>();
-    let List<bool> used = new List<bool>();
+    val List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
@@ -552,7 +552,7 @@ fnc value_deep_equal_bounded(
         let List<int> indices = buckets.get(hash);
         indices.add(i);
       else
-        let List<int> indices = new List<int>();
+        val List<int> indices = new List<int>();
         indices.add(i);
         buckets.set(hash, indices);
       fi
