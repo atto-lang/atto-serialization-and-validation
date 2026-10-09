@@ -265,6 +265,24 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
   return bytes_equal(left.bytes, right.bytes);
 }
 
+// Compare immutable key views without consuming a key from a repeating loop.
+fnc borrowed_text_equal(borrow Utf8Text left, borrow Utf8Text right): bool {
+  if left.bytes.length != right.bytes.length then
+    return false;
+  fi
+  let int index = 0;
+  loop do
+    if index >= left.bytes.length then
+      break;
+    fi
+    if left.bytes[index] != right.bytes[index] then
+      return false;
+    fi
+    index = index + 1;
+  done
+  return true;
+}
+
 pub fnc object_find_index(Value object, Utf8Text key): int {
   if object.kind != 6 then
     return -1;
@@ -272,7 +290,7 @@ pub fnc object_find_index(Value object, Utf8Text key): int {
 
   let int i = 0;
   for const member of object.object_value do
-    if text_equal(member.key, key) then
+    if borrowed_text_equal(rt borrow member.key, rt borrow key) then
       return i;
     fi
     i = i + 1;
