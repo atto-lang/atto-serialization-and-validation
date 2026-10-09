@@ -121,7 +121,7 @@ pub fnc run_json_tests(): void {
   require_true(!deep_dynamic.is_err(), "nested JSON dynamic tree must decode");
   val Value deep_root = deep_dynamic.unwrap().value;
 
-  let List<Value> deep_path = new List<Value>();
+  val List<Value> deep_path = new List<Value>();
   deep_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
   deep_path.add(value_int(0));
   deep_path.add(value_string(new Utf8Text(new List<int>(109, 101, 116, 97))));
@@ -135,7 +135,7 @@ pub fnc run_json_tests(): void {
   require_true(!dynamic_leaf.is_err(), "nested JSON path must resolve");
   require_true(dynamic_leaf.unwrap().bool_value, "nested JSON boolean payload");
 
-  let List<Value> missing_path = new List<Value>();
+  val List<Value> missing_path = new List<Value>();
   missing_path.add(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
   val Result<Value, String> missing = value_lookup_path(
     new_nested_json_root(),
@@ -143,7 +143,7 @@ pub fnc run_json_tests(): void {
   );
   require_true(missing.is_err(), "missing unknown-schema path must not panic");
 
-  let List<Value> bad_index_path = new List<Value>();
+  val List<Value> bad_index_path = new List<Value>();
   bad_index_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
   bad_index_path.add(value_int(-1));
   val Result<Value, String> bad_index = value_lookup_path(
@@ -152,7 +152,7 @@ pub fnc run_json_tests(): void {
   );
   require_true(bad_index.is_err(), "negative nested array index must reject");
 
-  let List<Value> overlong_path = new List<Value>();
+  val List<Value> overlong_path = new List<Value>();
   let int path_index = 0;
   loop do
     if path_index >= 129 then
