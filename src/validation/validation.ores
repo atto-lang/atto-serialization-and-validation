@@ -8,31 +8,31 @@ import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
-define class PathSegment as
+pub define class PathSegment as
   // kind: 0 root, 1 object key, 2 array index.
   pub val int kind;
   pub val Utf8Text key;
   pub val int index;
 end
 
-define class ValidationError as
+pub define class ValidationError as
   pub val String code;
   pub val List<PathSegment> path;
   pub val String message;
   pub val int source_offset;
 end
 
-define class ValidationOptions as
+pub define class ValidationOptions as
   pub val bool fail_fast;
   pub val int max_errors;
 end
 
-define class ValidationReport as
+pub define class ValidationReport as
   pub let List<ValidationError> errors;
   pub let bool truncated;
 end
 
-define class ValidValue as
+pub define class ValidValue as
   pub val Value value;
 end
 
@@ -41,7 +41,7 @@ define class ParsedNumber as
   pub val float value;
 end
 
-define class ValueRule as
+pub define class ValueRule as
   // expected_kind < 0 means any kind.
   pub val int expected_kind;
 
@@ -66,14 +66,14 @@ define class ValueRule as
   pub val bool max_exclusive;
 end
 
-define class FieldRule as
+pub define class FieldRule as
   pub val Utf8Text key;
   pub val bool required;
   pub val bool forbidden;
   pub val ValueRule value_rule;
 end
 
-define class ObjectSchema as
+pub define class ObjectSchema as
   pub val List<FieldRule> fields;
   pub val bool reject_unknown_fields;
 end
