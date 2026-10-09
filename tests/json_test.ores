@@ -102,6 +102,7 @@ pub fnc run_json_tests(): void {
     )
   );
   require_true(!deep_dynamic.is_err(), "nested JSON dynamic tree must decode");
+  val Value deep_root = deep_dynamic.unwrap().value;
 
   let List<Value> deep_path = new List<Value>();
   deep_path.push(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
@@ -111,7 +112,7 @@ pub fnc run_json_tests(): void {
   deep_path.push(value_string(new Utf8Text(new List<int>(102, 108, 97, 103))));
 
   val Result<Value, String> dynamic_leaf = value_lookup_path(
-    deep_dynamic.unwrap().value,
+    deep_root,
     deep_path
   );
   require_true(!dynamic_leaf.is_err(), "nested JSON path must resolve");
@@ -120,7 +121,7 @@ pub fnc run_json_tests(): void {
   let List<Value> missing_path = new List<Value>();
   missing_path.push(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
   val Result<Value, String> missing = value_lookup_path(
-    deep_dynamic.unwrap().value,
+    deep_root,
     missing_path
   );
   require_true(missing.is_err(), "missing unknown-schema path must not panic");
