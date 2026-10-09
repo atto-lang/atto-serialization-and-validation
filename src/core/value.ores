@@ -466,7 +466,7 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
-    let Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
     val List<bool> used = new List<bool>();
     let int i = 0;
 
@@ -531,7 +531,7 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
-    let Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
     val List<bool> used = new List<bool>();
     let int i = 0;
 
