@@ -265,7 +265,7 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
   return bytes_equal(left.bytes, right.bytes);
 }
 
-pub fnc object_find_index(Value object, Utf8Text key): int {
+fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
   if object.kind != 6 then
     return -1;
   fi
@@ -297,12 +297,16 @@ pub fnc object_find_index(Value object, Utf8Text key): int {
   return -1;
 }
 
+pub fnc object_find_index(Value object, Utf8Text key): int {
+  return object_find_index_borrow(rt borrow object, rt borrow key);
+}
+
 pub fnc object_has(Value object, Utf8Text key): bool {
   return object_find_index(object, key) >= 0;
 }
 
 pub fnc object_get(Value object, Utf8Text key): Result<Value, String> {
-  let int index = object_find_index(object, key);
+  let int index = object_find_index_borrow(rt borrow object, rt borrow key);
   if index < 0 then
     return Err("object key not found");
   fi
