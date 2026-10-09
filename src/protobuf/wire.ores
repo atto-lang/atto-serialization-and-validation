@@ -7,7 +7,7 @@ import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 // dispatch these fields directly into Oreslang classes/structs. Unknown varints
 // retain their exact raw bytes, including uint64 values above signed int max.
 
-define class ProtoField as
+pub define class ProtoField as
   pub val int field_number;
   pub val int wire_type;
 
@@ -22,21 +22,21 @@ define class ProtoField as
   pub val List<int> payload;
 end
 
-define class ProtoMessage as
+pub define class ProtoMessage as
   pub val List<ProtoField> fields;
 end
 
-define class ProtoDecodeOptions as
+pub define class ProtoDecodeOptions as
   pub val int max_input_bytes;
   pub val int max_fields;
   pub val int max_length_delimited_bytes;
 end
 
-define class ProtoEncodeOptions as
+pub define class ProtoEncodeOptions as
   pub val int max_output_bytes;
 end
 
-define class ProtoError as
+pub define class ProtoError as
   pub val String code;
   pub val int offset;
   pub val String message;
