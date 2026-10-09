@@ -18,7 +18,7 @@ pub fnc run_validation_tests(): void {
     new List<int>(97, 103, 101)
   );
 
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
       username_key,
@@ -27,7 +27,7 @@ pub fnc run_validation_tests(): void {
   );
   members.add(new WireMember(age_key, value_int(151)));
 
-  let List<FieldRule> fields = new List<FieldRule>();
+  val List<FieldRule> fields = new List<FieldRule>();
   fields.add(
     field_rule(
       username_key,
@@ -99,7 +99,7 @@ pub fnc run_validation_tests(): void {
   );
 
   // Object equality is member-order independent.
-  let List<WireMember> object_a_members = new List<WireMember>();
+  val List<WireMember> object_a_members = new List<WireMember>();
   object_a_members.add(
     new WireMember(
       new Utf8Text(new List<int>(97)),
@@ -113,7 +113,7 @@ pub fnc run_validation_tests(): void {
     )
   );
 
-  let List<WireMember> object_b_members = new List<WireMember>();
+  val List<WireMember> object_b_members = new List<WireMember>();
   object_b_members.add(
     new WireMember(
       new Utf8Text(new List<int>(98)),
@@ -135,11 +135,11 @@ pub fnc run_validation_tests(): void {
   );
 
   // General map equality is entry-order independent too.
-  let List<MapEntry> map_a_entries = new List<MapEntry>();
+  val List<MapEntry> map_a_entries = new List<MapEntry>();
   map_a_entries.add(new MapEntry(value_int(1), value_int(10)));
   map_a_entries.add(new MapEntry(value_int(2), value_int(20)));
 
-  let List<MapEntry> map_b_entries = new List<MapEntry>();
+  val List<MapEntry> map_b_entries = new List<MapEntry>();
   map_b_entries.add(new MapEntry(value_int(2), value_int(20)));
   map_b_entries.add(new MapEntry(value_int(1), value_int(10)));
 
@@ -149,7 +149,7 @@ pub fnc run_validation_tests(): void {
   );
 
   // JSON-Schema-style uniqueItems must reject reordered-equivalent objects.
-  let List<Value> duplicate_objects = new List<Value>();
+  val List<Value> duplicate_objects = new List<Value>();
   duplicate_objects.add(object_a);
   duplicate_objects.add(object_b);
 
