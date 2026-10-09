@@ -1082,7 +1082,7 @@ pub fnc new_incremental_decoder(
   );
 }
 
-fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
+fnc scan_incremental(borrow mut JsonIncrementalDecoder decoder): int {
   // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
   loop do
     if decoder.scan_index >= decoder.buffer.length then
@@ -1218,7 +1218,7 @@ fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
 }
 
 pub fnc feed(
-  JsonIncrementalDecoder mut decoder,
+  borrow mut JsonIncrementalDecoder decoder,
   List<int> chunk
 ): DecodeStep {
   if decoder.complete then
@@ -1269,7 +1269,7 @@ pub fnc feed(
     decoder.buffer.push(byte);
   done
 
-  let int scan_status = scan_incremental(decoder);
+  let int scan_status = scan_incremental(rt borrow mut decoder);
 
   if scan_status == 0 then
     return new DecodeStep(
@@ -1304,7 +1304,7 @@ pub fnc feed(
   );
 }
 
-pub fnc finish(JsonIncrementalDecoder mut decoder): DecodeStep {
+pub fnc finish(borrow mut JsonIncrementalDecoder decoder): DecodeStep {
   if decoder.complete then
     return new DecodeStep(
       2,
