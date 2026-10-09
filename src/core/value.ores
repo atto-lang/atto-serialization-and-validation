@@ -275,19 +275,19 @@ pub fnc object_find_index(Value object, Utf8Text key): int {
     // The current borrow checker accepts only named owners; inspect fields
     // in place rather than trying to borrow a projected member.key binding.
     if member.key.bytes.length == key.bytes.length then
-      let bool matches = true;
+      let bool same_key = true;
       let int j = 0;
       loop do
         if j >= key.bytes.length then
           break;
         fi
         if member.key.bytes[j] != key.bytes[j] then
-          matches = false;
+          same_key = false;
           break;
         fi
         j = j + 1;
       done
-      if matches then
+      if same_key then
         return i;
       fi
     fi
