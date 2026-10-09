@@ -176,7 +176,7 @@ fnc read_bytes(
     if i >= length then
       break;
     fi
-    output.push(cursor.input[cursor.index + i]);
+    output.add(cursor.input[cursor.index + i]);
     i = i + 1;
   done
   cursor.index = cursor.index + length;
@@ -214,12 +214,12 @@ fnc remember_map_entry(
 
   if buckets.contains(hash) then
     let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    candidates.add(index);
     return;
   fi
 
   let List<int> candidates = new List<int>();
-  candidates.push(index);
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
@@ -291,7 +291,7 @@ fnc decode_array(
       return value_array(values);
     fi
 
-    values.push(value);
+    values.add(value);
     i = i + 1;
   done
 
@@ -342,7 +342,7 @@ fnc decode_map(
       fi
     else
       let int index = entries.length;
-      entries.push(new MapEntry(key, member_value));
+      entries.add(new MapEntry(key, member_value));
       remember_map_entry(buckets, key, index);
     fi
 
@@ -352,7 +352,7 @@ fnc decode_map(
   if all_text_keys then
     let List<WireMember> members = new List<WireMember>();
     for const entry of entries do
-      members.push(new WireMember(entry.key.string_value, entry.value));
+      members.add(new WireMember(entry.key.string_value, entry.value));
     done
     return value_object(members);
   fi
@@ -509,7 +509,7 @@ fnc append_byte(CborWriter mut writer, int byte): void {
     return;
   fi
 
-  writer.output.push(byte);
+  writer.output.add(byte);
   return;
 }
 
@@ -675,7 +675,7 @@ fnc encode_value(
   if value.kind == 6 then
     let List<MapEntry> object_entries = new List<MapEntry>();
     for const member of value.object_value do
-      object_entries.push(new MapEntry(value_string(member.key), member.value));
+      object_entries.add(new MapEntry(value_string(member.key), member.value));
     done
     if !map_keys_unique(object_entries) then
       writer_fail(writer, "duplicate_key", "cannot encode CBOR object with duplicate keys");
