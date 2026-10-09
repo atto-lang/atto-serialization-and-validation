@@ -37,6 +37,7 @@ See the design documents on the feature branch for the detailed API and performa
 ## Design documents
 
 - [Architecture](docs/DESIGN.md)
+- [Dynamic nested data, AOT and actor ownership contract](docs/DYNAMIC-AOT-OWNERSHIP.md)
 - [Validation model](docs/VALIDATION.md)
 - [Ecosystem benchmark](docs/ECOSYSTEM-BENCHMARK.md)
 - [Benchmark plan](benchmarks/README.md)
@@ -118,3 +119,20 @@ against compiler `5ffc52d9297d175307094d530293c69f1cafc7cd` stopped at the
 unexported `Value` class imported from `src/core/value.ores`. Resolve public
 exports and subsequent ownership diagnostics, then validate all codec fixtures
 before selecting a supported compiler pin and enabling a native-suite CI job.
+
+
+## Dynamic nested payloads and release status
+
+JSON, MessagePack and CBOR decode unknown-schema payloads to a recursive
+`Value` tree. Object fields are ordered `WireMember` entries, while
+MessagePack/CBOR non-string-key maps are `MapEntry` entries; these are **not**
+yet native `Map<String, Value>` materializations. Native `value_lookup` and
+`value_lookup_path` allow bounded traversal across any mixture of objects,
+arrays and general maps without host-language reflection.
+
+This source design is **AOT-compatible**, but full native/AOT end-to-end
+compilation, compiler-generated class/struct codecs and transitive actor-safe
+sharing remain separate release gates. In particular, mutable nested
+`List` fields cannot be safely shared across actor lanes until recursive
+`rt share` / `rt take` / `rt copy` / `rt borrow` semantics are enforced
+by the compiler. See [the ownership and AOT contract](docs/DYNAMIC-AOT-OWNERSHIP.md).
