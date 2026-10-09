@@ -509,7 +509,7 @@ fnc remember_member(
 }
 
 fnc object_keys_unique(List<WireMember> members): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -583,7 +583,7 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
   val List<WireMember> members = new List<WireMember>();
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
