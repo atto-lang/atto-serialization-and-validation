@@ -19,16 +19,16 @@ pub fnc run_validation_tests(): void {
   );
 
   let List<WireMember> members = new List<WireMember>();
-  members.push(
+  members.add(
     new WireMember(
       username_key,
       value_string(new Utf8Text(new List<int>(97, 98)))
     )
   );
-  members.push(new WireMember(age_key, value_int(151)));
+  members.add(new WireMember(age_key, value_int(151)));
 
   let List<FieldRule> fields = new List<FieldRule>();
-  fields.push(
+  fields.add(
     field_rule(
       username_key,
       true,
@@ -36,7 +36,7 @@ pub fnc run_validation_tests(): void {
       string_rule(3, 64, false, false, false, false)
     )
   );
-  fields.push(
+  fields.add(
     field_rule(
       age_key,
       true,
@@ -100,13 +100,13 @@ pub fnc run_validation_tests(): void {
 
   // Object equality is member-order independent.
   let List<WireMember> object_a_members = new List<WireMember>();
-  object_a_members.push(
+  object_a_members.add(
     new WireMember(
       new Utf8Text(new List<int>(97)),
       value_int(1)
     )
   );
-  object_a_members.push(
+  object_a_members.add(
     new WireMember(
       new Utf8Text(new List<int>(98)),
       value_int(2)
@@ -114,13 +114,13 @@ pub fnc run_validation_tests(): void {
   );
 
   let List<WireMember> object_b_members = new List<WireMember>();
-  object_b_members.push(
+  object_b_members.add(
     new WireMember(
       new Utf8Text(new List<int>(98)),
       value_int(2)
     )
   );
-  object_b_members.push(
+  object_b_members.add(
     new WireMember(
       new Utf8Text(new List<int>(97)),
       value_int(1)
@@ -136,12 +136,12 @@ pub fnc run_validation_tests(): void {
 
   // General map equality is entry-order independent too.
   let List<MapEntry> map_a_entries = new List<MapEntry>();
-  map_a_entries.push(new MapEntry(value_int(1), value_int(10)));
-  map_a_entries.push(new MapEntry(value_int(2), value_int(20)));
+  map_a_entries.add(new MapEntry(value_int(1), value_int(10)));
+  map_a_entries.add(new MapEntry(value_int(2), value_int(20)));
 
   let List<MapEntry> map_b_entries = new List<MapEntry>();
-  map_b_entries.push(new MapEntry(value_int(2), value_int(20)));
-  map_b_entries.push(new MapEntry(value_int(1), value_int(10)));
+  map_b_entries.add(new MapEntry(value_int(2), value_int(20)));
+  map_b_entries.add(new MapEntry(value_int(1), value_int(10)));
 
   require_true(
     value_deep_equal(value_map(map_a_entries), value_map(map_b_entries)),
@@ -150,8 +150,8 @@ pub fnc run_validation_tests(): void {
 
   // JSON-Schema-style uniqueItems must reject reordered-equivalent objects.
   let List<Value> duplicate_objects = new List<Value>();
-  duplicate_objects.push(object_a);
-  duplicate_objects.push(object_b);
+  duplicate_objects.add(object_a);
+  duplicate_objects.add(object_b);
 
   val ValidationReport unique_report = validate_value(
     value_array(duplicate_objects),
