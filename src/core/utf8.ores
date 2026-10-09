@@ -139,26 +139,26 @@ pub fnc utf8_append_codepoint(
   fi
 
   if codepoint <= 127 then
-    output.push(codepoint);
+    output.add(codepoint);
     return true;
   fi
 
   if codepoint <= 2047 then
-    output.push(192 + (codepoint / 64));
-    output.push(128 + (codepoint % 64));
+    output.add(192 + (codepoint / 64));
+    output.add(128 + (codepoint % 64));
     return true;
   fi
 
   if codepoint <= 65535 then
-    output.push(224 + (codepoint / 4096));
-    output.push(128 + ((codepoint / 64) % 64));
-    output.push(128 + (codepoint % 64));
+    output.add(224 + (codepoint / 4096));
+    output.add(128 + ((codepoint / 64) % 64));
+    output.add(128 + (codepoint % 64));
     return true;
   fi
 
-  output.push(240 + (codepoint / 262144));
-  output.push(128 + ((codepoint / 4096) % 64));
-  output.push(128 + ((codepoint / 64) % 64));
-  output.push(128 + (codepoint % 64));
+  output.add(240 + (codepoint / 262144));
+  output.add(128 + ((codepoint / 4096) % 64));
+  output.add(128 + ((codepoint / 64) % 64));
+  output.add(128 + (codepoint % 64));
   return true;
 }

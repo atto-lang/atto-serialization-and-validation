@@ -117,13 +117,13 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   let List<int> output = new List<int>();
 
   if value == 0 then
-    output.push(48);
+    output.add(48);
     return output;
   fi
 
   let int current = value;
   if current < 0 then
-    output.push(45);
+    output.add(45);
   fi
 
   let List<int> reversed = new List<int>();
@@ -137,7 +137,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
       digit = 0 - digit;
     fi
 
-    reversed.push(48 + digit);
+    reversed.add(48 + digit);
     current = current / 10;
   done
 
@@ -146,7 +146,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
     if i < 0 then
       break;
     fi
-    output.push(reversed[i]);
+    output.add(reversed[i]);
     i = i - 1;
   done
 
@@ -475,15 +475,15 @@ fnc value_deep_equal_bounded(
         break;
       fi
 
-      used.push(false);
+      used.add(false);
 
       let int hash = text_hash(right.object_value[i].key);
       if buckets.contains(hash) then
         let List<int> indices = buckets.get(hash);
-        indices.push(i);
+        indices.add(i);
       else
         let List<int> indices = new List<int>();
-        indices.push(i);
+        indices.add(i);
         buckets.set(hash, indices);
       fi
       i = i + 1;
@@ -540,7 +540,7 @@ fnc value_deep_equal_bounded(
         break;
       fi
 
-      used.push(false);
+      used.add(false);
 
       let int hash = value_hash_bounded(
         right.map_value[i].key,
@@ -550,10 +550,10 @@ fnc value_deep_equal_bounded(
 
       if buckets.contains(hash) then
         let List<int> indices = buckets.get(hash);
-        indices.push(i);
+        indices.add(i);
       else
         let List<int> indices = new List<int>();
-        indices.push(i);
+        indices.add(i);
         buckets.set(hash, indices);
       fi
       i = i + 1;

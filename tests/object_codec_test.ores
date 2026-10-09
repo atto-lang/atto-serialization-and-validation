@@ -12,7 +12,7 @@ import fnc decode_json_object from '../src/schema/object_codec';
 pub fnc run_object_codec_tests(): void {
   let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
 
-  fields.push(
+  fields.add(
     codec_field(
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101)),
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
@@ -22,7 +22,7 @@ pub fnc run_object_codec_tests(): void {
     )
   );
 
-  fields.push(
+  fields.add(
     codec_field(
       new Utf8Text(new List<int>(97, 103, 101)),
       new Utf8Text(new List<int>(97, 103, 101)),

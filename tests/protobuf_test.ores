@@ -6,8 +6,8 @@ import fnc encode_message, decode_message, fields_with_number from '../src/proto
 
 pub fnc run_protobuf_tests(): void {
   let List<ProtoField> fields = new List<ProtoField>();
-  fields.push(proto_varint(1, 150));
-  fields.push(proto_bytes(2, new List<int>(104, 105)));
+  fields.add(proto_varint(1, 150));
+  fields.add(proto_bytes(2, new List<int>(104, 105)));
 
   val ProtoMessage message = new ProtoMessage(fields);
 

@@ -8,13 +8,13 @@ import fnc encode, decode from '../src/cbor/cbor';
 
 pub fnc run_cbor_tests(): void {
   let List<WireMember> members = new List<WireMember>();
-  members.push(
+  members.add(
     new WireMember(
       new Utf8Text(new List<int>(110)),
       value_int(-17)
     )
   );
-  members.push(
+  members.add(
     new WireMember(
       new Utf8Text(new List<int>(115)),
       value_string(new Utf8Text(new List<int>(111, 107)))

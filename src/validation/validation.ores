@@ -298,7 +298,7 @@ fnc config_report(
   String message
 ): ValidationReport {
   let List<ValidationError> errors = new List<ValidationError>();
-  errors.push(
+  errors.add(
     new ValidationError(
       code,
       new List<PathSegment>(),
@@ -336,10 +336,10 @@ fnc object_schema_valid(ObjectSchema schema): bool {
           return false;
         fi
       done
-      candidates.push(i);
+      candidates.add(i);
     else
       let List<int> candidates = new List<int>();
-      candidates.push(i);
+      candidates.add(i);
       buckets.set(hash, candidates);
     fi
 
@@ -355,13 +355,13 @@ fnc empty_key(): Utf8Text {
 
 fnc key_path(Utf8Text key): List<PathSegment> {
   let List<PathSegment> path = new List<PathSegment>();
-  path.push(new PathSegment(1, key, -1));
+  path.add(new PathSegment(1, key, -1));
   return path;
 }
 
 fnc index_path(int index): List<PathSegment> {
   let List<PathSegment> path = new List<PathSegment>();
-  path.push(new PathSegment(2, empty_key(), index));
+  path.add(new PathSegment(2, empty_key(), index));
   return path;
 }
 
@@ -382,7 +382,7 @@ fnc add_error(
     return;
   fi
 
-  report.errors.push(new ValidationError(code, path, message, -1));
+  report.errors.add(new ValidationError(code, path, message, -1));
   return;
 }
 
@@ -761,10 +761,10 @@ fnc validate_unique(
           return;
         fi
       done
-      candidates.push(item);
+      candidates.add(item);
     else
       let List<Value> candidates = new List<Value>();
-      candidates.push(item);
+      candidates.add(item);
       buckets.set(hash, candidates);
     fi
   done
