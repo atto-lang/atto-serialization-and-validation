@@ -7,7 +7,7 @@ import fnc codec_field, codec_type, validate_metadata, field_by_number from '../
 
 pub fnc run_metadata_tests(): void {
   let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
-  fields.push(
+  fields.add(
     codec_field(
       new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101)),
       new Utf8Text(new List<int>(117, 115, 101, 114, 95, 110, 97, 109, 101)),
@@ -31,8 +31,8 @@ pub fnc run_metadata_tests(): void {
   require_int(field.unwrap().field_number, 1, "field number lookup result");
 
   let List<CodecFieldMeta> duplicates = new List<CodecFieldMeta>();
-  duplicates.push(fields[0]);
-  duplicates.push(
+  duplicates.add(fields[0]);
+  duplicates.add(
     codec_field(
       new Utf8Text(new List<int>(97)),
       new Utf8Text(new List<int>(98)),
