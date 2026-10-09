@@ -236,7 +236,7 @@ fnc remember_map_entry(
 }
 
 fnc map_keys_unique(List<MapEntry> entries): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -315,7 +315,7 @@ fnc decode_map(
   int depth
 ): Value {
   val List<MapEntry> entries = new List<MapEntry>();
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
 
   if count > cursor.options.max_map_entries then
