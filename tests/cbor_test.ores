@@ -7,7 +7,7 @@ import fnc default_decode_options, default_encode_options from '../src/core/opti
 import fnc encode, decode from '../src/cbor/cbor';
 
 pub fnc run_cbor_tests(): void {
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
       new Utf8Text(new List<int>(110)),
@@ -104,7 +104,7 @@ pub fnc run_cbor_tests(): void {
   );
   require_true(!deep_dynamic.is_err(), "nested CBOR dynamic map must decode");
 
-  let List<Value> deep_path = new List<Value>();
+  val List<Value> deep_path = new List<Value>();
   deep_path.add(value_int(1));
   deep_path.add(value_int(2));
   deep_path.add(value_int(0));
