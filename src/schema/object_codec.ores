@@ -56,7 +56,7 @@ fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
   let List<FieldRule> fields = new List<FieldRule>();
 
   for const field of metadata.fields do
-    fields.push(
+    fields.add(
       field_rule(
         field.wire_name,
         field.required,
@@ -89,7 +89,7 @@ fnc source_object(
     fi
 
     let CodecFieldMeta field = selected.unwrap();
-    output.push(
+    output.add(
       new WireMember(
         field.source_name,
         member.value
@@ -117,7 +117,7 @@ fnc unknown_object(
     );
 
     if selected.is_err() then
-      output.push(member);
+      output.add(member);
     fi
   done
 
