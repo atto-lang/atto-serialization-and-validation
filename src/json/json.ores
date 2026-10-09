@@ -154,7 +154,7 @@ fnc append_output(JsonWriter mut writer, int byte): void {
     writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
     return;
   fi
-  writer.output.push(byte);
+  writer.output.add(byte);
   return;
 }
 
@@ -222,17 +222,17 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       let int escaped = consume(cursor);
 
       if escaped == 34 || escaped == 92 || escaped == 47 then
-        output.push(escaped);
+        output.add(escaped);
       elseif escaped == 98 then
-        output.push(8);
+        output.add(8);
       elseif escaped == 102 then
-        output.push(12);
+        output.add(12);
       elseif escaped == 110 then
-        output.push(10);
+        output.add(10);
       elseif escaped == 114 then
-        output.push(13);
+        output.add(13);
       elseif escaped == 116 then
-        output.push(9);
+        output.add(9);
       elseif escaped == 117 then
         let int first = read_hex4(cursor);
         if cursor.failed || cursor.incomplete then
@@ -277,7 +277,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
     elseif byte < 128 then
-      output.push(byte);
+      output.add(byte);
     else
       // consume() already advanced over the first byte; validate against the
       // original source starting one byte earlier and copy the remaining bytes.
@@ -307,13 +307,13 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
 
       let int width = expected_width;
 
-      output.push(byte);
+      output.add(byte);
       let int j = 1;
       loop do
         if j >= width then
           break;
         fi
-        output.push(cursor.input[start + j]);
+        output.add(cursor.input[start + j]);
         j = j + 1;
       done
       cursor.index = start + width;
@@ -360,7 +360,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
   let List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
-    lexeme.push(45);
+    lexeme.add(45);
     cursor.index = cursor.index + 1;
   fi
 
@@ -372,7 +372,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
   let int first = cursor.input[cursor.index];
 
   if first == 48 then
-    lexeme.push(first);
+    lexeme.add(first);
     cursor.index = cursor.index + 1;
     if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
       fail(cursor, "invalid_number", "JSON number cannot contain a leading zero");
@@ -387,7 +387,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      lexeme.push(byte);
+      lexeme.add(byte);
       cursor.index = cursor.index + 1;
     done
   else
@@ -396,7 +396,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
   fi
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
-    lexeme.push(46);
+    lexeme.add(46);
     cursor.index = cursor.index + 1;
 
     if cursor.index >= cursor.input.length then
@@ -416,7 +416,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      lexeme.push(byte);
+      lexeme.add(byte);
       cursor.index = cursor.index + 1;
     done
   fi
@@ -424,7 +424,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
   if cursor.index < cursor.input.length then
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
-      lexeme.push(byte);
+      lexeme.add(byte);
       cursor.index = cursor.index + 1;
 
       if cursor.index >= cursor.input.length then
@@ -434,7 +434,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
 
       let int sign = cursor.input[cursor.index];
       if sign == 43 || sign == 45 then
-        lexeme.push(sign);
+        lexeme.add(sign);
         cursor.index = cursor.index + 1;
       fi
 
@@ -455,7 +455,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
         if !is_digit(exp_byte) then
           break;
         fi
-        lexeme.push(exp_byte);
+        lexeme.add(exp_byte);
         cursor.index = cursor.index + 1;
       done
     fi
@@ -498,12 +498,12 @@ fnc remember_member(
 
   if buckets.contains(hash) then
     let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    candidates.add(index);
     return;
   fi
 
   let List<int> candidates = new List<int>();
-  candidates.push(index);
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
@@ -555,7 +555,7 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
     if cursor.failed || cursor.incomplete then
       return value_array(values);
     fi
-    values.push(item);
+    values.add(item);
 
     skip_whitespace(cursor);
     let int separator = peek(cursor);
@@ -638,7 +638,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       // first_wins intentionally does not append or replace.
     else
       let int index = members.length;
-      members.push(new WireMember(key, field_value));
+      members.add(new WireMember(key, field_value));
       remember_member(buckets, key, index);
     fi
 
@@ -1314,7 +1314,7 @@ pub fnc feed(
   done
 
   for const byte of chunk do
-    decoder.buffer.push(byte);
+    decoder.buffer.add(byte);
   done
 
   let int scan_status = scan_incremental(decoder);
