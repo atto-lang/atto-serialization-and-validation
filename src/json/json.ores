@@ -746,6 +746,10 @@ pub fnc decode_attempt(
     byte_index = byte_index + 1;
   done
 
+  // The cursor owns the input and options after construction. Preserve only
+  // immutable scalar facts required by the trailing-data check.
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
   let JsonCursor cursor = new JsonCursor(
     input,
     options,
@@ -767,7 +771,7 @@ pub fnc decode_attempt(
 
   skip_whitespace(cursor);
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !allow_trailing_data && cursor.index != input_length then
     return new DecodeAttempt(
       2,
       value_null(),
