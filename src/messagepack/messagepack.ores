@@ -165,7 +165,7 @@ fnc read_bytes(
   int limit,
   String limit_code
 ): List<int> {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   if length < 0 then
     cursor_fail(cursor, "invalid_length", "negative MessagePack length");
@@ -229,7 +229,7 @@ fnc remember_map_entry(
     return;
   fi
 
-  let List<int> candidates = new List<int>();
+  val List<int> candidates = new List<int>();
   candidates.add(index);
   buckets.set(hash, candidates);
   return;
@@ -284,7 +284,7 @@ fnc decode_array(
   int count,
   int depth
 ): Value {
-  let List<Value> values = new List<Value>();
+  val List<Value> values = new List<Value>();
 
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
@@ -314,7 +314,7 @@ fnc decode_map(
   int count,
   int depth
 ): Value {
-  let List<MapEntry> entries = new List<MapEntry>();
+  val List<MapEntry> entries = new List<MapEntry>();
   let Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
 
@@ -361,7 +361,7 @@ fnc decode_map(
   done
 
   if all_text_keys then
-    let List<WireMember> members = new List<WireMember>();
+    val List<WireMember> members = new List<WireMember>();
     for const entry of entries do
       members.add(new WireMember(entry.key.string_value, entry.value));
     done
@@ -656,7 +656,7 @@ fnc append_signed64(
   MsgpackWriter mut writer,
   int value
 ): void {
-  let List<int> reversed = new List<int>();
+  val List<int> reversed = new List<int>();
   let int current = value;
   let int i = 0;
 
@@ -920,7 +920,7 @@ fnc encode_value(
   fi
 
   if value.kind == 6 then
-    let List<MapEntry> object_entries = new List<MapEntry>();
+    val List<MapEntry> object_entries = new List<MapEntry>();
     for const member of value.object_value do
       object_entries.add(new MapEntry(value_string(member.key), member.value));
     done
