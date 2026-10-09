@@ -118,10 +118,10 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
 
   if value == 0 then
     output.add(48);
-    return output;
-  fi
-
-  let int current = value;
+  else
+    // Single ownership exit: do not transfer output in one branch and
+    // subsequently use it on a different control-flow path.
+    let int current = value;
   if current < 0 then
     output.add(45);
   fi
@@ -149,6 +149,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
     output.add(reversed[i]);
     i = i - 1;
   done
+  fi
 
   return output;
 }
