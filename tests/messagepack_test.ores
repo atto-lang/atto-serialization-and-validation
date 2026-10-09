@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc value_int, value_bool, value_string, value_array, value_object, value_deep_equal from '../src/core/value';
+import fnc value_int, value_bool, value_string, value_array, value_object, value_deep_equal, value_lookup_path from '../src/core/value';
 import class DecodeError, EncodeError, DecodedValue from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import fnc encode, decode from '../src/messagepack/messagepack';
@@ -95,6 +95,25 @@ pub fnc run_messagepack_tests(): void {
     value_deep_equal(value_int(max_int), max_decoded.unwrap().value),
     "MessagePack int64 maximum must round-trip"
   );
+
+
+  // MessagePack non-string-key map of map of array: {1:{2:[true]}}.
+  val Result<DecodedValue, DecodeError> deep_dynamic = decode(
+    new List<int>(129, 1, 129, 2, 145, 195),
+    default_decode_options()
+  );
+  require_true(!deep_dynamic.is_err(), "nested MessagePack dynamic map must decode");
+
+  let List<Value> deep_path = new List<Value>();
+  deep_path.push(value_int(1));
+  deep_path.push(value_int(2));
+  deep_path.push(value_int(0));
+  val Result<Value, String> deep_leaf = value_lookup_path(
+    deep_dynamic.unwrap().value,
+    deep_path
+  );
+  require_true(!deep_leaf.is_err(), "nested MessagePack non-string map keys must resolve");
+  require_true(deep_leaf.unwrap().bool_value, "nested MessagePack array boolean value");
 
   return;
 }
