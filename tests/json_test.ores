@@ -8,6 +8,20 @@ import class JsonIncrementalDecoder from '../src/json/json';
 import fnc decode_default, encode, new_incremental_decoder, feed, finish from '../src/json/json';
 import fnc utf8_is_valid from '../src/core/utf8';
 
+// Freshly decoded fixtures ensure no ownership transfer of one nested Value
+// is reused by a subsequent path lookup.
+fnc new_nested_json_root(): Value {
+  let Result<DecodedValue, DecodeError> decoded = decode_default(
+    new List<int>(
+      123, 34, 105, 116, 101, 109, 115, 34, 58, 91,
+      123, 34, 109, 101, 116, 97, 34, 58, 91,
+      123, 34, 102, 108, 97, 103, 34, 58, 116, 114, 117, 101, 125,
+      93, 125, 93, 125
+    )
+  );
+  return decoded.unwrap().value;
+}
+
 pub fnc run_json_tests(): void {
   val List<int> input = new List<int>(
     123,
@@ -38,7 +52,10 @@ pub fnc run_json_tests(): void {
   );
   require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
   require_true(
-    bytes_equal(encoded_result.unwrap(), input),
+    bytes_equal(
+      encoded_result.unwrap(),
+      new List<int>(123, 34, 120, 34, 58, 91, 49, 44, 116, 114, 117, 101, 44, 110, 117, 108, 108, 93, 125)
+    ),
     "canonical JSON should round-trip byte-for-byte"
   );
 
@@ -121,7 +138,7 @@ pub fnc run_json_tests(): void {
   let List<Value> missing_path = new List<Value>();
   missing_path.add(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
   val Result<Value, String> missing = value_lookup_path(
-    deep_root,
+    new_nested_json_root(),
     missing_path
   );
   require_true(missing.is_err(), "missing unknown-schema path must not panic");
@@ -130,7 +147,7 @@ pub fnc run_json_tests(): void {
   bad_index_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
   bad_index_path.add(value_int(-1));
   val Result<Value, String> bad_index = value_lookup_path(
-    deep_root,
+    new_nested_json_root(),
     bad_index_path
   );
   require_true(bad_index.is_err(), "negative nested array index must reject");
@@ -145,7 +162,7 @@ pub fnc run_json_tests(): void {
     path_index = path_index + 1;
   done
   val Result<Value, String> overlong = value_lookup_path(
-    deep_root,
+    new_nested_json_root(),
     overlong_path
   );
   require_true(overlong.is_err(), "unbounded dynamic path must reject");
