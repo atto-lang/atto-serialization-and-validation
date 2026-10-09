@@ -310,7 +310,7 @@ fnc config_report(
 }
 
 fnc object_schema_valid(ObjectSchema schema): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -742,7 +742,7 @@ fnc validate_unique(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
-  let Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
 
   for const item of value.array_value do
     let int hash = value_hash(item);
