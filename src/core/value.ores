@@ -3,26 +3,26 @@
 // Oreslang userland is pointer-free: ordinary object arguments are references.
 // No address-of, dereference, or pointer arithmetic is used in this library.
 
-define class Utf8Text as
+pub define class Utf8Text as
   pub val List<int> bytes;
 end
 
-define class WireMember as
+pub define class WireMember as
   pub val Utf8Text key;
   pub val Value value;
 end
 
-define class MapEntry as
+pub define class MapEntry as
   pub val Value key;
   pub val Value value;
 end
 
-define class IntParse as
+pub define class IntParse as
   pub val bool ok;
   pub val int value;
 end
 
-define class Value as
+pub define class Value as
   // kind:
   // 0 null, 1 bool, 2 number, 3 utf8 string, 4 bytes,
   // 5 array, 6 string-key object, 7 extension, 8 general map.
