@@ -69,6 +69,19 @@ pub fnc codec_type(
 pub fnc check_metadata(
   CodecTypeMeta metadata
 ): MetadataCheck {
+  if metadata.type_name.bytes.length == 0 ||
+     !utf8_is_valid(metadata.type_name.bytes) then
+    return new MetadataCheck(
+      false,
+      metadata,
+      new MetadataError(
+        "invalid_type_name",
+        -1,
+        "codec type name must be non-empty valid UTF-8"
+      )
+    );
+  fi
+
   if metadata.unknown_field_policy < 0 || metadata.unknown_field_policy > 2 then
     return new MetadataCheck(
       false,
