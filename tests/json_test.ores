@@ -105,11 +105,11 @@ pub fnc run_json_tests(): void {
   val Value deep_root = deep_dynamic.unwrap().value;
 
   let List<Value> deep_path = new List<Value>();
-  deep_path.push(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
-  deep_path.push(value_int(0));
-  deep_path.push(value_string(new Utf8Text(new List<int>(109, 101, 116, 97))));
-  deep_path.push(value_int(0));
-  deep_path.push(value_string(new Utf8Text(new List<int>(102, 108, 97, 103))));
+  deep_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
+  deep_path.add(value_int(0));
+  deep_path.add(value_string(new Utf8Text(new List<int>(109, 101, 116, 97))));
+  deep_path.add(value_int(0));
+  deep_path.add(value_string(new Utf8Text(new List<int>(102, 108, 97, 103))));
 
   val Result<Value, String> dynamic_leaf = value_lookup_path(
     deep_root,
@@ -119,7 +119,7 @@ pub fnc run_json_tests(): void {
   require_true(dynamic_leaf.unwrap().bool_value, "nested JSON boolean payload");
 
   let List<Value> missing_path = new List<Value>();
-  missing_path.push(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
+  missing_path.add(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
   val Result<Value, String> missing = value_lookup_path(
     deep_root,
     missing_path
@@ -127,8 +127,8 @@ pub fnc run_json_tests(): void {
   require_true(missing.is_err(), "missing unknown-schema path must not panic");
 
   let List<Value> bad_index_path = new List<Value>();
-  bad_index_path.push(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
-  bad_index_path.push(value_int(-1));
+  bad_index_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
+  bad_index_path.add(value_int(-1));
   val Result<Value, String> bad_index = value_lookup_path(
     deep_root,
     bad_index_path
@@ -141,7 +141,7 @@ pub fnc run_json_tests(): void {
     if path_index >= 129 then
       break;
     fi
-    overlong_path.push(value_int(0));
+    overlong_path.add(value_int(0));
     path_index = path_index + 1;
   done
   val Result<Value, String> overlong = value_lookup_path(
