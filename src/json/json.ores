@@ -186,7 +186,7 @@ fnc read_hex4(JsonCursor mut cursor): int {
 }
 
 fnc parse_string(JsonCursor mut cursor): Utf8Text {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   expect_byte(cursor, 34, "expected opening quote");
   if cursor.failed || cursor.incomplete then
@@ -357,7 +357,7 @@ fnc parse_literal(
 }
 
 fnc parse_number(JsonCursor mut cursor): Value {
-  let List<int> lexeme = new List<int>();
+  val List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
     lexeme.add(45);
@@ -502,7 +502,7 @@ fnc remember_member(
     return;
   fi
 
-  let List<int> candidates = new List<int>();
+  val List<int> candidates = new List<int>();
   candidates.add(index);
   buckets.set(hash, candidates);
   return;
@@ -531,7 +531,7 @@ fnc object_keys_unique(List<WireMember> members): bool {
 
 
 fnc parse_array(JsonCursor mut cursor, int depth): Value {
-  let List<Value> values = new List<Value>();
+  val List<Value> values = new List<Value>();
 
   expect_byte(cursor, 91, "expected '['");
   if cursor.failed || cursor.incomplete then
@@ -582,7 +582,7 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 }
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   let Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(cursor, 123, "expected '{'");
