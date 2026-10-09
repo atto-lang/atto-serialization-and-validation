@@ -51,5 +51,24 @@ pub fnc run_metadata_tests(): void {
   );
 
   require_true(bad.is_err(), "duplicate field numbers must reject");
+
+  val Result<CodecTypeMeta, MetadataError> empty_type_name = validate_metadata(
+    codec_type(
+      new Utf8Text(new List<int>()),
+      new List<CodecFieldMeta>(),
+      0
+    )
+  );
+  require_true(empty_type_name.is_err(), "empty static type name must reject");
+
+  val Result<CodecTypeMeta, MetadataError> invalid_type_utf8 = validate_metadata(
+    codec_type(
+      new Utf8Text(new List<int>(192, 128)),
+      new List<CodecFieldMeta>(),
+      0
+    )
+  );
+  require_true(invalid_type_utf8.is_err(), "invalid UTF-8 static type name must reject");
+
   return;
 }
