@@ -10,7 +10,7 @@ import class DecodedObject, ObjectCodecError from '../src/schema/object_codec';
 import fnc decode_json_object from '../src/schema/object_codec';
 
 pub fnc run_object_codec_tests(): void {
-  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
 
   fields.add(
     codec_field(

@@ -53,7 +53,7 @@ fnc empty_validation_report(): ValidationReport {
 }
 
 fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
-  let List<FieldRule> fields = new List<FieldRule>();
+  val List<FieldRule> fields = new List<FieldRule>();
 
   for const field of metadata.fields do
     fields.add(
@@ -76,7 +76,7 @@ fnc source_object(
   Value wire_object,
   CodecTypeMeta metadata
 ): Value {
-  let List<WireMember> output = new List<WireMember>();
+  val List<WireMember> output = new List<WireMember>();
 
   for const member of wire_object.object_value do
     let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
@@ -104,7 +104,7 @@ fnc unknown_object(
   Value wire_object,
   CodecTypeMeta metadata
 ): Value {
-  let List<WireMember> output = new List<WireMember>();
+  val List<WireMember> output = new List<WireMember>();
 
   if metadata.unknown_field_policy != 2 then
     return value_object(output);

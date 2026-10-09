@@ -7,7 +7,7 @@ import fnc default_decode_options, default_encode_options from '../src/core/opti
 import fnc encode, decode from '../src/cbor/cbor';
 
 pub fnc run_cbor_tests(): void {
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
       new Utf8Text(new List<int>(110)),

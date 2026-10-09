@@ -157,7 +157,7 @@ fnc read_u8(ProtoCursor mut cursor): int {
 }
 
 fnc read_varint(ProtoCursor mut cursor): VarintRead {
-  let List<int> bytes = new List<int>();
+  val List<int> bytes = new List<int>();
   let int value = 0;
   let int multiplier = 1;
   let bool fits_int = true;
@@ -247,7 +247,7 @@ fnc read_payload(
   int limit,
   String code
 ): List<int> {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   if length < 0 then
     cursor_fail(cursor, "invalid_length", "negative Protobuf length");
@@ -301,7 +301,7 @@ pub fnc decode_message(
     empty_error()
   );
 
-  let List<ProtoField> fields = new List<ProtoField>();
+  val List<ProtoField> fields = new List<ProtoField>();
 
   loop do
     if cursor.index >= input.length then
@@ -546,7 +546,7 @@ pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
 ): List<ProtoField> {
-  let List<ProtoField> fields = new List<ProtoField>();
+  val List<ProtoField> fields = new List<ProtoField>();
 
   for const field of message.fields do
     if field.field_number == field_number then

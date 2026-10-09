@@ -6,7 +6,7 @@ import class CodecFieldMeta, CodecTypeMeta, MetadataError from '../src/schema/me
 import fnc codec_field, codec_type, validate_metadata, field_by_number from '../src/schema/metadata';
 
 pub fnc run_metadata_tests(): void {
-  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
   fields.add(
     codec_field(
       new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101)),
@@ -30,7 +30,7 @@ pub fnc run_metadata_tests(): void {
   require_true(field.is_err() == false, "field number lookup must succeed");
   require_int(field.unwrap().field_number, 1, "field number lookup result");
 
-  let List<CodecFieldMeta> duplicates = new List<CodecFieldMeta>();
+  val List<CodecFieldMeta> duplicates = new List<CodecFieldMeta>();
   duplicates.add(fields[0]);
   duplicates.add(
     codec_field(

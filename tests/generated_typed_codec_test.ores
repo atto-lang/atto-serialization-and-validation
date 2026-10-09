@@ -20,7 +20,7 @@ define class User as
 end
 
 fnc user_metadata(): CodecTypeMeta {
-  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
 
   fields.add(
     codec_field(
@@ -89,7 +89,7 @@ fnc decode_user(
   let IntParse age = parse_int(age_wire);
 
   if name.kind != 3 || !age.ok then
-    let List<ValidationError> errors = new List<ValidationError>();
+    val List<ValidationError> errors = new List<ValidationError>();
     errors.add(
       new ValidationError(
         "typed_conversion",
@@ -114,7 +114,7 @@ fnc decode_user(
 
 // Representative compiler-generated typed encoder.
 fnc encode_user(User user): Result<List<int>, EncodeError> {
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
 
   members.add(
     new WireMember(

@@ -7,11 +7,11 @@ import fnc default_decode_options, default_encode_options from '../src/core/opti
 import fnc encode, decode from '../src/messagepack/messagepack';
 
 pub fnc run_messagepack_tests(): void {
-  let List<Value> values = new List<Value>();
+  val List<Value> values = new List<Value>();
   values.add(value_int(7));
   values.add(value_bool(true));
 
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
       new Utf8Text(new List<int>(120)),

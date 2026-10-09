@@ -154,7 +154,7 @@ fnc read_bytes(
   int limit,
   String code
 ): List<int> {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   if length < 0 then
     cursor_fail(cursor, "invalid_length", "negative CBOR length");
@@ -195,7 +195,7 @@ fnc map_entry_index(
     return -1;
   fi
 
-  let List<int> candidates = buckets.get(hash);
+  val List<int> candidates = buckets.get(hash);
   for const index of candidates do
     if value_deep_equal(entries[index].key, key) then
       return index;
@@ -213,19 +213,19 @@ fnc remember_map_entry(
   let int hash = value_hash(key);
 
   if buckets.contains(hash) then
-    let List<int> candidates = buckets.get(hash);
+    val List<int> candidates = buckets.get(hash);
     candidates.add(index);
     return;
   fi
 
-  let List<int> candidates = new List<int>();
+  val List<int> candidates = new List<int>();
   candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
 
 fnc map_keys_unique(List<MapEntry> entries): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -273,7 +273,7 @@ fnc decode_array(
   int count,
   int depth
 ): Value {
-  let List<Value> values = new List<Value>();
+  val List<Value> values = new List<Value>();
 
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "CBOR array exceeds max_array_entries");
@@ -303,8 +303,8 @@ fnc decode_map(
   int count,
   int depth
 ): Value {
-  let List<MapEntry> entries = new List<MapEntry>();
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val List<MapEntry> entries = new List<MapEntry>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
 
   if count > cursor.options.max_map_entries then
@@ -350,7 +350,7 @@ fnc decode_map(
   done
 
   if all_text_keys then
-    let List<WireMember> members = new List<WireMember>();
+    val List<WireMember> members = new List<WireMember>();
     for const entry of entries do
       members.add(new WireMember(entry.key.string_value, entry.value));
     done
@@ -673,7 +673,7 @@ fnc encode_value(
   fi
 
   if value.kind == 6 then
-    let List<MapEntry> object_entries = new List<MapEntry>();
+    val List<MapEntry> object_entries = new List<MapEntry>();
     for const member of value.object_value do
       object_entries.add(new MapEntry(value_string(member.key), member.value));
     done
