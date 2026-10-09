@@ -297,7 +297,7 @@ fnc config_report(
   String code,
   String message
 ): ValidationReport {
-  let List<ValidationError> errors = new List<ValidationError>();
+  val List<ValidationError> errors = new List<ValidationError>();
   errors.add(
     new ValidationError(
       code,
@@ -338,7 +338,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
       done
       candidates.add(i);
     else
-      let List<int> candidates = new List<int>();
+      val List<int> candidates = new List<int>();
       candidates.add(i);
       buckets.set(hash, candidates);
     fi
@@ -354,13 +354,13 @@ fnc empty_key(): Utf8Text {
 }
 
 fnc key_path(Utf8Text key): List<PathSegment> {
-  let List<PathSegment> path = new List<PathSegment>();
+  val List<PathSegment> path = new List<PathSegment>();
   path.add(new PathSegment(1, key, -1));
   return path;
 }
 
 fnc index_path(int index): List<PathSegment> {
-  let List<PathSegment> path = new List<PathSegment>();
+  val List<PathSegment> path = new List<PathSegment>();
   path.add(new PathSegment(2, empty_key(), index));
   return path;
 }
@@ -763,7 +763,7 @@ fnc validate_unique(
       done
       candidates.add(item);
     else
-      let List<Value> candidates = new List<Value>();
+      val List<Value> candidates = new List<Value>();
       candidates.add(item);
       buckets.set(hash, candidates);
     fi
