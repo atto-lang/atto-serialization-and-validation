@@ -1078,6 +1078,34 @@ pub fnc new_incremental_decoder(
   );
 }
 
+// Check a UTF-8 scalar directly in the buffered wire bytes. An incomplete
+// prefix keeps scan_index at its lead byte so the next feed can resume without
+// rescanning the entire input (at most four bytes are revisited).
+// 0 = need more, 1 = valid scalar consumed, 2 = malformed scalar.
+fnc scan_utf8_scalar(JsonIncrementalDecoder mut decoder): int {
+  let int width = utf8_expected_width(decoder.buffer[decoder.scan_index]);
+  if width < 2 then
+    return 2;
+  fi
+
+  let int status = utf8_prefix_status(
+    decoder.buffer,
+    decoder.scan_index,
+    width
+  );
+
+  if status == 0 then
+    return 2;
+  fi
+
+  if status == 1 then
+    return 0;
+  fi
+
+  decoder.scan_index = decoder.scan_index + width;
+  return 1;
+}
+
 fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
   // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
   loop do
@@ -1133,6 +1161,18 @@ fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
     fi
 
     if decoder.mode == 1 then
+      if decoder.in_string && !decoder.escaped && byte >= 128 then
+        let int utf8_status = scan_utf8_scalar(decoder);
+        if utf8_status == 1 then
+          continue;
+        fi
+        return utf8_status == 2 ? 2 : 0;
+      fi
+
+      if decoder.in_string && !decoder.escaped && byte < 32 then
+        return 2;
+      fi
+
       if decoder.in_string then
         if decoder.escaped then
           decoder.escaped = false;
@@ -1163,6 +1203,18 @@ fnc scan_incremental(JsonIncrementalDecoder mut decoder): int {
     fi
 
     if decoder.mode == 2 then
+      if !decoder.escaped && byte >= 128 then
+        let int utf8_status = scan_utf8_scalar(decoder);
+        if utf8_status == 1 then
+          continue;
+        fi
+        return utf8_status == 2 ? 2 : 0;
+      fi
+
+      if !decoder.escaped && byte < 32 then
+        return 2;
+      fi
+
       if decoder.escaped then
         decoder.escaped = false;
       elseif byte == 92 then
