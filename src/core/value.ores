@@ -683,7 +683,7 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     return object_get(container, key.string_value);
   elseif container.kind == 8 then
     for const entry of container.map_value do
-      if value_deep_equal(entry.key, rt borrow key) then
+      if value_deep_equal(entry.key, rt copy key) then
         return Ok(entry.value);
       fi
     done
