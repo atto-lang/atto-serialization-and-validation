@@ -11,7 +11,7 @@ import class ValueRule from '../validation/validation';
 import fnc value_rule_valid from '../validation/validation';
 import fnc utf8_is_valid from '../core/utf8';
 
-define class CodecFieldMeta as
+pub define class CodecFieldMeta as
   pub val Utf8Text source_name;
   pub val Utf8Text wire_name;
   pub val int field_number;
@@ -19,19 +19,19 @@ define class CodecFieldMeta as
   pub val ValueRule validation;
 end
 
-define class CodecTypeMeta as
+pub define class CodecTypeMeta as
   pub val Utf8Text type_name;
   pub val List<CodecFieldMeta> fields;
   pub val int unknown_field_policy;
 end
 
-define class MetadataError as
+pub define class MetadataError as
   pub val String code;
   pub val int field_index;
   pub val String message;
 end
 
-define class MetadataCheck as
+pub define class MetadataCheck as
   pub val bool ok;
   pub val CodecTypeMeta metadata;
   pub val MetadataError error;

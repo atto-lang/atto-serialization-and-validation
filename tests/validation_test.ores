@@ -66,20 +66,20 @@ pub fnc run_validation_tests(): void {
     "object equality must ignore member order"
   );
 
-  let List<MapEntry> map_a_entries = new List<MapEntry>();
-  map_a_entries.push(new MapEntry(value_int(1), value_int(10)));
-  map_a_entries.push(new MapEntry(value_int(2), value_int(20)));
-  let List<MapEntry> map_b_entries = new List<MapEntry>();
-  map_b_entries.push(new MapEntry(value_int(2), value_int(20)));
-  map_b_entries.push(new MapEntry(value_int(1), value_int(10)));
+  val List<MapEntry> map_a_entries = new List<MapEntry>();
+  map_a_entries.add(new MapEntry(value_int(1), value_int(10)));
+  map_a_entries.add(new MapEntry(value_int(2), value_int(20)));
+  val List<MapEntry> map_b_entries = new List<MapEntry>();
+  map_b_entries.add(new MapEntry(value_int(2), value_int(20)));
+  map_b_entries.add(new MapEntry(value_int(1), value_int(10)));
   require_true(
     value_deep_equal(value_map(map_a_entries), value_map(map_b_entries)),
     "general map equality must ignore entry order"
   );
 
-  let List<Value> duplicate_objects = new List<Value>();
-  duplicate_objects.push(object_a);
-  duplicate_objects.push(object_b);
+  val List<Value> duplicate_objects = new List<Value>();
+  duplicate_objects.add(object_a);
+  duplicate_objects.add(object_b);
   val ValidationReport unique_report = validate_value(
     value_array(duplicate_objects),
     array_rule(-1, -1, true),

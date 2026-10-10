@@ -8,31 +8,31 @@ import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
-define class PathSegment as
+pub define class PathSegment as
   // kind: 0 root, 1 object key, 2 array index.
   pub val int kind;
   pub val Utf8Text key;
   pub val int index;
 end
 
-define class ValidationError as
+pub define class ValidationError as
   pub val String code;
   pub val List<PathSegment> path;
   pub val String message;
   pub val int source_offset;
 end
 
-define class ValidationOptions as
+pub define class ValidationOptions as
   pub val bool fail_fast;
   pub val int max_errors;
 end
 
-define class ValidationReport as
+pub define class ValidationReport as
   pub let List<ValidationError> errors;
   pub let bool truncated;
 end
 
-define class ValidValue as
+pub define class ValidValue as
   pub val Value value;
 end
 
@@ -41,7 +41,7 @@ define class ParsedNumber as
   pub val float value;
 end
 
-define class ValueRule as
+pub define class ValueRule as
   // expected_kind < 0 means any kind.
   pub val int expected_kind;
 
@@ -66,14 +66,14 @@ define class ValueRule as
   pub val bool max_exclusive;
 end
 
-define class FieldRule as
+pub define class FieldRule as
   pub val Utf8Text key;
   pub val bool required;
   pub val bool forbidden;
   pub val ValueRule value_rule;
 end
 
-define class ObjectSchema as
+pub define class ObjectSchema as
   pub val List<FieldRule> fields;
   pub val bool reject_unknown_fields;
 end
@@ -305,8 +305,8 @@ fnc config_report(
   String code,
   String message
 ): ValidationReport {
-  let List<ValidationError> errors = new List<ValidationError>();
-  errors.push(
+  val List<ValidationError> errors = new List<ValidationError>();
+  errors.add(
     new ValidationError(
       code,
       new List<PathSegment>(),
@@ -330,7 +330,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     return false;
   fi
 
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -355,16 +355,16 @@ fnc object_schema_valid(ObjectSchema schema): bool {
 
     let int hash = text_hash(field.key);
     if buckets.contains(hash) then
-      let List<int> candidates = buckets.get(hash);
+      val List<int> candidates = buckets.get(hash);
       for const index of candidates do
         if text_equal(schema.fields[index].key, field.key) then
           return false;
         fi
       done
-      candidates.push(i);
+      candidates.add(i);
     else
-      let List<int> candidates = new List<int>();
-      candidates.push(i);
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
       buckets.set(hash, candidates);
     fi
 
@@ -379,14 +379,14 @@ fnc empty_key(): Utf8Text {
 }
 
 fnc key_path(Utf8Text key): List<PathSegment> {
-  let List<PathSegment> path = new List<PathSegment>();
-  path.push(new PathSegment(1, key, -1));
+  val List<PathSegment> path = new List<PathSegment>();
+  path.add(new PathSegment(1, key, -1));
   return path;
 }
 
 fnc index_path(int index): List<PathSegment> {
-  let List<PathSegment> path = new List<PathSegment>();
-  path.push(new PathSegment(2, empty_key(), index));
+  val List<PathSegment> path = new List<PathSegment>();
+  path.add(new PathSegment(2, empty_key(), index));
   return path;
 }
 
@@ -407,7 +407,7 @@ fnc add_error(
     return;
   fi
 
-  report.errors.push(new ValidationError(code, path, message, -1));
+  report.errors.add(new ValidationError(code, path, message, -1));
   return;
 }
 
@@ -771,13 +771,13 @@ fnc validate_unique(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
-  let Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
 
   for const item of value.array_value do
     let int hash = value_hash(item);
 
     if buckets.contains(hash) then
-      let List<Value> candidates = buckets.get(hash);
+      val List<Value> candidates = buckets.get(hash);
       for const candidate of candidates do
         if value_deep_equal(candidate, item) then
           add_error(
@@ -790,10 +790,10 @@ fnc validate_unique(
           return;
         fi
       done
-      candidates.push(item);
+      candidates.add(item);
     else
-      let List<Value> candidates = new List<Value>();
-      candidates.push(item);
+      val List<Value> candidates = new List<Value>();
+      candidates.add(item);
       buckets.set(hash, candidates);
     fi
   done

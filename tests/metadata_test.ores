@@ -6,8 +6,8 @@ import class CodecFieldMeta, CodecTypeMeta, MetadataError from '../src/schema/me
 import fnc codec_field, codec_type, validate_metadata, field_by_number, max_codec_fields from '../src/schema/metadata';
 
 pub fnc run_metadata_tests(): void {
-  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
-  fields.push(
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.add(
     codec_field(
       new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101)),
       new Utf8Text(new List<int>(117, 115, 101, 114, 95, 110, 97, 109, 101)),

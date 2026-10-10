@@ -2,7 +2,7 @@
 
 import class Value from './value';
 
-define class DecodeOptions as
+pub define class DecodeOptions as
   // duplicate_key_policy: 0 reject, 1 first_wins, 2 last_wins.
   pub val int duplicate_key_policy;
   pub val bool allow_trailing_data;
@@ -15,28 +15,28 @@ define class DecodeOptions as
   pub val int max_map_entries;
 end
 
-define class EncodeOptions as
+pub define class EncodeOptions as
   pub val int max_depth;
   pub val int max_output_bytes;
 end
 
-define class DecodeError as
+pub define class DecodeError as
   pub val String code;
   pub val int offset;
   pub val String message;
 end
 
-define class EncodeError as
+pub define class EncodeError as
   pub val String code;
   pub val String message;
 end
 
-define class DecodedValue as
+pub define class DecodedValue as
   pub val Value value;
   pub val int consumed;
 end
 
-define class DecodeAttempt as
+pub define class DecodeAttempt as
   // status: 0 ready, 1 need_more, 2 failed.
   pub val int status;
   pub val Value value;
@@ -44,7 +44,7 @@ define class DecodeAttempt as
   pub val DecodeError error;
 end
 
-define class DecodeStep as
+pub define class DecodeStep as
   // status: 0 need_more, 1 value_ready, 2 failed.
   pub val int status;
   pub val Value value;

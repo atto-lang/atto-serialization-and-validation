@@ -38,7 +38,11 @@ pub fnc run_json_tests(): void {
   );
   require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
   require_true(
-    bytes_equal(encoded_result.unwrap(), input),
+    bytes_equal(
+      encoded_result.unwrap(),
+      new List<int>(123, 34, 120, 34, 58, 91, 49, 44,
+        116, 114, 117, 101, 44, 110, 117, 108, 108, 93, 125)
+    ),
     "canonical JSON should round-trip byte-for-byte"
   );
 
@@ -87,7 +91,7 @@ pub fnc run_json_tests(): void {
   val DecodeStep number_finished = number_decoder.finish();
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
-  let JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
+  val JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     new List<int>(34, 226, 40)
   );

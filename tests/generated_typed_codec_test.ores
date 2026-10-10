@@ -20,7 +20,7 @@ define class User as
 end
 
 fnc user_metadata(): CodecTypeMeta {
-  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
   fields.push(codec_field(
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101)),
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
@@ -78,7 +78,7 @@ fnc decode_user(List<int> input): Result<User, ObjectCodecError> {
 }
 
 fnc encode_user(User user): Result<List<int>, EncodeError> {
-  let List<WireMember> members = new List<WireMember>();
+  val List<WireMember> members = new List<WireMember>();
   members.push(new WireMember(
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
     value_string(user.display_name)

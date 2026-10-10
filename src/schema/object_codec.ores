@@ -15,7 +15,7 @@ import fnc field_rule, object_schema, validate_object, report_is_valid from '../
 import class CodecFieldMeta, CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
 import fnc check_metadata, field_by_wire_name from './metadata';
 
-define class ObjectCodecError as
+pub define class ObjectCodecError as
   // kind: 0 metadata, 1 decode, 2 validation.
   pub val int kind;
   pub val MetadataError metadata_error;
@@ -23,14 +23,14 @@ define class ObjectCodecError as
   pub val ValidationReport validation_report;
 end
 
-define class DecodedObject as
+pub define class DecodedObject as
   pub val Value source_object;
   pub val Value wire_object;
   pub val Value unknown_object;
   pub val int consumed;
 end
 
-define class ObjectDecodeAttempt as
+pub define class ObjectDecodeAttempt as
   // status: 0 ready, 1 metadata failure, 2 decode failure, 3 validation failure.
   pub val int status;
   pub val DecodedObject decoded;
@@ -50,7 +50,7 @@ fnc empty_validation_report(): ValidationReport {
 }
 
 fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
-  let List<FieldRule> fields = new List<FieldRule>();
+  val List<FieldRule> fields = new List<FieldRule>();
   for const field of metadata.fields do
     fields.push(field_rule(
       field.wire_name,
@@ -63,7 +63,7 @@ fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
 }
 
 fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
-  let List<WireMember> output = new List<WireMember>();
+  val List<WireMember> output = new List<WireMember>();
   for const member of wire_object.object_value do
     let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
       rt borrow metadata,
@@ -79,7 +79,7 @@ fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
 }
 
 fnc unknown_object(Value wire_object, CodecTypeMeta metadata): Value {
-  let List<WireMember> output = new List<WireMember>();
+  val List<WireMember> output = new List<WireMember>();
   if metadata.unknown_field_policy != 2 then
     return value_object(output);
   fi
@@ -89,7 +89,7 @@ fnc unknown_object(Value wire_object, CodecTypeMeta metadata): Value {
       rt borrow member.key
     );
     if selected.is_err() then
-      output.push(member);
+      output.add(member);
     fi
   done
   return value_object(output);

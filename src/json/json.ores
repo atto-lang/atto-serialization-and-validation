@@ -27,7 +27,7 @@ define class JsonWriter as
   pub let EncodeError error;
 end
 
-define class JsonIncrementalDecoder as
+pub define class JsonIncrementalDecoder as
   pub let List<int> buffer;
   pub val DecodeOptions options;
   pub let bool complete;
@@ -395,7 +395,7 @@ fnc append_output(JsonWriter mut writer, int byte): void {
     writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
     return;
   fi
-  writer.output.push(byte);
+  writer.output.add(byte);
   return;
 }
 
@@ -427,7 +427,7 @@ fnc read_hex4(JsonCursor mut cursor): int {
 }
 
 fnc parse_string(JsonCursor mut cursor): Utf8Text {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   expect_byte(cursor, 34, "expected opening quote");
   if cursor.failed || cursor.incomplete then
@@ -470,17 +470,17 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       let int escaped = consume(cursor);
 
       if escaped == 34 || escaped == 92 || escaped == 47 then
-        output.push(escaped);
+        output.add(escaped);
       elseif escaped == 98 then
-        output.push(8);
+        output.add(8);
       elseif escaped == 102 then
-        output.push(12);
+        output.add(12);
       elseif escaped == 110 then
-        output.push(10);
+        output.add(10);
       elseif escaped == 114 then
-        output.push(13);
+        output.add(13);
       elseif escaped == 116 then
-        output.push(9);
+        output.add(9);
       elseif escaped == 117 then
         let int first = read_hex4(cursor);
         if cursor.failed || cursor.incomplete then
@@ -533,7 +533,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
     elseif byte < 128 then
-      output.push(byte);
+      output.add(byte);
     else
       // consume() already advanced over the first byte; validate against the
       // original source starting one byte earlier and copy the remaining bytes.
@@ -568,13 +568,13 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
 
-      output.push(byte);
+      output.add(byte);
       let int j = 1;
       loop do
         if j >= width then
           break;
         fi
-        output.push(cursor.input[start + j]);
+        output.add(cursor.input[start + j]);
         j = j + 1;
       done
       cursor.index = start + width;
@@ -632,7 +632,7 @@ fnc push_number_byte(
 }
 
 fnc parse_number(JsonCursor mut cursor): Value {
-  let List<int> lexeme = new List<int>();
+  val List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
     if !push_number_byte(cursor, lexeme, 45) then
@@ -770,7 +770,7 @@ fnc member_index(
     return -1;
   fi
 
-  let List<int> candidates = buckets.get(hash);
+  val List<int> candidates = buckets.get(hash);
   for const index of candidates do
     if bytes_equal(members[index].key.bytes, key.bytes) then
       return index;
@@ -788,19 +788,19 @@ fnc remember_member(
   let int hash = text_hash(key);
 
   if buckets.contains(hash) then
-    let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    val List<int> candidates = buckets.get(hash);
+    candidates.add(index);
     return;
   fi
 
-  let List<int> candidates = new List<int>();
-  candidates.push(index);
+  val List<int> candidates = new List<int>();
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
 
 fnc object_keys_unique(List<WireMember> members): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   loop do
@@ -822,7 +822,7 @@ fnc object_keys_unique(List<WireMember> members): bool {
 
 
 fnc parse_array(JsonCursor mut cursor, int depth): Value {
-  let List<Value> values = new List<Value>();
+  val List<Value> values = new List<Value>();
 
   expect_byte(cursor, 91, "expected '['");
   if cursor.failed || cursor.incomplete then
@@ -846,7 +846,7 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
     if cursor.failed || cursor.incomplete then
       return value_array(values);
     fi
-    values.push(item);
+    values.add(item);
 
     skip_whitespace(cursor);
     let int separator = peek(cursor);
@@ -873,8 +873,8 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 }
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
-  let List<WireMember> members = new List<WireMember>();
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+  val List<WireMember> members = new List<WireMember>();
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
@@ -929,7 +929,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       // first_wins intentionally does not append or replace.
     else
       let int index = members.length;
-      members.push(new WireMember(key, field_value));
+      members.add(new WireMember(key, field_value));
       remember_member(buckets, key, index);
     fi
 
@@ -1037,6 +1037,10 @@ pub fnc decode_attempt(
     byte_index = byte_index + 1;
   done
 
+  // The cursor owns the input and options after construction. Preserve only
+  // immutable scalar facts required by the trailing-data check.
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
   let JsonCursor cursor = new JsonCursor(
     input,
     options,
@@ -1058,7 +1062,7 @@ pub fnc decode_attempt(
 
   skip_whitespace(cursor);
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !allow_trailing_data && cursor.index != input_length then
     return new DecodeAttempt(
       2,
       value_null(),

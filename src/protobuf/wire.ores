@@ -7,7 +7,7 @@ import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 // dispatch these fields directly into Oreslang classes/structs. Unknown varints
 // retain their exact raw bytes, including uint64 values above signed int max.
 
-define class ProtoField as
+pub define class ProtoField as
   pub val int field_number;
   pub val int wire_type;
 
@@ -22,7 +22,7 @@ define class ProtoField as
   pub val List<int> payload;
 end
 
-define class ProtoMessage as
+pub define class ProtoMessage as
   pub val List<ProtoField> fields;
 end
 
@@ -36,7 +36,7 @@ define class ProtoEncodeOptions as
   pub val int max_output_bytes;
 end
 
-define class ProtoError as
+pub define class ProtoError as
   pub val String code;
   pub val int offset;
   pub val String message;
@@ -157,7 +157,7 @@ fnc read_u8(ProtoCursor mut cursor): int {
 }
 
 fnc read_varint(ProtoCursor mut cursor): VarintRead {
-  let List<int> bytes = new List<int>();
+  val List<int> bytes = new List<int>();
   let int value = 0;
   let int multiplier = 1;
   let bool fits_int = true;
@@ -174,7 +174,7 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
       return new VarintRead(false, false, 0, bytes);
     fi
 
-    bytes.push(byte);
+    bytes.add(byte);
     let int payload = byte % 128;
 
     if count < 9 && fits_int then
@@ -247,7 +247,7 @@ fnc read_payload(
   int limit,
   String code
 ): List<int> {
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   if length < 0 then
     cursor_fail(cursor, "invalid_length", "negative Protobuf length");
@@ -269,7 +269,7 @@ fnc read_payload(
     if i >= length then
       break;
     fi
-    output.push(cursor.input[cursor.index + i]);
+    output.add(cursor.input[cursor.index + i]);
     i = i + 1;
   done
 
@@ -301,7 +301,7 @@ pub fnc decode_message(
     empty_error()
   );
 
-  let List<ProtoField> fields = new List<ProtoField>();
+  val List<ProtoField> fields = new List<ProtoField>();
 
   loop do
     if cursor.index >= input.length then
@@ -332,7 +332,7 @@ pub fnc decode_message(
       if cursor.failed || !value.ok then
         return Err(cursor.error);
       fi
-      fields.push(
+      fields.add(
         new ProtoField(
           field_number,
           0,
@@ -346,7 +346,7 @@ pub fnc decode_message(
       if cursor.failed then
         return Err(cursor.error);
       fi
-      fields.push(new ProtoField(field_number, 1, false, 0, payload));
+      fields.add(new ProtoField(field_number, 1, false, 0, payload));
     elseif wire_type == 2 then
       let VarintRead length = read_varint(cursor);
       if cursor.failed || !length.ok then
@@ -365,13 +365,13 @@ pub fnc decode_message(
       if cursor.failed then
         return Err(cursor.error);
       fi
-      fields.push(new ProtoField(field_number, 2, false, 0, payload));
+      fields.add(new ProtoField(field_number, 2, false, 0, payload));
     elseif wire_type == 5 then
       let List<int> payload = read_payload(cursor, 4, 4, "fixed32_length");
       if cursor.failed then
         return Err(cursor.error);
       fi
-      fields.push(new ProtoField(field_number, 5, false, 0, payload));
+      fields.add(new ProtoField(field_number, 5, false, 0, payload));
     else
       return Err(
         new ProtoError(
@@ -404,7 +404,7 @@ fnc append_byte(
     return;
   fi
 
-  writer.output.push(byte);
+  writer.output.add(byte);
   return;
 }
 
@@ -546,11 +546,11 @@ pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
 ): List<ProtoField> {
-  let List<ProtoField> fields = new List<ProtoField>();
+  val List<ProtoField> fields = new List<ProtoField>();
 
   for const field of message.fields do
     if field.field_number == field_number then
-      fields.push(field);
+      fields.add(field);
     fi
   done
 

@@ -3,26 +3,26 @@
 // Oreslang userland is pointer-free: ordinary object arguments are references.
 // No address-of, dereference, or pointer arithmetic is used in this library.
 
-define class Utf8Text as
+pub define class Utf8Text as
   pub val List<int> bytes;
 end
 
-define class WireMember as
+pub define class WireMember as
   pub val Utf8Text key;
   pub val Value value;
 end
 
-define class MapEntry as
+pub define class MapEntry as
   pub val Value key;
   pub val Value value;
 end
 
-define class IntParse as
+pub define class IntParse as
   pub val bool ok;
   pub val int value;
 end
 
-define class Value as
+pub define class Value as
   // kind:
   // 0 null, 1 bool, 2 number, 3 utf8 string, 4 bytes,
   // 5 array, 6 string-key object, 7 extension, 8 general map.
@@ -122,10 +122,10 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   let List<int> output = new List<int>();
   let int current = value;
   if current < 0 then
-    output.push(45);
+    output.add(45);
   fi
 
-  let List<int> reversed = new List<int>();
+  val List<int> reversed = new List<int>();
   loop do
     if current == 0 then
       break;
@@ -136,7 +136,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
       digit = 0 - digit;
     fi
 
-    reversed.push(48 + digit);
+    reversed.add(48 + digit);
     current = current / 10;
   done
 
@@ -145,9 +145,10 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
     if i < 0 then
       break;
     fi
-    output.push(reversed[i]);
+    output.add(reversed[i]);
     i = i - 1;
   done
+  fi
 
   return output;
 }
@@ -263,7 +264,7 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
   return bytes_equal(left.bytes, right.bytes);
 }
 
-pub fnc object_find_index(Value object, Utf8Text key): int {
+fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
   if object.kind != 6 then
     return -1;
   fi
@@ -297,12 +298,16 @@ pub fnc object_find_index(Value object, Utf8Text key): int {
   return -1;
 }
 
+pub fnc object_find_index(Value object, Utf8Text key): int {
+  return object_find_index_borrow(rt borrow object, rt borrow key);
+}
+
 pub fnc object_has(Value object, Utf8Text key): bool {
   return object_find_index(object, key) >= 0;
 }
 
 pub fnc object_get(Value object, Utf8Text key): Result<Value, String> {
-  let int index = object_find_index(object, key);
+  let int index = object_find_index_borrow(rt borrow object, rt borrow key);
   if index < 0 then
     return Err("object key not found");
   fi
@@ -483,8 +488,8 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
-    let Map<int, List<int>> buckets = new Map<int, List<int>>();
-    let List<bool> used = new List<bool>();
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
@@ -492,15 +497,15 @@ fnc value_deep_equal_bounded(
         break;
       fi
 
-      used.push(false);
+      used.add(false);
 
       let int hash = text_hash(right.object_value[i].key);
       if buckets.contains(hash) then
-        let List<int> indices = buckets.get(hash);
-        indices.push(i);
+        val List<int> indices = buckets.get(hash);
+        indices.add(i);
       else
-        let List<int> indices = new List<int>();
-        indices.push(i);
+        val List<int> indices = new List<int>();
+        indices.add(i);
         buckets.set(hash, indices);
       fi
       i = i + 1;
@@ -513,7 +518,7 @@ fnc value_deep_equal_bounded(
       fi
 
       let bool matched = false;
-      let List<int> indices = buckets.get(hash);
+      val List<int> indices = buckets.get(hash);
       for const index of indices do
         if used[index] then
           continue;
@@ -548,8 +553,8 @@ fnc value_deep_equal_bounded(
       return false;
     fi
 
-    let Map<int, List<int>> buckets = new Map<int, List<int>>();
-    let List<bool> used = new List<bool>();
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val List<bool> used = new List<bool>();
     let int i = 0;
 
     loop do
@@ -557,7 +562,7 @@ fnc value_deep_equal_bounded(
         break;
       fi
 
-      used.push(false);
+      used.add(false);
 
       let int hash = value_hash_bounded(
         right.map_value[i].key,
@@ -566,11 +571,11 @@ fnc value_deep_equal_bounded(
       );
 
       if buckets.contains(hash) then
-        let List<int> indices = buckets.get(hash);
-        indices.push(i);
+        val List<int> indices = buckets.get(hash);
+        indices.add(i);
       else
-        let List<int> indices = new List<int>();
-        indices.push(i);
+        val List<int> indices = new List<int>();
+        indices.add(i);
         buckets.set(hash, indices);
       fi
       i = i + 1;
@@ -583,7 +588,7 @@ fnc value_deep_equal_bounded(
       fi
 
       let bool matched = false;
-      let List<int> indices = buckets.get(hash);
+      val List<int> indices = buckets.get(hash);
       for const index of indices do
         if used[index] then
           continue;

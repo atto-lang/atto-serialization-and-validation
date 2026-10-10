@@ -5,9 +5,9 @@ import fnc proto_varint, proto_bytes, default_proto_decode_options, default_prot
 import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
-  let List<ProtoField> fields = new List<ProtoField>();
-  fields.push(proto_varint(1, 150));
-  fields.push(proto_bytes(2, new List<int>(104, 105)));
+  val List<ProtoField> fields = new List<ProtoField>();
+  fields.add(proto_varint(1, 150));
+  fields.add(proto_bytes(2, new List<int>(104, 105)));
 
   val ProtoMessage message = new ProtoMessage(fields);
 
