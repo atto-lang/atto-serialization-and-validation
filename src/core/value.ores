@@ -114,43 +114,28 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  // Do not move the accumulator along an early-return path and later reuse it.
+  // Accumulate digits by remainder, avoiding negating signed INT64_MIN.
+  // A single ownership exit prevents the result buffer from being moved twice.
+  val List<int> output = new List<int>();
   if value == 0 then
-    return new List<int>(48);
-  fi
-
-  let List<int> output = new List<int>();
-  let int current = value;
-  if current < 0 then
-    output.add(45);
-  fi
-
-  val List<int> reversed = new List<int>();
-  loop do
-    if current == 0 then
-      break;
+    output.add(48);
+  else
+    let int current = value;
+    if current < 0 then
+      output.add(45);
     fi
-
     val List<int> reversed = new List<int>();
     loop do
       if current == 0 then
         break;
       fi
-
-    reversed.add(48 + digit);
-    current = current / 10;
-  done
-
-  let int i = reversed.length - 1;
-  loop do
-    if i < 0 then
-      break;
-    fi
-    output.add(reversed[i]);
-    i = i - 1;
-  done
-  fi
-
+      let int digit = current % 10;
+      if digit < 0 then
+        digit = 0 - digit;
+      fi
+      reversed.add(48 + digit);
+      current = current / 10;
+    done
     let int i = reversed.length - 1;
     loop do
       if i < 0 then
@@ -160,7 +145,6 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
       i = i - 1;
     done
   fi
-
   return output;
 }
 

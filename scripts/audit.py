@@ -101,6 +101,11 @@ def main() -> int:
             if re.search(r"(?:^|[=(,:;])\s*\*[A-Za-z_][A-Za-z0-9_]*\b", code):
                 fail(errors, path, line_no, "unary pointer dereference syntax is forbidden")
 
+            # The native List collection API is add(...), not push(...).
+            # Fail fast even when the configured GitHub runner cannot start.
+            if re.search(r"\.\s*push\s*\(", code):
+                fail(errors, path, line_no, "obsolete collection push(...); use List.add(...)")
+
             # Channel payloads are data, not executable authority.
             if re.search(r"Channel\s*<[^>]*(?:Fnc|routine|->)", code):
                 fail(errors, path, line_no, "callable/executable channel payload is forbidden")

@@ -46,7 +46,7 @@ pub async fnc collect_bytes_from_channel(
     );
   fi
 
-  let List<int> output = new List<int>();
+  val List<int> output = new List<int>();
 
   loop do
     val Future<Option<List<int>>> pending = nb readch input;
@@ -84,7 +84,7 @@ pub async fnc collect_bytes_from_channel(
     fi
 
     for const byte of chunk do
-      output.push(byte);
+      output.add(byte);
     done
   done
 

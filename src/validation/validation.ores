@@ -970,13 +970,13 @@ fnc remember_text_index(
 ): void {
   let int hash = text_hash(key);
   if buckets.contains(hash) then
-    let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    val List<int> candidates = buckets.get(hash);
+    candidates.add(index);
     return;
   fi
 
-  let List<int> candidates = new List<int>();
-  candidates.push(index);
+  val List<int> candidates = new List<int>();
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
@@ -991,7 +991,7 @@ fnc schema_field_index(
     return -1;
   fi
 
-  let List<int> candidates = buckets.get(hash);
+  val List<int> candidates = buckets.get(hash);
   for const index of candidates do
     if text_equal(schema.fields[index].key, key) then
       return index;
@@ -1010,7 +1010,7 @@ fnc object_field_index(
     return -1;
   fi
 
-  let List<int> candidates = buckets.get(hash);
+  val List<int> candidates = buckets.get(hash);
   for const index of candidates do
     if text_equal(object.object_value[index].key, key) then
       return index;
