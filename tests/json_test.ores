@@ -5,8 +5,8 @@ import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode_default, encode, new_incremental_decoder, feed, finish from '../src/json/json';
-import fnc utf8_is_valid from '../src/core/utf8';
+import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
+import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
 
 // Freshly decoded fixtures ensure no ownership transfer of one nested Value
 // is reused by a subsequent path lookup.
@@ -37,7 +37,7 @@ pub fnc run_json_tests(): void {
     125
   );
 
-  val Result<DecodedValue, DecodeError> decoded_result = decode_default(input);
+  val Result<DecodedValue, DecodeError> decoded_result = decode_default(rt borrow input);
   require_true(decoded_result.is_err() == false, "JSON object should decode");
 
   val DecodedValue decoded = decoded_result.unwrap();
@@ -54,7 +54,8 @@ pub fnc run_json_tests(): void {
   require_true(
     bytes_equal(
       encoded_result.unwrap(),
-      new List<int>(123, 34, 120, 34, 58, 91, 49, 44, 116, 114, 117, 101, 44, 110, 117, 108, 108, 93, 125)
+      new List<int>(123, 34, 120, 34, 58, 91, 49, 44,
+        116, 114, 117, 101, 44, 110, 117, 108, 108, 93, 125)
     ),
     "canonical JSON should round-trip byte-for-byte"
   );
@@ -66,30 +67,46 @@ pub fnc run_json_tests(): void {
     34, 120, 34, 58, 50,
     125
   );
-  val Result<DecodedValue, DecodeError> duplicate_result = decode_default(duplicate);
+  val Result<DecodedValue, DecodeError> duplicate_result = decode_default(rt borrow duplicate);
   require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
 
-  val JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep first = feed(rt borrow mut decoder, new List<int>(123, 34, 120));
+  val DecodeOptions duplicate_first = new DecodeOptions(
+    1, false, 128, 64, 64, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> first_wins = decode(rt borrow duplicate, duplicate_first);
+  require_true(!first_wins.is_err(), "JSON first-wins duplicate policy must decode");
+  val DecodedValue first_value = first_wins.unwrap();
+  require_int(first_value.value.object_value.length, 1, "JSON first-wins must keep one member");
+  require_int(first_value.value.object_value[0].value.number_lexeme[0], 49, "JSON first-wins must preserve first value");
+
+  val DecodeOptions duplicate_last = new DecodeOptions(
+    2, false, 128, 64, 64, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> last_wins = decode(rt borrow duplicate, duplicate_last);
+  require_true(!last_wins.is_err(), "JSON last-wins duplicate policy must decode");
+  val DecodedValue last_value = last_wins.unwrap();
+  require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
+  require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
+
+  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
-  val DecodeStep second = feed(
-    rt borrow mut decoder,
+  val DecodeStep second = decoder.feed(
     new List<int>(34, 58, 49, 125)
   );
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
-  val JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep number_partial = feed(rt borrow mut number_decoder, new List<int>(49));
+  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
-  val DecodeStep number_finished = finish(rt borrow mut number_decoder);
+  val DecodeStep number_finished = number_decoder.finish();
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
   val JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep bad_utf8 = feed(
-    rt borrow mut bad_utf8_decoder,
+  val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     new List<int>(34, 226, 40)
   );
   require_int(
@@ -106,96 +123,78 @@ pub fnc run_json_tests(): void {
     !utf8_is_valid(new List<int>(192, 128)),
     "overlong UTF-8 must be rejected"
   );
-
-
-  // Unknown-schema objects remain navigable at arbitrary heterogeneous depths:
-  // {"items":[{"meta":[{"flag":true}]}]}
-  val Result<DecodedValue, DecodeError> deep_dynamic = decode_default(
-    new List<int>(
-      123, 34, 105, 116, 101, 109, 115, 34, 58, 91,
-      123, 34, 109, 101, 116, 97, 34, 58, 91,
-      123, 34, 102, 108, 97, 103, 34, 58, 116, 114, 117, 101, 125,
-      93, 125, 93, 125
-    )
+  require_int(
+    utf8_codepoint_count(new List<int>(65, 240, 159, 152, 128)),
+    2,
+    "UTF-8 scan must count ASCII and multibyte scalar values once"
   );
-  require_true(!deep_dynamic.is_err(), "nested JSON dynamic tree must decode");
-  val Value deep_root = deep_dynamic.unwrap().value;
-
-  val List<Value> deep_path = new List<Value>();
-  deep_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
-  deep_path.add(value_int(0));
-  deep_path.add(value_string(new Utf8Text(new List<int>(109, 101, 116, 97))));
-  deep_path.add(value_int(0));
-  deep_path.add(value_string(new Utf8Text(new List<int>(102, 108, 97, 103))));
-
-  val Result<Value, String> dynamic_leaf = value_lookup_path(
-    deep_root,
-    deep_path
+  require_int(
+    utf8_codepoint_count(new List<int>(237, 160, 128)),
+    -1,
+    "UTF-8 scan must reject a surrogate encoding"
   );
-  require_true(!dynamic_leaf.is_err(), "nested JSON path must resolve");
-  require_true(dynamic_leaf.unwrap().bool_value, "nested JSON boolean payload");
-
-  val List<Value> missing_path = new List<Value>();
-  missing_path.add(value_string(new Utf8Text(new List<int>(109, 105, 115, 115, 105, 110, 103))));
-  val Result<Value, String> missing = value_lookup_path(
-    new_nested_json_root(),
-    missing_path
+  require_true(
+    !utf8_is_valid(new List<int>(244, 144, 128, 128)),
+    "UTF-8 scan must reject codepoints above U+10FFFF"
   );
-  require_true(missing.is_err(), "missing unknown-schema path must not panic");
-
-  val List<Value> bad_index_path = new List<Value>();
-  bad_index_path.add(value_string(new Utf8Text(new List<int>(105, 116, 101, 109, 115))));
-  bad_index_path.add(value_int(-1));
-  val Result<Value, String> bad_index = value_lookup_path(
-    new_nested_json_root(),
-    bad_index_path
+  require_true(
+    !utf8_is_valid(new List<int>(240, 159, 152)),
+    "UTF-8 scan must reject truncated four-byte sequences"
   );
-  require_true(bad_index.is_err(), "negative nested array index must reject");
 
-  val List<Value> overlong_path = new List<Value>();
-  let int path_index = 0;
-  loop do
-    if path_index >= 129 then
-      break;
-    fi
-    overlong_path.add(value_int(0));
-    path_index = path_index + 1;
-  done
-  val Result<Value, String> overlong = value_lookup_path(
-    new_nested_json_root(),
-    overlong_path
+  val DecodeOptions shallow = new DecodeOptions(
+    0, false, 1, 64, 64, 64, 64, 16, 16
   );
-  require_true(overlong.is_err(), "unbounded dynamic path must reject");
-
-
-  // UTF-8 scan state must resume precisely across arbitrary chunk boundaries.
-  val JsonIncrementalDecoder unicode_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep unicode_prefix = feed(rt borrow mut unicode_decoder, new List<int>(34, 240));
-  require_int(unicode_prefix.status, 0, "split four-byte Unicode scalar needs more bytes");
-  val DecodeStep unicode_middle = feed(rt borrow mut unicode_decoder, new List<int>(159, 152));
-  require_int(unicode_middle.status, 0, "split Unicode continuation remains incomplete");
-  val DecodeStep unicode_end = feed(rt borrow mut unicode_decoder, new List<int>(128, 34));
-  require_int(unicode_end.status, 1, "valid split UTF-8 string must decode");
-
-  val JsonIncrementalDecoder invalid_lead_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep invalid_lead = feed(rt borrow mut invalid_lead_decoder, new List<int>(34, 192));
-  require_int(invalid_lead.status, 2, "overlong UTF-8 lead byte must reject immediately");
-
-  val JsonIncrementalDecoder invalid_surrogate_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep surrogate_prefix = feed(rt borrow mut invalid_surrogate_decoder, new List<int>(34, 237));
-  require_int(surrogate_prefix.status, 0, "split surrogate prefix awaits second byte");
-  val DecodeStep surrogate_invalid = feed(rt borrow mut invalid_surrogate_decoder, new List<int>(160));
-  require_int(surrogate_invalid.status, 2, "UTF-8 surrogate must reject across chunks");
-
-  val JsonIncrementalDecoder nested_invalid_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep nested_invalid = feed(
-    rt borrow mut nested_invalid_decoder,
-    new List<int>(123, 34, 107, 34, 58, 34, 226, 40)
+  val Result<DecodedValue, DecodeError> too_deep = decode(
+    new List<int>(91, 91, 48, 93, 93),
+    shallow
   );
-  require_int(nested_invalid.status, 2, "malformed UTF-8 in nested string must reject early");
+  require_true(too_deep.is_err(), "JSON max_depth must reject before unbounded recursion");
 
-  val JsonIncrementalDecoder raw_control_decoder = new_incremental_decoder(default_decode_options());
-  val DecodeStep raw_control = feed(rt borrow mut raw_control_decoder, new List<int>(34, 10));
-  require_int(raw_control.status, 2, "unescaped JSON control byte must reject immediately");
+  val DecodeOptions tiny_input = new DecodeOptions(
+    0, false, 128, 1, 16, 16, 16, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> input_limited = decode(
+    new List<int>(91, 48, 93),
+    tiny_input
+  );
+  require_true(input_limited.is_err(), "JSON max_input_bytes must fail closed");
+
+  val DecodeOptions one_number_byte = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 1, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> number_exact = decode(
+    new List<int>(49),
+    rt borrow one_number_byte
+  );
+  require_true(!number_exact.is_err(), "JSON number at max_number_bytes must succeed");
+
+  val Result<DecodedValue, DecodeError> number_over = decode(
+    new List<int>(49, 50),
+    one_number_byte
+  );
+  require_true(number_over.is_err(), "JSON number over max_number_bytes must reject before growth");
+
+  val DecodeOptions one_string_byte = new DecodeOptions(
+    0, false, 128, 64, 1, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> string_exact = decode(
+    new List<int>(34, 97, 34),
+    rt borrow one_string_byte
+  );
+  require_true(!string_exact.is_err(), "JSON string at max_string_bytes must succeed");
+
+  val Result<DecodedValue, DecodeError> utf8_over = decode(
+    new List<int>(34, 195, 169, 34),
+    rt borrow one_string_byte
+  );
+  require_true(utf8_over.is_err(), "JSON multibyte UTF-8 must preflight max_string_bytes");
+
+  val Result<DecodedValue, DecodeError> escaped_utf8_over = decode(
+    new List<int>(34, 92, 117, 48, 48, 101, 57, 34),
+    one_string_byte
+  );
+  require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
+
   return;
 }

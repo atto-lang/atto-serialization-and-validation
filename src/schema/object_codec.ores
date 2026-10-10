@@ -46,87 +46,62 @@ fnc empty_decode_error(): DecodeError {
 }
 
 fnc empty_validation_report(): ValidationReport {
-  return new ValidationReport(
-    new List<ValidationError>(),
-    false
-  );
+  return new ValidationReport(new List<ValidationError>(), false);
 }
 
 fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
   val List<FieldRule> fields = new List<FieldRule>();
-
   for const field of metadata.fields do
-    fields.add(
-      field_rule(
-        field.wire_name,
-        field.required,
-        false,
-        field.validation
-      )
-    );
+    fields.push(field_rule(
+      field.wire_name,
+      field.required,
+      false,
+      field.validation
+    ));
   done
-
-  return object_schema(
-    fields,
-    metadata.unknown_field_policy == 1
-  );
+  return object_schema(fields, metadata.unknown_field_policy == 1);
 }
 
-fnc source_object(
-  Value wire_object,
-  CodecTypeMeta metadata
-): Value {
+fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
   val List<WireMember> output = new List<WireMember>();
-
   for const member of wire_object.object_value do
     let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
-      metadata,
-      member.key
+      rt borrow metadata,
+      rt borrow member.key
     );
-
     if selected.is_err() then
       continue;
     fi
-
     let CodecFieldMeta field = selected.unwrap();
-    output.add(
-      new WireMember(
-        field.source_name,
-        member.value
-      )
-    );
+    output.push(new WireMember(field.source_name, member.value));
   done
-
   return value_object(output);
 }
 
-fnc unknown_object(
-  Value wire_object,
-  CodecTypeMeta metadata
-): Value {
+fnc unknown_object(Value wire_object, CodecTypeMeta metadata): Value {
   val List<WireMember> output = new List<WireMember>();
-
   if metadata.unknown_field_policy != 2 then
     return value_object(output);
   fi
-
   for const member of wire_object.object_value do
     let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
-      metadata,
-      member.key
+      rt borrow metadata,
+      rt borrow member.key
     );
-
     if selected.is_err() then
       output.add(member);
     fi
   done
-
   return value_object(output);
 }
 
 fnc empty_decoded_object(): DecodedObject {
-  val Value empty = value_object(new List<WireMember>());
-  return new DecodedObject(empty, empty, empty, 0);
+  return new DecodedObject(
+    value_object(new List<WireMember>()),
+    value_object(new List<WireMember>()),
+    value_object(new List<WireMember>()),
+    0
+  );
 }
 
 fnc object_codec_error(
@@ -135,12 +110,7 @@ fnc object_codec_error(
   DecodeError decode_error,
   ValidationReport validation_report
 ): ObjectCodecError {
-  return new ObjectCodecError(
-    kind,
-    metadata_error,
-    decode_error,
-    validation_report
-  );
+  return new ObjectCodecError(kind, metadata_error, decode_error, validation_report);
 }
 
 pub fnc decode_json_object_attempt(
@@ -149,7 +119,7 @@ pub fnc decode_json_object_attempt(
   CodecTypeMeta metadata,
   ValidationOptions validation_options
 ): ObjectDecodeAttempt {
-  let MetadataCheck checked = check_metadata(metadata);
+  let MetadataCheck checked = check_metadata(rt borrow metadata);
 
   if !checked.ok then
     let ObjectCodecError error = object_codec_error(
@@ -184,7 +154,6 @@ pub fnc decode_json_object_attempt(
       ),
       false
     );
-
     let ObjectCodecError error = object_codec_error(
       2,
       empty_metadata_error(),
@@ -194,14 +163,14 @@ pub fnc decode_json_object_attempt(
     return new ObjectDecodeAttempt(3, empty_decoded_object(), error);
   fi
 
-  let ObjectSchema schema = metadata_schema(metadata);
+  let ObjectSchema schema = metadata_schema(rt borrow metadata);
   let ValidationReport report = validate_object(
-    attempt.value,
+    rt borrow attempt.value,
     schema,
     validation_options
   );
 
-  if !report_is_valid(report) then
+  if !report_is_valid(rt borrow report) then
     let ObjectCodecError error = object_codec_error(
       2,
       empty_metadata_error(),
@@ -211,10 +180,14 @@ pub fnc decode_json_object_attempt(
     return new ObjectDecodeAttempt(3, empty_decoded_object(), error);
   fi
 
+  // Projection helpers observe the decoded wire object and metadata. Build both
+  // projections before transferring the wire object into the final carrier.
+  let Value source = source_object(rt borrow attempt.value, rt borrow metadata);
+  let Value unknown = unknown_object(rt borrow attempt.value, rt borrow metadata);
   let DecodedObject decoded = new DecodedObject(
-    source_object(attempt.value, metadata),
+    source,
     attempt.value,
-    unknown_object(attempt.value, metadata),
+    unknown,
     attempt.consumed
   );
 
@@ -242,10 +215,8 @@ pub fnc decode_json_object(
     metadata,
     validation_options
   );
-
   if attempt.status == 0 then
     return Ok(attempt.decoded);
   fi
-
   return Err(attempt.error);
 }

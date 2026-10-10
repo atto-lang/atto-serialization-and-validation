@@ -114,14 +114,21 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  val List<int> output = new List<int>();
-
+  // Do not move the accumulator along an early-return path and later reuse it.
   if value == 0 then
-    output.add(48);
-  else
-    let int current = value;
-    if current < 0 then
-      output.add(45);
+    return new List<int>(48);
+  fi
+
+  let List<int> output = new List<int>();
+  let int current = value;
+  if current < 0 then
+    output.add(45);
+  fi
+
+  val List<int> reversed = new List<int>();
+  loop do
+    if current == 0 then
+      break;
     fi
 
     val List<int> reversed = new List<int>();
@@ -130,14 +137,19 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
         break;
       fi
 
-      let int digit = current % 10;
-      if digit < 0 then
-        digit = 0 - digit;
-      fi
+    reversed.add(48 + digit);
+    current = current / 10;
+  done
 
-      reversed.add(48 + digit);
-      current = current / 10;
-    done
+  let int i = reversed.length - 1;
+  loop do
+    if i < 0 then
+      break;
+    fi
+    output.add(reversed[i]);
+    i = i - 1;
+  done
+  fi
 
     let int i = reversed.length - 1;
     loop do
@@ -263,15 +275,33 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
   return bytes_equal(left.bytes, right.bytes);
 }
 
-pub fnc object_find_index(Value object, Utf8Text key): int {
+fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
   if object.kind != 6 then
     return -1;
   fi
 
+  // The lookup key is owned by this function: never transfer it repeatedly
+  // to a by-value equality callable from inside a loop.
+  val List<int> search_bytes = key.bytes;
   let int i = 0;
   for const member of object.object_value do
-    if text_equal(member.key, key) then
-      return i;
+    val List<int> current_bytes = member.key.bytes;
+    if current_bytes.length == search_bytes.length then
+      let bool equal = true;
+      let int j = 0;
+      loop do
+        if j >= search_bytes.length then
+          break;
+        fi
+        if current_bytes[j] != search_bytes[j] then
+          equal = false;
+          break;
+        fi
+        j = j + 1;
+      done
+      if equal then
+        return i;
+      fi
     fi
     i = i + 1;
   done
@@ -279,12 +309,16 @@ pub fnc object_find_index(Value object, Utf8Text key): int {
   return -1;
 }
 
+pub fnc object_find_index(Value object, Utf8Text key): int {
+  return object_find_index_borrow(rt borrow object, rt borrow key);
+}
+
 pub fnc object_has(Value object, Utf8Text key): bool {
   return object_find_index(object, key) >= 0;
 }
 
 pub fnc object_get(Value object, Utf8Text key): Result<Value, String> {
-  let int index = object_find_index(object, key);
+  let int index = object_find_index_borrow(rt borrow object, rt borrow key);
   if index < 0 then
     return Err("object key not found");
   fi
@@ -478,7 +512,7 @@ fnc value_deep_equal_bounded(
 
       let int hash = text_hash(right.object_value[i].key);
       if buckets.contains(hash) then
-        let List<int> indices = buckets.get(hash);
+        val List<int> indices = buckets.get(hash);
         indices.add(i);
       else
         val List<int> indices = new List<int>();
@@ -495,7 +529,7 @@ fnc value_deep_equal_bounded(
       fi
 
       let bool matched = false;
-      let List<int> indices = buckets.get(hash);
+      val List<int> indices = buckets.get(hash);
       for const index of indices do
         if used[index] then
           continue;
@@ -548,7 +582,7 @@ fnc value_deep_equal_bounded(
       );
 
       if buckets.contains(hash) then
-        let List<int> indices = buckets.get(hash);
+        val List<int> indices = buckets.get(hash);
         indices.add(i);
       else
         val List<int> indices = new List<int>();
@@ -565,7 +599,7 @@ fnc value_deep_equal_bounded(
       fi
 
       let bool matched = false;
-      let List<int> indices = buckets.get(hash);
+      val List<int> indices = buckets.get(hash);
       for const index of indices do
         if used[index] then
           continue;

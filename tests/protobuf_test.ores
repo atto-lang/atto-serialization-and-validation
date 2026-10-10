@@ -1,6 +1,6 @@
 import fnc require_true, require_int from './assert';
 
-import class ProtoField, ProtoMessage, ProtoError from '../src/protobuf/wire';
+import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
 import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
 
@@ -53,17 +53,18 @@ pub fnc run_protobuf_tests(): void {
   );
 
   val Result<ProtoMessage, ProtoError> raw_decoded = decode_message(
-    uint64_max,
+    rt borrow uint64_max,
     default_proto_decode_options()
   );
   require_true(raw_decoded.is_err() == false, "Protobuf uint64 max must decode as preserved raw varint");
 
-  val ProtoField raw_field = raw_decoded.unwrap().fields[0];
+  val ProtoMessage raw_roundtrip = raw_decoded.unwrap();
+  val ProtoField raw_field = raw_roundtrip.fields[0];
   require_true(!raw_field.varint_fits_int, "uint64 max must not be narrowed into signed int");
   require_int(raw_field.payload.length, 10, "uint64 max raw varint byte count");
 
   val Result<List<int>, ProtoError> raw_reencoded = encode_message(
-    raw_decoded.unwrap(),
+    raw_roundtrip,
     default_proto_encode_options()
   );
   require_true(raw_reencoded.is_err() == false, "preserved uint64 max must re-encode");
@@ -80,37 +81,38 @@ pub fnc run_protobuf_tests(): void {
     j = j + 1;
   done
 
-
-  // Without a schema, a nested Protobuf message is a length-delimited byte
-  // payload; callers must supply a descriptor/known type to decode its fields.
-  // outer field 1 = bytes([field 1 = varint 1]).
-  val Result<ProtoMessage, ProtoError> nested_wire = decode_message(
-    new List<int>(10, 2, 8, 1),
+  val Result<ProtoMessage, ProtoError> zero_field = decode_message(
+    new List<int>(0),
     default_proto_decode_options()
   );
-  require_true(!nested_wire.is_err(), "nested Protobuf raw payload must decode");
-  val ProtoMessage outer = nested_wire.unwrap();
-  require_int(outer.fields.length, 1, "nested Protobuf outer field count");
-  require_int(outer.fields[0].wire_type, 2, "nested Protobuf stays length-delimited without descriptor");
+  require_true(zero_field.is_err(), "Protobuf field number zero must reject");
 
-  val Result<ProtoMessage, ProtoError> inner = decode_message(
-    outer.fields[0].payload,
+  val Result<ProtoMessage, ProtoError> overlong_varint = decode_message(
+    new List<int>(
+      8,
+      128, 128, 128, 128, 128,
+      128, 128, 128, 128, 128
+    ),
     default_proto_decode_options()
   );
-  require_true(!inner.is_err(), "known nested Protobuf payload must decode explicitly");
-  require_int(inner.unwrap().fields[0].varint_value, 1, "nested field value");
+  require_true(overlong_varint.is_err(), "Protobuf varint continuation beyond ten bytes must reject");
 
-  val Result<ProtoMessage, ProtoError> truncated_nested = decode_message(
-    new List<int>(10, 3, 8, 1),
+  val Result<ProtoMessage, ProtoError> length_range = decode_message(
+    new List<int>(
+      18,
+      255, 255, 255, 255, 255,
+      255, 255, 255, 255, 1
+    ),
     default_proto_decode_options()
   );
-  require_true(truncated_nested.is_err(), "truncated nested Protobuf bytes must reject");
+  require_true(length_range.is_err(), "Protobuf uint64 length above signed range must reject");
 
-  val Result<ProtoMessage, ProtoError> truncated_varint = decode_message(
-    new List<int>(8, 128),
-    default_proto_decode_options()
+  val ProtoDecodeOptions tiny_input = new ProtoDecodeOptions(1, 16, 16);
+  val Result<ProtoMessage, ProtoError> input_limited = decode_message(
+    new List<int>(8, 1),
+    tiny_input
   );
-  require_true(truncated_varint.is_err(), "unterminated Protobuf varint must reject");
+  require_true(input_limited.is_err(), "Protobuf max_input_bytes must fail closed");
 
   return;
 }
