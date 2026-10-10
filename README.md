@@ -37,6 +37,8 @@ See the design documents on the feature branch for the detailed API and performa
 ## Design documents
 
 - [Architecture](docs/DESIGN.md)
+- [Std-lib/core migration and format hardening](docs/STDLIB_MIGRATION.md)
+- [Format-specific semantic models](docs/FORMAT_MODELS.md)
 - [Validation model](docs/VALIDATION.md)
 - [Ecosystem benchmark](docs/ECOSYSTEM-BENCHMARK.md)
 - [Benchmark plan](benchmarks/README.md)
@@ -45,13 +47,14 @@ See the design documents on the feature branch for the detailed API and performa
 
 ## Native implementation
 
-The repository now contains a native Oreslang implementation on the `feat/native-codecs-validation-20261005` branch.
+The repository now contains the native Oreslang implementation on `main`; this hardening branch adds the first built-in channel/async adapter and the std-lib/core migration contract.
 
 ### Implemented
 
 - `src/core/value.ores` — shared closed dynamic wire-value model.
 - `src/core/options.ores` — bounded decode/encode policies and structured errors.
 - `src/json/json.ores` — byte-oriented JSON encode/decode, Unicode escape handling, strict UTF-8 validation, duplicate-key policy, depth/size/container limits, and incremental chunk feeding.
+- `src/json/channel.ores` — native `Future`/`async` channel adapter using `nb readch`; only byte data crosses the channel boundary.
 - `src/messagepack/messagepack.ores` — native MessagePack signed-int64/bounded-uint64/string/binary/array/general-map/extension encode/decode.
 - `src/cbor/cbor.ores` — native definite-length CBOR signed-int64/bounded-uint64/text/bytes/array/general-map/bool/null encode/decode.
 - `src/protobuf/wire.ores` — native Protobuf field-key/varint/fixed32/fixed64/length-delimited wire encode/decode with exact raw uint64-varint unknown-field preservation.
@@ -72,14 +75,13 @@ This library follows the canonical Oreslang reference model:
 
 Raw addresses, SIMD pointers, device pointers, and similar low-level details belong below the Oreslang source boundary in compiler/runtime backends.
 
-### Core integration prerequisites
+### Core integration baseline
 
-The implementation targets the intended combined Oreslang language/runtime surface currently represented by:
+The library targets current pointer-free Oreslang semantics: ordinary calls use managed-reference behavior and explicit ownership changes use compiler-owned `rt borrow`, `rt take`, `rt copy`, and `rt share`. The pointerless ownership convergence from compiler PR **#381** is now on current Oreslang `main`.
 
-- core PR **#135**: native-backed `List`/`Map` values, typed structs, and serialization annotation infrastructure;
-- core PR **#186**: Java-like reference passing, canonical `Type mut name`, and explicit `rt` ownership operations.
+Streaming adapters use the built-in `Channel<T>`, native `Future<T>`, and `async`/`await` surface rather than introducing a second scheduler or callback transport. Channel payloads remain ordinary data; parser state and callbacks stay local to the decoding execution domain.
 
-Those capabilities are still on separate core branches, so this repository should remain draft-gated until that core surface is reconciled.
+Promotion into core/std-lib is still gated on format-specific conformance, hostile-input, streaming-boundary, and ownership tests. XML, YAML, and TOML are intentionally not presented as implemented until bounded native parsers exist; see [the migration and hardening plan](docs/STDLIB_MIGRATION.md).
 
 ### Deliberate fail-closed baseline
 

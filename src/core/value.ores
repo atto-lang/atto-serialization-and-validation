@@ -114,14 +114,13 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  val List<int> output = new List<int>();
-
+  // Do not move the accumulator along an early-return path and later reuse it.
   if value == 0 then
-    output.add(48);
-  else
-    // Single ownership exit: do not transfer output in one branch and
-    // subsequently use it on a different control-flow path.
-    let int current = value;
+    return new List<int>(48);
+  fi
+
+  let List<int> output = new List<int>();
+  let int current = value;
   if current < 0 then
     output.add(45);
   fi
@@ -270,24 +269,26 @@ fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
     return -1;
   fi
 
+  // The lookup key is owned by this function: never transfer it repeatedly
+  // to a by-value equality callable from inside a loop.
+  val List<int> search_bytes = key.bytes;
   let int i = 0;
   for const member of object.object_value do
-    // The current borrow checker accepts only named owners; inspect fields
-    // in place rather than trying to borrow a projected member.key binding.
-    if member.key.bytes.length == key.bytes.length then
-      let bool same_key = true;
+    val List<int> current_bytes = member.key.bytes;
+    if current_bytes.length == search_bytes.length then
+      let bool equal = true;
       let int j = 0;
       loop do
-        if j >= key.bytes.length then
+        if j >= search_bytes.length then
           break;
         fi
-        if member.key.bytes[j] != key.bytes[j] then
-          same_key = false;
+        if current_bytes[j] != search_bytes[j] then
+          equal = false;
           break;
         fi
         j = j + 1;
       done
-      if same_key then
+      if equal then
         return i;
       fi
     fi

@@ -9,7 +9,7 @@ import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_deep_equal, value_hash, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
