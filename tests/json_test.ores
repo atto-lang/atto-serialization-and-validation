@@ -1,12 +1,26 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc bytes_equal, value_deep_equal from '../src/core/value';
+import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
 import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
+
+// Freshly decoded fixtures ensure no ownership transfer of one nested Value
+// is reused by a subsequent path lookup.
+fnc new_nested_json_root(): Value {
+  let Result<DecodedValue, DecodeError> decoded = decode_default(
+    new List<int>(
+      123, 34, 105, 116, 101, 109, 115, 34, 58, 91,
+      123, 34, 109, 101, 116, 97, 34, 58, 91,
+      123, 34, 102, 108, 97, 103, 34, 58, 116, 114, 117, 101, 125,
+      93, 125, 93, 125
+    )
+  );
+  return decoded.unwrap().value;
+}
 
 pub fnc run_json_tests(): void {
   val List<int> input = new List<int>(

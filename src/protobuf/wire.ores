@@ -26,13 +26,13 @@ pub define class ProtoMessage as
   pub val List<ProtoField> fields;
 end
 
-define class ProtoDecodeOptions as
+pub define class ProtoDecodeOptions as
   pub val int max_input_bytes;
   pub val int max_fields;
   pub val int max_length_delimited_bytes;
 end
 
-define class ProtoEncodeOptions as
+pub define class ProtoEncodeOptions as
   pub val int max_output_bytes;
 end
 
