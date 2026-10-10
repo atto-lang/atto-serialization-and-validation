@@ -141,6 +141,48 @@ def main() -> int:
                         f"imported {kind} {name!r} is not declared in {target_path.relative_to(ROOT)}",
                     )
 
+    # Regression coverage must not disappear silently during three-way merges.
+    # These are specific native test assertions, not documentation claims.
+    required_cases = {
+        "tests/json_test.ores": (
+            "array trailing comma must reject",
+            "object trailing comma must reject",
+            "JSON leading zero must reject",
+            "NaN token is not JSON",
+            "unpaired high surrogate must reject",
+            "unpaired low surrogate must reject",
+            "raw control byte inside JSON string must reject",
+            "nested JSON path must resolve",
+            "negative nested array index must reject",
+            "unbounded dynamic path must reject",
+            "valid split UTF-8 string must decode",
+            "signed int64 minimum does not overflow on absolute value",
+        ),
+        "tests/cbor_test.ores": ("nested CBOR non-string map keys must resolve",),
+        "tests/messagepack_test.ores": ("nested MessagePack non-string map keys must resolve",),
+        "tests/protobuf_test.ores": (
+            "nested Protobuf raw payload must decode",
+            "truncated nested Protobuf bytes must reject",
+        ),
+    }
+    for relative, sentinels in required_cases.items():
+        path = ROOT / relative
+        source = path.read_text(encoding="utf-8") if path.exists() else ""
+        for sentinel in sentinels:
+            if sentinel not in source:
+                fail(errors, path, 1, f"missing required native regression: {sentinel}")
+
+    entry = (ROOT / "tests" / "main.ores").read_text(encoding="utf-8")
+    for runner in (
+        "run_json_tests();",
+        "run_cbor_tests();",
+        "run_messagepack_tests();",
+        "run_protobuf_tests();",
+        "run_validation_tests();",
+    ):
+        if runner not in entry:
+            fail(errors, ROOT / "tests" / "main.ores", 1, f"missing native test-suite invocation: {runner}")
+
     if errors:
         print("static audit failed:", file=sys.stderr)
         for error in errors:
