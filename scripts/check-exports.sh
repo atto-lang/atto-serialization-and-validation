@@ -42,7 +42,7 @@ while IFS= read -r -d '' file; do
       if [[ "$kind" == class ]]; then
         signature="^[[:space:]]*pub[[:space:]]+define[[:space:]]+class[[:space:]]+${name}[[:space:]]+as([[:space:]]|$)"
       else
-        signature="^[[:space:]]*pub[[:space:]]+fnc[[:space:]]+${name}[[:space:]]*\("
+        signature="^[[:space:]]*pub[[:space:]]+((async|nlex|pure)[[:space:]]+)*fnc[[:space:]]+${name}[[:space:]]*\("
       fi
       if ! grep -Eq "$signature" "$target"; then
         echo "unexported imported $kind '$name': $file -> $target" >&2
