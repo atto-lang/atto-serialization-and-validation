@@ -165,6 +165,50 @@ pub fnc run_messagepack_tests(): void {
   require_true(!deep_leaf.is_err(), "nested MessagePack non-string map keys must resolve");
   require_true(deep_leaf.unwrap().bool_value, "nested MessagePack array boolean value");
 
+  // Structural map lookup compares multiple candidates without copying or
+  // consuming the search key after the first unequal entry.
+  val Result<DecodedValue, DecodeError> multiple_keys = decode(
+    new List<int>(130, 1, 10, 2, 20),
+    default_decode_options()
+  );
+  require_true(!multiple_keys.is_err(), "two-key MessagePack map must decode");
+  val List<Value> second_key_path = new List<Value>();
+  second_key_path.add(value_int(2));
+  val Result<Value, String> second_key_result = value_lookup_path(
+    multiple_keys.unwrap().value,
+    second_key_path
+  );
+  require_true(!second_key_result.is_err(), "second map key must match after first miss");
+  require_int(
+    second_key_result.unwrap().number_lexeme[0],
+    50,
+    "second map key must preserve its integer payload"
+  );
+
+  // Two *array-valued* map keys exercise nested read-only equality. Hash
+  // collisions must never be accepted without full structural comparison.
+  val Result<DecodedValue, DecodeError> array_key_map = decode(
+    new List<int>(130, 146, 1, 3, 10, 146, 1, 2, 20),
+    default_decode_options()
+  );
+  require_true(!array_key_map.is_err(), "array-key MessagePack map must decode");
+  val List<Value> nested_key = new List<Value>();
+  nested_key.add(value_int(1));
+  nested_key.add(value_int(2));
+  val List<Value> array_key_path = new List<Value>();
+  array_key_path.add(value_array(nested_key));
+  val Result<Value, String> array_key_result = value_lookup_path(
+    array_key_map.unwrap().value,
+    array_key_path
+  );
+  require_true(!array_key_result.is_err(), "array-valued map key must compare structurally");
+  require_int(
+    array_key_result.unwrap().number_lexeme[0],
+    50,
+    "structural map key must select the correct entry"
+  );
+
+
 
   return;
 }
