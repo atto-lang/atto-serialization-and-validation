@@ -22,7 +22,7 @@ define class CborCursor as
 end
 
 define class CborWriter as
-  pub let List<int> output;
+  pub let mut List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
