@@ -112,7 +112,7 @@ pub fnc run_json_tests(): void {
   require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
   require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
 
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
@@ -122,14 +122,14 @@ pub fnc run_json_tests(): void {
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
-  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
   val DecodeStep number_finished = number_decoder.finish();
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
-  val JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     new List<int>(34, 226, 40)
   );
@@ -351,7 +351,7 @@ pub fnc run_json_tests(): void {
 
 
   // UTF-8 scan state must resume precisely across arbitrary chunk boundaries.
-  let JsonIncrementalDecoder unicode_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder unicode_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep unicode_prefix = unicode_decoder.feed(new List<int>(34, 240));
   require_int(unicode_prefix.status, 0, "split four-byte Unicode scalar needs more bytes");
   val DecodeStep unicode_middle = unicode_decoder.feed(new List<int>(159, 152));
@@ -359,22 +359,22 @@ pub fnc run_json_tests(): void {
   val DecodeStep unicode_end = unicode_decoder.feed(new List<int>(128, 34));
   require_int(unicode_end.status, 1, "valid split UTF-8 string must decode");
 
-  val JsonIncrementalDecoder invalid_lead_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder invalid_lead_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep invalid_lead = invalid_lead_decoder.feed(new List<int>(34, 192));
   require_int(invalid_lead.status, 2, "overlong UTF-8 lead byte must reject immediately");
 
-  let JsonIncrementalDecoder invalid_surrogate_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder invalid_surrogate_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep surrogate_prefix = invalid_surrogate_decoder.feed(new List<int>(34, 237));
   require_int(surrogate_prefix.status, 0, "split surrogate prefix awaits second byte");
   val DecodeStep surrogate_invalid = invalid_surrogate_decoder.feed(new List<int>(160));
   require_int(surrogate_invalid.status, 2, "UTF-8 surrogate must reject across chunks");
 
-  val JsonIncrementalDecoder nested_invalid_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder nested_invalid_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep nested_invalid = nested_invalid_decoder.feed(new List<int>(123, 34, 107, 34, 58, 34, 226, 40)
   );
   require_int(nested_invalid.status, 2, "malformed UTF-8 in nested string must reject early");
 
-  val JsonIncrementalDecoder raw_control_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder raw_control_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep raw_control = raw_control_decoder.feed(new List<int>(34, 10));
   require_int(raw_control.status, 2, "unescaped JSON control byte must reject immediately");
   return;
