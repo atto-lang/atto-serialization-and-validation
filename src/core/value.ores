@@ -272,12 +272,15 @@ fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
     return -1;
   fi
 
-  // The lookup key is owned by this function: never transfer it repeatedly
+  // The lookup key is borrowed by this function: never transfer it repeatedly
   // to a by-value equality callable from inside a loop.
   val List<int> search_bytes = key.bytes;
   let int i = 0;
-  for const member of object.object_value do
-    val List<int> current_bytes = member.key.bytes;
+  loop do
+    if i >= object.object_value.length then
+      break;
+    fi
+    val List<int> current_bytes = object.object_value[i].key.bytes;
     if current_bytes.length == search_bytes.length then
       let bool equal = true;
       let int j = 0;
@@ -329,8 +332,11 @@ pub fnc bytes_hash(List<int> bytes): int {
 
 fnc bytes_hash_borrow(borrow List<int> bytes): int {
   let int hash = 1469598103934665603;
-  for const byte of bytes do
-    hash = hash_mix(hash, byte);
+  let int i = 0;
+  loop do
+    if i >= bytes.length then break; fi
+    hash = hash_mix(hash, bytes[i]);
+    i = i + 1;
   done
   return hash;
 }
@@ -379,8 +385,11 @@ fnc value_hash_bounded(
   fi
 
   if value.kind == 5 then
-    for const item of value.array_value do
-      hash = hash_mix(hash, value_hash_bounded(rt borrow item, depth + 1, max_depth));
+    let int i = 0;
+    loop do
+      if i >= value.array_value.length then break; fi
+      hash = hash_mix(hash, value_hash_bounded(rt borrow value.array_value[i], depth + 1, max_depth));
+      i = i + 1;
     done
     return hash_mix(hash, value.array_value.length);
   fi
@@ -389,13 +398,16 @@ fnc value_hash_bounded(
     let int aggregate_xor = 0;
     let int aggregate_sum = 0;
 
-    for const member of value.object_value do
+    let int i = 0;
+    loop do
+      if i >= value.object_value.length then break; fi
       let int pair_hash = hash_mix(
-        text_hash_borrow(rt borrow member.key),
-        value_hash_bounded(rt borrow member.value, depth + 1, max_depth)
+        text_hash_borrow(rt borrow value.object_value[i].key),
+        value_hash_bounded(rt borrow value.object_value[i].value, depth + 1, max_depth)
       );
       aggregate_xor = aggregate_xor ^ pair_hash;
       aggregate_sum = aggregate_sum + pair_hash;
+      i = i + 1;
     done
 
     hash = hash_mix(hash, aggregate_xor);
@@ -412,13 +424,16 @@ fnc value_hash_bounded(
     let int aggregate_xor = 0;
     let int aggregate_sum = 0;
 
-    for const entry of value.map_value do
+    let int i = 0;
+    loop do
+      if i >= value.map_value.length then break; fi
       let int pair_hash = hash_mix(
-        value_hash_bounded(rt borrow entry.key, depth + 1, max_depth),
-        value_hash_bounded(rt borrow entry.value, depth + 1, max_depth)
+        value_hash_bounded(rt borrow value.map_value[i].key, depth + 1, max_depth),
+        value_hash_bounded(rt borrow value.map_value[i].value, depth + 1, max_depth)
       );
       aggregate_xor = aggregate_xor ^ pair_hash;
       aggregate_sum = aggregate_sum + pair_hash;
+      i = i + 1;
     done
 
     hash = hash_mix(hash, aggregate_xor);
@@ -522,8 +537,10 @@ fnc value_deep_equal_bounded(
       i = i + 1;
     done
 
-    for const a of left.object_value do
-      let int hash = text_hash_borrow(rt borrow a.key);
+    let int outer = 0;
+    loop do
+      if outer >= left.object_value.length then break; fi
+      let int hash = text_hash_borrow(rt borrow left.object_value[outer].key);
       if !buckets.contains(hash) then
         return false;
       fi
@@ -535,9 +552,9 @@ fnc value_deep_equal_bounded(
           continue;
         fi
 
-        if text_equal_borrow(rt borrow a.key, rt borrow right.object_value[index].key) &&
+        if text_equal_borrow(rt borrow left.object_value[outer].key, rt borrow right.object_value[index].key) &&
            value_deep_equal_bounded(
-             rt borrow a.value,
+             rt borrow left.object_value[outer].value,
              rt borrow right.object_value[index].value,
              depth + 1, max_depth
            ) then
@@ -550,6 +567,7 @@ fnc value_deep_equal_bounded(
       if !matched then
         return false;
       fi
+      outer = outer + 1;
     done
 
     return true;
@@ -595,8 +613,10 @@ fnc value_deep_equal_bounded(
       i = i + 1;
     done
 
-    for const a of left.map_value do
-      let int hash = value_hash_bounded(rt borrow a.key, depth + 1, max_depth);
+    let int outer = 0;
+    loop do
+      if outer >= left.map_value.length then break; fi
+      let int hash = value_hash_bounded(rt borrow left.map_value[outer].key, depth + 1, max_depth);
       if !buckets.contains(hash) then
         return false;
       fi
@@ -609,12 +629,12 @@ fnc value_deep_equal_bounded(
         fi
 
         if value_deep_equal_bounded(
-             rt borrow a.key,
+             rt borrow left.map_value[outer].key,
              rt borrow right.map_value[index].key,
              depth + 1, max_depth
            ) &&
            value_deep_equal_bounded(
-             rt borrow a.value,
+             rt borrow left.map_value[outer].value,
              rt borrow right.map_value[index].value,
              depth + 1, max_depth
            ) then
@@ -627,6 +647,7 @@ fnc value_deep_equal_bounded(
       if !matched then
         return false;
       fi
+      outer = outer + 1;
     done
 
     return true;
