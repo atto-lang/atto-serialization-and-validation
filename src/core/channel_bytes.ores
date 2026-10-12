@@ -57,10 +57,10 @@ pub async fnc collect_bytes_from_channel(
 
     val List<int> chunk = frame.unwrap();
 
-    if chunk.length > max_bytes - output.length then
+    if chunk.size > max_bytes - output.size then
       return stream_error(
         "input_limit",
-        output.length,
+        output.size,
         "byte stream exceeds configured max_bytes"
       );
     fi
@@ -68,19 +68,19 @@ pub async fnc collect_bytes_from_channel(
     if !byte_list_valid(chunk) then
       let int i = 0;
       loop do
-        if i >= chunk.length then
+        if i >= chunk.size then
           break;
         fi
         if chunk[i] < 0 || chunk[i] > 255 then
           return stream_error(
             "invalid_byte",
-            output.length + i,
+            output.size + i,
             "channel payload values must be bytes 0..255"
           );
         fi
         i = i + 1;
       done
-      return stream_error("invalid_byte", output.length, "invalid byte chunk");
+      return stream_error("invalid_byte", output.size, "invalid byte chunk");
     fi
 
     for const byte of chunk do

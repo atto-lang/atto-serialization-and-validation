@@ -326,7 +326,7 @@ pub fnc max_schema_key_bytes(): int {
 }
 
 fnc object_schema_valid(ObjectSchema schema): bool {
-  if schema.fields.length > max_schema_fields() then
+  if schema.fields.size > max_schema_fields() then
     return false;
   fi
 
@@ -334,13 +334,13 @@ fnc object_schema_valid(ObjectSchema schema): bool {
   let int i = 0;
 
   loop do
-    if i >= schema.fields.length then
+    if i >= schema.fields.size then
       break;
     fi
 
     let FieldRule field = schema.fields[i];
 
-    if field.key.bytes.length > max_schema_key_bytes() ||
+    if field.key.bytes.size > max_schema_key_bytes() ||
        !utf8_is_valid(field.key.bytes) then
       return false;
     fi
@@ -402,7 +402,7 @@ fnc add_error(
     return;
   fi
 
-  if report.errors.length >= options.max_errors then
+  if report.errors.size >= options.max_errors then
     report.truncated = true;
     return;
   fi
@@ -415,7 +415,7 @@ fnc should_stop(ValidationReport report, ValidationOptions options): bool {
   if report.truncated then
     return true;
   fi
-  return options.fail_fast && report.errors.length > 0;
+  return options.fail_fast && report.errors.size > 0;
 }
 
 pub fnc is_ascii(Utf8Text text): bool {
@@ -448,7 +448,7 @@ fnc is_hex(int byte): bool {
 }
 
 pub fnc is_uuid(Utf8Text text): bool {
-  if text.bytes.length != 36 then
+  if text.bytes.size != 36 then
     return false;
   fi
 
@@ -479,7 +479,7 @@ pub fnc is_email(Utf8Text text): bool {
     return false;
   fi
 
-  if text.bytes.length < 3 || text.bytes.length > 254 then
+  if text.bytes.size < 3 || text.bytes.size > 254 then
     return false;
   fi
 
@@ -487,7 +487,7 @@ pub fnc is_email(Utf8Text text): bool {
   let int i = 0;
 
   loop do
-    if i >= text.bytes.length then
+    if i >= text.bytes.size then
       break;
     fi
 
@@ -505,7 +505,7 @@ pub fnc is_email(Utf8Text text): bool {
     i = i + 1;
   done
 
-  if at <= 0 || at >= text.bytes.length - 1 then
+  if at <= 0 || at >= text.bytes.size - 1 then
     return false;
   fi
 
@@ -536,11 +536,11 @@ pub fnc is_email(Utf8Text text): bool {
   i = label_start;
 
   loop do
-    if i > text.bytes.length then
+    if i > text.bytes.size then
       break;
     fi
 
-    let bool at_end = i == text.bytes.length;
+    let bool at_end = i == text.bytes.size;
     let int byte = at_end ? 46 : text.bytes[i];
 
     if byte == 46 {
@@ -570,13 +570,13 @@ pub fnc is_email(Utf8Text text): bool {
 }
 
 fnc starts_with_ascii(Utf8Text text, List<int> prefix): bool {
-  if text.bytes.length < prefix.length then
+  if text.bytes.size < prefix.size then
     return false;
   fi
 
   let int i = 0;
   loop do
-    if i >= prefix.length then
+    if i >= prefix.size then
       break;
     fi
     if text.bytes[i] != prefix[i] then
@@ -608,7 +608,7 @@ pub fnc is_url(Utf8Text text): bool {
     return false;
   fi
 
-  if host_start >= text.bytes.length then
+  if host_start >= text.bytes.size then
     return false;
   fi
 
@@ -619,7 +619,7 @@ pub fnc is_url(Utf8Text text): bool {
   let int i = host_start;
 
   loop do
-    if i >= text.bytes.length then
+    if i >= text.bytes.size then
       break;
     fi
 
@@ -645,7 +645,7 @@ pub fnc parse_number(Value value): ParsedNumber {
   fi
 
   let List<int> bytes = value.number_lexeme;
-  if bytes.length == 0 then
+  if bytes.size == 0 then
     return new ParsedNumber(false, 0.0);
   fi
 
@@ -661,7 +661,7 @@ pub fnc parse_number(Value value): ParsedNumber {
   let bool saw_digit = false;
 
   loop do
-    if i >= bytes.length then
+    if i >= bytes.size then
       break;
     fi
     let int byte = bytes[i];
@@ -680,12 +680,12 @@ pub fnc parse_number(Value value): ParsedNumber {
   let float fraction = 0.0;
   let float divisor = 1.0;
 
-  if i < bytes.length && bytes[i] == 46 then
+  if i < bytes.size && bytes[i] == 46 then
     i = i + 1;
     let bool saw_fraction = false;
 
     loop do
-      if i >= bytes.length then
+      if i >= bytes.size then
         break;
       fi
       let int byte = bytes[i];
@@ -706,19 +706,19 @@ pub fnc parse_number(Value value): ParsedNumber {
   let int exponent = 0;
   let int exponent_sign = 1;
 
-  if i < bytes.length && (bytes[i] == 101 || bytes[i] == 69) then
+  if i < bytes.size && (bytes[i] == 101 || bytes[i] == 69) then
     i = i + 1;
 
-    if i < bytes.length && bytes[i] == 43 then
+    if i < bytes.size && bytes[i] == 43 then
       i = i + 1;
-    elseif i < bytes.length && bytes[i] == 45 then
+    elseif i < bytes.size && bytes[i] == 45 then
       exponent_sign = -1;
       i = i + 1;
     fi
 
     let bool saw_exponent = false;
     loop do
-      if i >= bytes.length then
+      if i >= bytes.size then
         break;
       fi
       let int byte = bytes[i];
@@ -738,7 +738,7 @@ pub fnc parse_number(Value value): ParsedNumber {
     fi
   fi
 
-  if i != bytes.length then
+  if i != bytes.size then
     return new ParsedNumber(false, 0.0);
   fi
 
@@ -866,26 +866,26 @@ fnc validate_rule_at(
   fi
 
   if value.kind == 4 then
-    if rule.min_length >= 0 && value.bytes_value.length < rule.min_length then
+    if rule.min_length >= 0 && value.bytes_value.size < rule.min_length then
       add_error(report, options, "min_length", path, "byte string is shorter than min_length");
     fi
     if should_stop(report, options) then
       return;
     fi
-    if rule.max_length >= 0 && value.bytes_value.length > rule.max_length then
+    if rule.max_length >= 0 && value.bytes_value.size > rule.max_length then
       add_error(report, options, "max_length", path, "byte string is longer than max_length");
     fi
   fi
 
   if value.kind == 5 then
-    if rule.min_items >= 0 && value.array_value.length < rule.min_items then
+    if rule.min_items >= 0 && value.array_value.size < rule.min_items then
       add_error(report, options, "min_items", path, "array contains too few items");
     fi
     if should_stop(report, options) then
       return;
     fi
 
-    if rule.max_items >= 0 && value.array_value.length > rule.max_items then
+    if rule.max_items >= 0 && value.array_value.size > rule.max_items then
       add_error(report, options, "max_items", path, "array contains too many items");
     fi
     if should_stop(report, options) then
@@ -1162,7 +1162,7 @@ pub fnc validate_object(
 }
 
 pub fnc report_is_valid(ValidationReport report): bool {
-  return report.errors.length == 0 && !report.truncated;
+  return report.errors.size == 0 && !report.truncated;
 }
 
 

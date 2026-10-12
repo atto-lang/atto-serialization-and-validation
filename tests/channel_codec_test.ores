@@ -25,7 +25,7 @@ pub async fnc run_channel_codec_tests(): void {
     decode_messagepack_from_channel(rt take msgpack, default_decode_options());
   val Result<DecodedValue, DecodeError> msgpack_result = await msgpack_task;
   require_true(!msgpack_result.is_err(), "MessagePack channel decode must succeed");
-  require_int(msgpack_result.unwrap().value.array_value.length, 3, "MessagePack channel array length");
+  require_int(msgpack_result.unwrap().value.array_value.size, 3, "MessagePack channel array length");
 
   val Channel<Option<List<int>>> cbor = Channel.new<Option<List<int>>>(3);
   writech cbor, Some(new List<int>(24));
@@ -48,7 +48,7 @@ pub async fnc run_channel_codec_tests(): void {
   val Result<ProtoMessage, ProtoError> protobuf_result = await protobuf_task;
   require_true(!protobuf_result.is_err(), "Protobuf channel decode must succeed");
   val ProtoMessage proto_payload = protobuf_result.unwrap();
-  require_int(proto_payload.fields.length, 1, "Protobuf channel field count");
+  require_int(proto_payload.fields.size, 1, "Protobuf channel field count");
   require_int(proto_payload.fields[0].varint_value, 150, "Protobuf channel varint");
 
   val Channel<Option<List<int>>> invalid = Channel.new<Option<List<int>>>(2);

@@ -114,37 +114,29 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  // Accumulate digits by remainder, avoiding negating signed INT64_MIN.
-  // A single ownership exit prevents the result buffer from being moved twice.
+  // Keep the remainder non-positive: negating INT64_MIN would overflow.
+  // Decimal subtraction avoids the backend's floating-point `/` operator.
   val List<int> output = new List<int>();
-  if value == 0 then
-    output.add(48);
-  else
-    let int current = value;
-    if current < 0 then
-      output.add(45);
+  let int remaining = value > 0 ? 0 - value : value;
+  if value < 0 then output.add(45); fi
+  val List<int> powers = arr[-1000000000000000000, -100000000000000000,
+    -10000000000000000, -1000000000000000, -100000000000000,
+    -10000000000000, -1000000000000, -100000000000, -10000000000,
+    -1000000000, -100000000, -10000000, -1000000, -100000,
+    -10000, -1000, -100, -10, -1];
+  let bool emitted = false;
+  for const power of powers do
+    let int digit = 0;
+    loop do
+      if remaining > power then break; fi
+      remaining = remaining - power;
+      digit = digit + 1;
+    done
+    if emitted || digit != 0 || power == -1 then
+      output.add(48 + digit);
+      emitted = true;
     fi
-    val List<int> reversed = new List<int>();
-    loop do
-      if current == 0 then
-        break;
-      fi
-      let int digit = current % 10;
-      if digit < 0 then
-        digit = 0 - digit;
-      fi
-      reversed.add(48 + digit);
-      current = current / 10;
-    done
-    let int i = reversed.length - 1;
-    loop do
-      if i < 0 then
-        break;
-      fi
-      output.add(reversed[i]);
-      i = i - 1;
-    done
-  fi
+  done
   return output;
 }
 
@@ -241,13 +233,13 @@ pub fnc bytes_equal(List<int> left, List<int> right): bool {
 }
 
 fnc bytes_equal_borrow(borrow List<int> left, borrow List<int> right): bool {
-  if left.length != right.length then
+  if left.size != right.size then
     return false;
   fi
 
   let int i = 0;
   loop do
-    if i >= left.length then
+    if i >= left.size then
       break;
     fi
     if left[i] != right[i] then
@@ -264,7 +256,9 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
 }
 
 fnc text_equal_borrow(borrow Utf8Text left, borrow Utf8Text right): bool {
-  return bytes_equal_borrow(rt borrow left.bytes, rt borrow right.bytes);
+  val projection_0 = left.bytes;
+  val projection_1 = right.bytes;
+  return bytes_equal_borrow(rt borrow projection_0, rt borrow projection_1);
 }
 
 fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
@@ -277,15 +271,15 @@ fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
   val List<int> search_bytes = key.bytes;
   let int i = 0;
   loop do
-    if i >= object.object_value.length then
+    if i >= object.object_value.size then
       break;
     fi
     val List<int> current_bytes = object.object_value[i].key.bytes;
-    if current_bytes.length == search_bytes.length then
+    if current_bytes.size == search_bytes.size then
       let bool equal = true;
       let int j = 0;
       loop do
-        if j >= search_bytes.length then
+        if j >= search_bytes.size then
           break;
         fi
         if current_bytes[j] != search_bytes[j] then
@@ -334,7 +328,7 @@ fnc bytes_hash_borrow(borrow List<int> bytes): int {
   let int hash = 1469598103934665603;
   let int i = 0;
   loop do
-    if i >= bytes.length then break; fi
+    if i >= bytes.size then break; fi
     hash = hash_mix(hash, bytes[i]);
     i = i + 1;
   done
@@ -346,7 +340,8 @@ pub fnc text_hash(Utf8Text text): int {
 }
 
 fnc text_hash_borrow(borrow Utf8Text text): int {
-  return bytes_hash_borrow(rt borrow text.bytes);
+  val projection_2 = text.bytes;
+  return bytes_hash_borrow(rt borrow projection_2);
 }
 
 pub fnc value_hash(Value value): int {
@@ -373,25 +368,29 @@ fnc value_hash_bounded(
   fi
 
   if value.kind == 2 then
-    return hash_mix(hash, bytes_hash_borrow(rt borrow value.number_lexeme));
+    val projection_3 = value.number_lexeme;
+    return hash_mix(hash, bytes_hash_borrow(rt borrow projection_3));
   fi
 
   if value.kind == 3 then
-    return hash_mix(hash, text_hash_borrow(rt borrow value.string_value));
+    val projection_4 = value.string_value;
+    return hash_mix(hash, text_hash_borrow(rt borrow projection_4));
   fi
 
   if value.kind == 4 then
-    return hash_mix(hash, bytes_hash_borrow(rt borrow value.bytes_value));
+    val projection_5 = value.bytes_value;
+    return hash_mix(hash, bytes_hash_borrow(rt borrow projection_5));
   fi
 
   if value.kind == 5 then
     let int i = 0;
     loop do
-      if i >= value.array_value.length then break; fi
-      hash = hash_mix(hash, value_hash_bounded(rt borrow value.array_value[i], depth + 1, max_depth));
+      if i >= value.array_value.size then break; fi
+      val projection_6 = value.array_value[i];
+      hash = hash_mix(hash, value_hash_bounded(rt borrow projection_6, depth + 1, max_depth));
       i = i + 1;
     done
-    return hash_mix(hash, value.array_value.length);
+    return hash_mix(hash, value.array_value.size);
   fi
 
   if value.kind == 6 then
@@ -400,10 +399,12 @@ fnc value_hash_bounded(
 
     let int i = 0;
     loop do
-      if i >= value.object_value.length then break; fi
+      if i >= value.object_value.size then break; fi
+      val projection_7 = value.object_value[i].key;
+      val projection_8 = value.object_value[i].value;
       let int pair_hash = hash_mix(
-        text_hash_borrow(rt borrow value.object_value[i].key),
-        value_hash_bounded(rt borrow value.object_value[i].value, depth + 1, max_depth)
+        text_hash_borrow(rt borrow projection_7),
+        value_hash_bounded(rt borrow projection_8, depth + 1, max_depth)
       );
       aggregate_xor = aggregate_xor ^ pair_hash;
       aggregate_sum = aggregate_sum + pair_hash;
@@ -412,12 +413,13 @@ fnc value_hash_bounded(
 
     hash = hash_mix(hash, aggregate_xor);
     hash = hash_mix(hash, aggregate_sum);
-    return hash_mix(hash, value.object_value.length);
+    return hash_mix(hash, value.object_value.size);
   fi
 
   if value.kind == 7 then
     hash = hash_mix(hash, value.extension_type);
-    return hash_mix(hash, bytes_hash_borrow(rt borrow value.bytes_value));
+    val projection_9 = value.bytes_value;
+    return hash_mix(hash, bytes_hash_borrow(rt borrow projection_9));
   fi
 
   if value.kind == 8 then
@@ -426,10 +428,12 @@ fnc value_hash_bounded(
 
     let int i = 0;
     loop do
-      if i >= value.map_value.length then break; fi
+      if i >= value.map_value.size then break; fi
+      val projection_10 = value.map_value[i].key;
+      val projection_11 = value.map_value[i].value;
       let int pair_hash = hash_mix(
-        value_hash_bounded(rt borrow value.map_value[i].key, depth + 1, max_depth),
-        value_hash_bounded(rt borrow value.map_value[i].value, depth + 1, max_depth)
+        value_hash_bounded(rt borrow projection_10, depth + 1, max_depth),
+        value_hash_bounded(rt borrow projection_11, depth + 1, max_depth)
       );
       aggregate_xor = aggregate_xor ^ pair_hash;
       aggregate_sum = aggregate_sum + pair_hash;
@@ -438,7 +442,7 @@ fnc value_hash_bounded(
 
     hash = hash_mix(hash, aggregate_xor);
     hash = hash_mix(hash, aggregate_sum);
-    return hash_mix(hash, value.map_value.length);
+    return hash_mix(hash, value.map_value.size);
   fi
 
   return hash;
@@ -475,30 +479,38 @@ fnc value_deep_equal_bounded(
   fi
 
   if left.kind == 2 then
-    return bytes_equal_borrow(rt borrow left.number_lexeme, rt borrow right.number_lexeme);
+    val projection_12 = left.number_lexeme;
+    val projection_13 = right.number_lexeme;
+    return bytes_equal_borrow(rt borrow projection_12, rt borrow projection_13);
   fi
 
   if left.kind == 3 then
-    return text_equal_borrow(rt borrow left.string_value, rt borrow right.string_value);
+    val projection_14 = left.string_value;
+    val projection_15 = right.string_value;
+    return text_equal_borrow(rt borrow projection_14, rt borrow projection_15);
   fi
 
   if left.kind == 4 then
-    return bytes_equal_borrow(rt borrow left.bytes_value, rt borrow right.bytes_value);
+    val projection_16 = left.bytes_value;
+    val projection_17 = right.bytes_value;
+    return bytes_equal_borrow(rt borrow projection_16, rt borrow projection_17);
   fi
 
   if left.kind == 5 then
-    if left.array_value.length != right.array_value.length then
+    if left.array_value.size != right.array_value.size then
       return false;
     fi
 
     let int i = 0;
     loop do
-      if i >= left.array_value.length then
+      if i >= left.array_value.size then
         break;
       fi
+      val projection_18 = left.array_value[i];
+      val projection_19 = right.array_value[i];
       if !value_deep_equal_bounded(
-        rt borrow left.array_value[i],
-        rt borrow right.array_value[i],
+        rt borrow projection_18,
+        rt borrow projection_19,
         depth + 1,
         max_depth
       ) then
@@ -510,7 +522,7 @@ fnc value_deep_equal_bounded(
   fi
 
   if left.kind == 6 then
-    if left.object_value.length != right.object_value.length then
+    if left.object_value.size != right.object_value.size then
       return false;
     fi
 
@@ -519,13 +531,14 @@ fnc value_deep_equal_bounded(
     let int i = 0;
 
     loop do
-      if i >= right.object_value.length then
+      if i >= right.object_value.size then
         break;
       fi
 
       used.add(false);
+      val projection_20 = right.object_value[i].key;
 
-      let int hash = text_hash_borrow(rt borrow right.object_value[i].key);
+      let int hash = text_hash_borrow(rt borrow projection_20);
       if buckets.contains(hash) then
         val List<int> indices = buckets.get(hash);
         indices.add(i);
@@ -539,8 +552,9 @@ fnc value_deep_equal_bounded(
 
     let int outer = 0;
     loop do
-      if outer >= left.object_value.length then break; fi
-      let int hash = text_hash_borrow(rt borrow left.object_value[outer].key);
+      if outer >= left.object_value.size then break; fi
+      val projection_21 = left.object_value[outer].key;
+      let int hash = text_hash_borrow(rt borrow projection_21);
       if !buckets.contains(hash) then
         return false;
       fi
@@ -551,11 +565,15 @@ fnc value_deep_equal_bounded(
         if used[index] then
           continue;
         fi
+        val projection_22 = left.object_value[outer].key;
+        val projection_23 = right.object_value[index].key;
+        val projection_24 = left.object_value[outer].value;
+        val projection_25 = right.object_value[index].value;
 
-        if text_equal_borrow(rt borrow left.object_value[outer].key, rt borrow right.object_value[index].key) &&
+        if text_equal_borrow(rt borrow projection_22, rt borrow projection_23) &&
            value_deep_equal_bounded(
-             rt borrow left.object_value[outer].value,
-             rt borrow right.object_value[index].value,
+             rt borrow projection_24,
+             rt borrow projection_25,
              depth + 1, max_depth
            ) then
           used[index] = true;
@@ -577,11 +595,13 @@ fnc value_deep_equal_bounded(
     if left.extension_type != right.extension_type then
       return false;
     fi
-    return bytes_equal_borrow(rt borrow left.bytes_value, rt borrow right.bytes_value);
+    val projection_26 = left.bytes_value;
+    val projection_27 = right.bytes_value;
+    return bytes_equal_borrow(rt borrow projection_26, rt borrow projection_27);
   fi
 
   if left.kind == 8 then
-    if left.map_value.length != right.map_value.length then
+    if left.map_value.size != right.map_value.size then
       return false;
     fi
 
@@ -590,14 +610,15 @@ fnc value_deep_equal_bounded(
     let int i = 0;
 
     loop do
-      if i >= right.map_value.length then
+      if i >= right.map_value.size then
         break;
       fi
 
       used.add(false);
+      val projection_28 = right.map_value[i].key;
 
       let int hash = value_hash_bounded(
-        rt borrow right.map_value[i].key,
+        rt borrow projection_28,
         depth + 1,
         max_depth
       );
@@ -615,8 +636,9 @@ fnc value_deep_equal_bounded(
 
     let int outer = 0;
     loop do
-      if outer >= left.map_value.length then break; fi
-      let int hash = value_hash_bounded(rt borrow left.map_value[outer].key, depth + 1, max_depth);
+      if outer >= left.map_value.size then break; fi
+      val projection_29 = left.map_value[outer].key;
+      let int hash = value_hash_bounded(rt borrow projection_29, depth + 1, max_depth);
       if !buckets.contains(hash) then
         return false;
       fi
@@ -627,15 +649,19 @@ fnc value_deep_equal_bounded(
         if used[index] then
           continue;
         fi
+        val projection_30 = left.map_value[outer].key;
+        val projection_31 = right.map_value[index].key;
+        val projection_32 = left.map_value[outer].value;
+        val projection_33 = right.map_value[index].value;
 
         if value_deep_equal_bounded(
-             rt borrow left.map_value[outer].key,
-             rt borrow right.map_value[index].key,
+             rt borrow projection_30,
+             rt borrow projection_31,
              depth + 1, max_depth
            ) &&
            value_deep_equal_bounded(
-             rt borrow left.map_value[outer].value,
-             rt borrow right.map_value[index].value,
+             rt borrow projection_32,
+             rt borrow projection_33,
              depth + 1, max_depth
            ) then
           used[index] = true;
@@ -663,7 +689,7 @@ pub fnc parse_int(Value value): IntParse {
   fi
 
   let List<int> bytes = value.number_lexeme;
-  if bytes.length == 0 then
+  if bytes.size == 0 then
     return new IntParse(false, 0);
   fi
 
@@ -673,7 +699,7 @@ pub fnc parse_int(Value value): IntParse {
   if bytes[0] == 45 then
     negative = true;
     i = 1;
-    if i >= bytes.length then
+    if i >= bytes.size then
       return new IntParse(false, 0);
     fi
   fi
@@ -683,7 +709,7 @@ pub fnc parse_int(Value value): IntParse {
   let int result = 0;
 
   loop do
-    if i >= bytes.length then
+    if i >= bytes.size then
       break;
     fi
 
@@ -696,14 +722,12 @@ pub fnc parse_int(Value value): IntParse {
 
     if negative then
       // min int64 is (-9223372036854775807 - 1)
-      val int min_int = -9223372036854775807 - 1;
-      if result < (min_int + digit) / 10 then
+      if result < -922337203685477580 || (result == -922337203685477580 && digit > 8) then
         return new IntParse(false, 0);
       fi
       result = (result * 10) - digit;
     else
-      val int max_int = 9223372036854775807;
-      if result > (max_int - digit) / 10 then
+      if result > 922337203685477580 || (result == 922337203685477580 && digit > 7) then
         return new IntParse(false, 0);
       fi
       result = (result * 10) + digit;
@@ -730,7 +754,8 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     return object_get(container, key.string_value);
   elseif container.kind == 8 then
     for const entry of container.map_value do
-      if value_deep_equal_bounded(rt borrow entry.key, rt borrow key, 0, 128) then
+      val projection_34 = entry.key;
+      if value_deep_equal_bounded(rt borrow projection_34, rt borrow key, 0, 128) then
         return Ok(entry.value);
       fi
     done
@@ -738,7 +763,7 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
   elseif container.kind == 5 then
     let IntParse index = parse_int(key);
     if !index.ok || index.value < 0 ||
-       index.value >= container.array_value.length then
+       index.value >= container.array_value.size then
       return Err("array index must be an in-bounds integer");
     fi
     return Ok(container.array_value[index.value]);
@@ -754,18 +779,23 @@ pub fnc value_lookup_path(
   Value root,
   List<Value> segments
 ): Result<Value, String> {
-  if segments.length > 128 then
+  if segments.size > 128 then
     return Err("dynamic path exceeds maximum length of 128");
   fi
 
-  let Value current = root;
-  for const segment of segments do
-    let Result<Value, String> next = value_lookup(current, segment);
+  return value_lookup_path_at(root, rt borrow segments, 0);
+}
+
+fnc value_lookup_path_at(Value current, borrow List<Value> segments, int offset): Result<Value, String> {
+  if offset == segments.size then
+    return Ok(current);
+  else
+    val Value segment = segments[offset];
+    val Result<Value, String> next = value_lookup(current, segment);
     if next.is_err() then
       return Err("dynamic path segment not found or has wrong type");
+    else
+      return value_lookup_path_at(next.unwrap(), segments, offset + 1);
     fi
-    current = next.unwrap();
-  done
-
-  return Ok(current);
+  fi
 }

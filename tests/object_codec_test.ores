@@ -56,7 +56,7 @@ pub fnc run_object_codec_tests(): void {
   );
   require_true(decoded.is_err() == false, "metadata-driven JSON object must decode");
   val DecodedObject object = decoded.unwrap();
-  require_int(object.source_object.object_value.length, 2, "source object field count");
+  require_int(object.source_object.object_value.size, 2, "source object field count");
   require_int(
     object.source_object.object_value[0].key.bytes[7],
     95,

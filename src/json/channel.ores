@@ -52,7 +52,7 @@ pub async fnc decode_one_from_channel(
       // A complete root is not proof of end-of-message. Without this drain,
       // {"ok":true} followed by a second channel frame would be accepted
       // and the second frame silently abandoned by this one-value API.
-      let int received = decoder.buffer.length;
+      let int received = decoder.buffer.size;
       loop do
         val Future<Option<List<int>>> pending_tail = nb readch input;
         val Option<List<int>> tail = await pending_tail;
@@ -61,7 +61,7 @@ pub async fnc decode_one_from_channel(
         fi
 
         val List<int> bytes = tail.unwrap();
-        if bytes.length > options.max_input_bytes - received then
+        if bytes.size > options.max_input_bytes - received then
           return Err(decode_error(
             "input_limit",
             received,
@@ -71,7 +71,7 @@ pub async fnc decode_one_from_channel(
 
         let int i = 0;
         loop do
-          if i >= bytes.length then
+          if i >= bytes.size then
             break;
           fi
           let int byte = bytes[i];
@@ -84,7 +84,7 @@ pub async fnc decode_one_from_channel(
           fi
           i = i + 1;
         done
-        received = received + bytes.length;
+        received = received + bytes.size;
       done
     fi
 

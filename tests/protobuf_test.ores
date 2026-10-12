@@ -20,10 +20,10 @@ pub fnc run_protobuf_tests(): void {
   val List<int> expected = new List<int>(8, 150, 1, 18, 2, 104, 105);
   val List<int> actual = encoded.unwrap();
 
-  require_int(actual.length, expected.length, "Protobuf encoded length");
+  require_int(actual.size, expected.size, "Protobuf encoded length");
   let int i = 0;
   loop do
-    if i >= expected.length then
+    if i >= expected.size then
       break;
     fi
     require_int(actual[i], expected[i], "Protobuf encoded byte mismatch");
@@ -37,13 +37,13 @@ pub fnc run_protobuf_tests(): void {
   require_true(decoded.is_err() == false, "Protobuf message must decode");
 
   val ProtoMessage roundtrip = decoded.unwrap();
-  require_int(roundtrip.fields.length, 2, "Protobuf field count");
+  require_int(roundtrip.fields.size, 2, "Protobuf field count");
   require_int(roundtrip.fields[0].field_number, 1, "Protobuf field 1 number");
   require_int(roundtrip.fields[0].varint_value, 150, "Protobuf field 1 value");
 
   val List<ProtoField> field_two = fields_with_number(roundtrip, 2);
-  require_int(field_two.length, 1, "Protobuf field lookup");
-  require_int(field_two[0].payload.length, 2, "Protobuf length-delimited payload");
+  require_int(field_two.size, 1, "Protobuf field lookup");
+  require_int(field_two[0].payload.size, 2, "Protobuf length-delimited payload");
 
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
@@ -61,7 +61,7 @@ pub fnc run_protobuf_tests(): void {
   val ProtoMessage raw_roundtrip = raw_decoded.unwrap();
   val ProtoField raw_field = raw_roundtrip.fields[0];
   require_true(!raw_field.varint_fits_int, "uint64 max must not be narrowed into signed int");
-  require_int(raw_field.payload.length, 10, "uint64 max raw varint byte count");
+  require_int(raw_field.payload.size, 10, "uint64 max raw varint byte count");
 
   val Result<List<int>, ProtoError> raw_reencoded = encode_message(
     raw_roundtrip,
@@ -70,11 +70,11 @@ pub fnc run_protobuf_tests(): void {
   require_true(raw_reencoded.is_err() == false, "preserved uint64 max must re-encode");
 
   val List<int> raw_bytes = raw_reencoded.unwrap();
-  require_int(raw_bytes.length, uint64_max.length, "preserved uint64 max encoded length");
+  require_int(raw_bytes.size, uint64_max.size, "preserved uint64 max encoded length");
 
   let int j = 0;
   loop do
-    if j >= uint64_max.length then
+    if j >= uint64_max.size then
       break;
     fi
     require_int(raw_bytes[j], uint64_max[j], "preserved uint64 max byte mismatch");
@@ -123,7 +123,7 @@ pub fnc run_protobuf_tests(): void {
   );
   require_true(!nested_wire.is_err(), "nested Protobuf raw payload must decode");
   val ProtoMessage outer = nested_wire.unwrap();
-  require_int(outer.fields.length, 1, "nested Protobuf outer field count");
+  require_int(outer.fields.size, 1, "nested Protobuf outer field count");
   require_int(outer.fields[0].wire_type, 2, "nested Protobuf stays length-delimited without descriptor");
 
   val Result<ProtoMessage, ProtoError> inner = decode_message(

@@ -1,0 +1,16 @@
+{
+  "java": {
+    "pin": "SOURCE_REF",
+    "suite": "scripts/test.sh",
+    "execution": "partial",
+    "core_suite": "tests/backend_value_contract.ores"
+  },
+  "llvm": {
+    "pin": "LLVM_SOURCE_REF",
+    "execution": "unsupported",
+    "rejection_probes": [
+      "tests/main.ores",
+      "src/core/value.ores"
+    ]
+  }
+}

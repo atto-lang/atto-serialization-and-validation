@@ -45,7 +45,7 @@ pub define class JsonIncrementalDecoder as
   private scan_incremental(mut self)(): int {
     // 0 need more, 1 candidate complete, 2 definitely invalid token boundary.
     loop do
-      if self.scan_index >= self.buffer.length then
+      if self.scan_index >= self.buffer.size then
         return 0;
       fi
   
@@ -193,17 +193,17 @@ pub define class JsonIncrementalDecoder as
       return new DecodeStep(
         2,
         value_null(),
-        self.buffer.length,
-        decode_error("invalid_options", self.buffer.length, "invalid or unsafe JSON decode options")
+        self.buffer.size,
+        decode_error("invalid_options", self.buffer.size, "invalid or unsafe JSON decode options")
       );
     fi
   
-    if chunk.length > self.options.max_input_bytes - self.buffer.length then
+    if chunk.size > self.options.max_input_bytes - self.buffer.size then
       return new DecodeStep(
         2,
         value_null(),
-        self.buffer.length,
-        decode_error("input_limit", self.buffer.length, "JSON input exceeds max_input_bytes")
+        self.buffer.size,
+        decode_error("input_limit", self.buffer.size, "JSON input exceeds max_input_bytes")
       );
     fi
   
@@ -213,10 +213,10 @@ pub define class JsonIncrementalDecoder as
         return new DecodeStep(
           2,
           value_null(),
-          self.buffer.length,
+          self.buffer.size,
           decode_error(
             "invalid_byte",
-            self.buffer.length + chunk_index,
+            self.buffer.size + chunk_index,
             "JSON input bytes must be 0..255"
           )
         );
@@ -234,8 +234,8 @@ pub define class JsonIncrementalDecoder as
       return new DecodeStep(
         0,
         value_null(),
-        self.buffer.length,
-        decode_error("need_more", self.buffer.length, "incomplete JSON value")
+        self.buffer.size,
+        decode_error("need_more", self.buffer.size, "incomplete JSON value")
       );
     fi
   
@@ -348,7 +348,7 @@ fnc hex_value(int byte): int {
 
 fnc skip_whitespace(JsonCursor mut cursor): void {
   loop do
-    if cursor.index >= cursor.input.length then
+    if cursor.index >= cursor.input.size then
       break;
     fi
     if !is_whitespace(cursor.input[cursor.index]) then
@@ -360,7 +360,7 @@ fnc skip_whitespace(JsonCursor mut cursor): void {
 }
 
 fnc peek(JsonCursor mut cursor): int {
-  if cursor.index >= cursor.input.length then
+  if cursor.index >= cursor.input.size then
     need_more(cursor);
     return -1;
   fi
@@ -391,7 +391,7 @@ fnc append_output(JsonWriter mut writer, int byte): void {
   if writer.failed then
     return;
   fi
-  if writer.output.length >= writer.options.max_output_bytes then
+  if writer.output.size >= writer.options.max_output_bytes then
     writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
     return;
   fi
@@ -435,7 +435,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
   fi
 
   loop do
-    if cursor.index >= cursor.input.length then
+    if cursor.index >= cursor.input.size then
       need_more(cursor);
       return new Utf8Text(output);
     fi
@@ -456,13 +456,13 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
 
     // Every non-quote JSON string token emits at least one UTF-8 byte.
     // Enforce the configured limit before allocation rather than after copying.
-    if output.length >= cursor.options.max_string_bytes then
+    if output.size >= cursor.options.max_string_bytes then
       fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
       return new Utf8Text(output);
     fi
 
     if byte == 92 then
-      if cursor.index >= cursor.input.length then
+      if cursor.index >= cursor.input.size then
         need_more(cursor);
         return new Utf8Text(output);
       fi
@@ -490,7 +490,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         let int codepoint = first;
 
         if first >= 55296 && first <= 56319 then
-          if cursor.index + 1 >= cursor.input.length then
+          if cursor.index + 1 >= cursor.input.size then
             need_more(cursor);
             return new Utf8Text(output);
           fi
@@ -519,7 +519,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         let int encoded_width = codepoint <= 127 ? 1 :
                                 codepoint <= 2047 ? 2 :
                                 codepoint <= 65535 ? 3 : 4;
-        if encoded_width > cursor.options.max_string_bytes - output.length then
+        if encoded_width > cursor.options.max_string_bytes - output.size then
           fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
           return new Utf8Text(output);
         fi
@@ -563,7 +563,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
 
       let int width = expected_width;
 
-      if width > cursor.options.max_string_bytes - output.length then
+      if width > cursor.options.max_string_bytes - output.size then
         fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
         return new Utf8Text(output);
       fi
@@ -580,7 +580,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       cursor.index = start + width;
     fi
 
-    if output.length > cursor.options.max_string_bytes then
+    if output.size > cursor.options.max_string_bytes then
       fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
       return new Utf8Text(output);
     fi
@@ -596,11 +596,11 @@ fnc parse_literal(
 ): Value {
   let int i = 0;
   loop do
-    if i >= expected.length then
+    if i >= expected.size then
       break;
     fi
 
-    if cursor.index >= cursor.input.length then
+    if cursor.index >= cursor.input.size then
       need_more(cursor);
       return value_null();
     fi
@@ -622,7 +622,7 @@ fnc push_number_byte(
   List<int> mut lexeme,
   int byte
 ): bool {
-  if lexeme.length >= cursor.options.max_number_bytes then
+  if lexeme.size >= cursor.options.max_number_bytes then
     fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
     return false;
   fi
@@ -634,14 +634,14 @@ fnc push_number_byte(
 fnc parse_number(JsonCursor mut cursor): Value {
   val List<int> lexeme = new List<int>();
 
-  if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
+  if cursor.index < cursor.input.size && cursor.input[cursor.index] == 45 then
     if !push_number_byte(cursor, lexeme, 45) then
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
   fi
 
-  if cursor.index >= cursor.input.length then
+  if cursor.index >= cursor.input.size then
     need_more(cursor);
     return value_number_lexeme(lexeme);
   fi
@@ -653,13 +653,13 @@ fnc parse_number(JsonCursor mut cursor): Value {
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
-    if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
+    if cursor.index < cursor.input.size && is_digit(cursor.input[cursor.index]) then
       fail(cursor, "invalid_number", "JSON number cannot contain a leading zero");
       return value_number_lexeme(lexeme);
     fi
   elseif is_nonzero_digit(first) then
     loop do
-      if cursor.index >= cursor.input.length then
+      if cursor.index >= cursor.input.size then
         break;
       fi
       let int byte = cursor.input[cursor.index];
@@ -676,13 +676,13 @@ fnc parse_number(JsonCursor mut cursor): Value {
     return value_number_lexeme(lexeme);
   fi
 
-  if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
+  if cursor.index < cursor.input.size && cursor.input[cursor.index] == 46 then
     if !push_number_byte(cursor, lexeme, 46) then
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
 
-    if cursor.index >= cursor.input.length then
+    if cursor.index >= cursor.input.size then
       need_more(cursor);
       return value_number_lexeme(lexeme);
     fi
@@ -692,7 +692,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
     fi
 
     loop do
-      if cursor.index >= cursor.input.length then
+      if cursor.index >= cursor.input.size then
         break;
       fi
       let int byte = cursor.input[cursor.index];
@@ -706,7 +706,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
     done
   fi
 
-  if cursor.index < cursor.input.length then
+  if cursor.index < cursor.input.size then
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
       if !push_number_byte(cursor, lexeme, byte) then
@@ -714,7 +714,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
       fi
       cursor.index = cursor.index + 1;
 
-      if cursor.index >= cursor.input.length then
+      if cursor.index >= cursor.input.size then
         need_more(cursor);
         return value_number_lexeme(lexeme);
       fi
@@ -727,7 +727,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
         cursor.index = cursor.index + 1;
       fi
 
-      if cursor.index >= cursor.input.length then
+      if cursor.index >= cursor.input.size then
         need_more(cursor);
         return value_number_lexeme(lexeme);
       fi
@@ -737,7 +737,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
       fi
 
       loop do
-        if cursor.index >= cursor.input.length then
+        if cursor.index >= cursor.input.size then
           break;
         fi
         let int exp_byte = cursor.input[cursor.index];
@@ -752,7 +752,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
     fi
   fi
 
-  if lexeme.length > cursor.options.max_number_bytes then
+  if lexeme.size > cursor.options.max_number_bytes then
     fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
   fi
 
@@ -804,7 +804,7 @@ fnc object_keys_unique(List<WireMember> members): bool {
   let int i = 0;
 
   loop do
-    if i >= members.length then
+    if i >= members.size then
       break;
     fi
 
@@ -831,13 +831,13 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
   skip_whitespace(cursor);
 
-  if cursor.index < cursor.input.length && cursor.input[cursor.index] == 93 then
+  if cursor.index < cursor.input.size && cursor.input[cursor.index] == 93 then
     cursor.index = cursor.index + 1;
     return value_array(values);
   fi
 
   loop do
-    if values.length >= cursor.options.max_array_entries then
+    if values.size >= cursor.options.max_array_entries then
       fail(cursor, "array_limit", "JSON array exceeds max_array_entries");
       return value_array(values);
     fi
@@ -883,13 +883,13 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
 
   skip_whitespace(cursor);
 
-  if cursor.index < cursor.input.length && cursor.input[cursor.index] == 125 then
+  if cursor.index < cursor.input.size && cursor.input[cursor.index] == 125 then
     cursor.index = cursor.index + 1;
     return value_object(members);
   fi
 
   loop do
-    if members.length >= cursor.options.max_map_entries then
+    if members.size >= cursor.options.max_map_entries then
       fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
       return value_object(members);
     fi
@@ -928,7 +928,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       fi
       // first_wins intentionally does not append or replace.
     else
-      let int index = members.length;
+      let int index = members.size;
       members.add(new WireMember(key, field_value));
       remember_member(buckets, key, index);
     fi
@@ -1015,7 +1015,7 @@ pub fnc decode_attempt(
     );
   fi
 
-  if input.length > options.max_input_bytes then
+  if input.size > options.max_input_bytes then
     return new DecodeAttempt(
       2,
       value_null(),
@@ -1039,7 +1039,7 @@ pub fnc decode_attempt(
 
   // The cursor owns the input and options after construction. Preserve only
   // immutable scalar facts required by the trailing-data check.
-  val int input_length = input.length;
+  val int input_length = input.size;
   val bool allow_trailing_data = options.allow_trailing_data;
   let JsonCursor cursor = new JsonCursor(
     input,
@@ -1096,10 +1096,10 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     0,
     false,
     8,
-    bytes.length + 1,
+    bytes.size + 1,
     1,
     1,
-    bytes.length + 1,
+    bytes.size + 1,
     1,
     1
   );
@@ -1117,7 +1117,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
   if cursor.failed || cursor.incomplete then
     return false;
   fi
-  if cursor.index != bytes.length then
+  if cursor.index != bytes.size then
     return false;
   fi
   return value.kind == 2;
@@ -1128,7 +1128,7 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
 
   let int i = 0;
   loop do
-    if i >= text.bytes.length then
+    if i >= text.bytes.size then
       break;
     fi
 
@@ -1279,7 +1279,7 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
 
     let int i = 0;
     loop do
-      if i >= value.array_value.length then
+      if i >= value.array_value.size then
         break;
       fi
       if i > 0 then
@@ -1306,7 +1306,7 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
 
     let int i = 0;
     loop do
-      if i >= value.object_value.length then
+      if i >= value.object_value.size then
         break;
       fi
       if i > 0 then

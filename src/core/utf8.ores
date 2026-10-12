@@ -25,11 +25,11 @@ pub fnc utf8_prefix_status(
   int expected_width
 ): int {
   // 0 invalid, 1 valid prefix but incomplete, 2 complete and valid.
-  if expected_width < 1 || index < 0 || index >= bytes.length then
+  if expected_width < 1 || index < 0 || index >= bytes.size then
     return 0;
   fi
 
-  let int available = bytes.length - index;
+  let int available = bytes.size - index;
   let int check_width = available < expected_width ? available : expected_width;
   let int first = bytes[index];
   let int i = 1;
@@ -70,7 +70,7 @@ pub fnc utf8_prefix_status(
 }
 
 pub fnc utf8_sequence_length(List<int> bytes, int index): int {
-  if index < 0 || index >= bytes.length then
+  if index < 0 || index >= bytes.size then
     return -1;
   fi
 
@@ -94,13 +94,13 @@ fnc utf8_scan(List<int> bytes): int {
   let int i = 0;
   let int count = 0;
   loop do
-    if i >= bytes.length then
+    if i >= bytes.size then
       break;
     fi
 
     let int first = bytes[i];
     let int width = utf8_expected_width(first);
-    if width < 1 || width > bytes.length - i then
+    if width < 1 || width > bytes.size - i then
       return -1;
     fi
 

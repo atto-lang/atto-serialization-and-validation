@@ -55,7 +55,7 @@ pub fnc run_cbor_tests(): void {
   require_true(general_map.is_err() == false, "CBOR integer-key map must decode");
   val DecodedValue general = general_map.unwrap();
   require_int(general.value.kind, 8, "integer-key CBOR map kind");
-  require_int(general.value.map_value.length, 1, "integer-key CBOR map size");
+  require_int(general.value.map_value.size, 1, "integer-key CBOR map size");
 
   val Result<List<int>, EncodeError> general_map_encoded = encode(
     general.value,
@@ -78,7 +78,7 @@ pub fnc run_cbor_tests(): void {
   val Result<DecodedValue, DecodeError> first_wins = decode(rt borrow duplicate_map, duplicate_first);
   require_true(!first_wins.is_err(), "CBOR first-wins duplicate policy must decode");
   val DecodedValue first_value = first_wins.unwrap();
-  require_int(first_value.value.map_value.length, 1, "CBOR first-wins must keep one entry");
+  require_int(first_value.value.map_value.size, 1, "CBOR first-wins must keep one entry");
   require_int(first_value.value.map_value[0].value.number_lexeme[0], 50, "CBOR first-wins must preserve first value");
 
   val DecodeOptions duplicate_last = new DecodeOptions(
@@ -87,7 +87,7 @@ pub fnc run_cbor_tests(): void {
   val Result<DecodedValue, DecodeError> last_wins = decode(rt borrow duplicate_map, duplicate_last);
   require_true(!last_wins.is_err(), "CBOR last-wins duplicate policy must decode");
   val DecodedValue last_value = last_wins.unwrap();
-  require_int(last_value.value.map_value.length, 1, "CBOR last-wins must keep one entry");
+  require_int(last_value.value.map_value.size, 1, "CBOR last-wins must keep one entry");
   require_int(last_value.value.map_value[0].value.number_lexeme[0], 51, "CBOR last-wins must preserve last value");
 
   val int min_int = -9223372036854775807 - 1;

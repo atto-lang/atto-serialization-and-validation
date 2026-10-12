@@ -1,0 +1,12 @@
+// Reproducer: the pinned Java type checker loses an imported field's numeric type.
+import class DecodeOptions from '../../src/core/options';
+import fnc default_decode_options from '../../src/core/options';
+
+pub fnc remaining(DecodeOptions options, int used): int {
+  return options.max_input_bytes - used;
+}
+
+pub fnc main(): void {
+  stdio.println(remaining(default_decode_options(), 1));
+  return;
+}

@@ -55,7 +55,7 @@ fnc writer_fail(
 }
 
 fnc read_u8(CborCursor mut cursor): int {
-  if cursor.index >= cursor.input.length then
+  if cursor.index >= cursor.input.size then
     cursor_fail(cursor, "unexpected_eof", "truncated CBOR value");
     return 0;
   fi
@@ -166,7 +166,7 @@ fnc read_bytes(
     return output;
   fi
 
-  if !byte_range_fits(cursor.input.length, cursor.index, length) then
+  if !byte_range_fits(cursor.input.size, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated CBOR payload");
     return output;
   fi
@@ -229,7 +229,7 @@ fnc map_keys_unique(List<MapEntry> entries): bool {
   let int i = 0;
 
   loop do
-    if i >= entries.length then
+    if i >= entries.size then
       break;
     fi
 
@@ -341,7 +341,7 @@ fnc decode_map(
         entries[existing] = new MapEntry(key, member_value);
       fi
     else
-      let int index = entries.length;
+      let int index = entries.size;
       entries.add(new MapEntry(key, member_value));
       remember_map_entry(buckets, key, index);
     fi
@@ -465,7 +465,7 @@ pub fnc decode(
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
-  if input.length > options.max_input_bytes then
+  if input.size > options.max_input_bytes then
     return Err(decode_error("input_limit", 0, "CBOR input exceeds max_input_bytes"));
   fi
 
@@ -487,7 +487,7 @@ pub fnc decode(
     return Err(cursor.error);
   fi
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !options.allow_trailing_data && cursor.index != input.size then
     return Err(decode_error("trailing_data", cursor.index, "trailing bytes after CBOR value"));
   fi
 
@@ -504,7 +504,7 @@ fnc append_byte(CborWriter mut writer, int byte): void {
     return;
   fi
 
-  if writer.output.length >= writer.options.max_output_bytes then
+  if writer.output.size >= writer.options.max_output_bytes then
     writer_fail(writer, "output_limit", "CBOR output exceeds max_output_bytes");
     return;
   fi
@@ -650,19 +650,19 @@ fnc encode_value(
       writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 as CBOR text");
       return;
     fi
-    append_head(writer, 3, value.string_value.bytes.length);
+    append_head(writer, 3, value.string_value.bytes.size);
     append_bytes(writer, value.string_value.bytes);
     return;
   fi
 
   if value.kind == 4 then
-    append_head(writer, 2, value.bytes_value.length);
+    append_head(writer, 2, value.bytes_value.size);
     append_bytes(writer, value.bytes_value);
     return;
   fi
 
   if value.kind == 5 then
-    append_head(writer, 4, value.array_value.length);
+    append_head(writer, 4, value.array_value.size);
     for const item of value.array_value do
       encode_value(writer, item, depth + 1);
       if writer.failed then
@@ -682,13 +682,13 @@ fnc encode_value(
       return;
     fi
 
-    append_head(writer, 5, value.object_value.length);
+    append_head(writer, 5, value.object_value.size);
     for const member of value.object_value do
       if !utf8_is_valid(member.key.bytes) then
         writer_fail(writer, "invalid_utf8", "CBOR map key contains invalid UTF-8");
         return;
       fi
-      append_head(writer, 3, member.key.bytes.length);
+      append_head(writer, 3, member.key.bytes.size);
       append_bytes(writer, member.key.bytes);
       encode_value(writer, member.value, depth + 1);
       if writer.failed then
@@ -704,7 +704,7 @@ fnc encode_value(
       return;
     fi
 
-    append_head(writer, 5, value.map_value.length);
+    append_head(writer, 5, value.map_value.size);
     for const entry of value.map_value do
       encode_value(writer, entry.key, depth + 1);
       encode_value(writer, entry.value, depth + 1);

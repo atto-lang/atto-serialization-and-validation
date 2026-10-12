@@ -43,7 +43,7 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   );
   require_true(!report_is_valid(rt borrow invalid), "invalid object must fail validation");
-  require_int(invalid.errors.length, 2, "validation must collect both field errors");
+  require_int(invalid.errors.size, 2, "validation must collect both field errors");
 
   require_true(
     is_uuid(new Utf8Text(new List<int>(

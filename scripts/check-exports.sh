@@ -21,9 +21,9 @@ while IFS= read -r -d '' file; do
       continue
     fi
     if [[ "$module" == *.ores ]]; then
-      target="$(realpath -m "$(dirname "$file")/$module")"
+      target="$(dirname "$file")/$module"
     else
-      target="$(realpath -m "$(dirname "$file")/$module.ores")"
+      target="$(dirname "$file")/$module.ores"
     fi
     if [[ ! -f "$target" ]]; then
       echo "import source absent: $file -> $target" >&2

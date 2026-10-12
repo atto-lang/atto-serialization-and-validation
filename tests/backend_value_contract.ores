@@ -1,0 +1,44 @@
+import class Value, MapEntry, Utf8Text from '../src/core/value';
+import fnc int_to_decimal_bytes, bytes_equal, value_int, value_array, value_map, value_deep_equal, value_lookup, value_lookup_path, value_number_lexeme, value_hash, parse_int from '../src/core/value';
+import fnc require_true, require_int from './assert';
+
+pub fnc main(): void {
+  require_true(bytes_equal(int_to_decimal_bytes(0), arr[48]), "decimal zero");
+  require_true(bytes_equal(int_to_decimal_bytes(-123), arr[45, 49, 50, 51]), "negative decimal");
+  require_true(bytes_equal(int_to_decimal_bytes(-9223372036854775807 - 1),
+    arr[45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56]), "signed minimum");
+  require_true(bytes_equal(int_to_decimal_bytes(9223372036854775807),
+    arr[57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,55]), "signed maximum");
+  require_true(value_deep_equal(value_array(arr[value_int(1), value_int(2)]),
+    value_array(arr[value_int(1), value_int(2)])), "recursive equality");
+  require_true(!value_deep_equal(value_array(arr[value_int(1)]),
+    value_array(arr[value_int(2)])), "recursive inequality");
+  val result = value_lookup(value_map(arr[
+    new MapEntry(value_array(arr[value_int(1)]), value_int(10)),
+    new MapEntry(value_array(arr[value_int(2)]), value_int(20))
+  ]), value_array(arr[value_int(2)]));
+  require_true(result.is_ok(), "map miss before match preserves structural key");
+  val parsed = parse_int(result.unwrap());
+  require_int(parsed.value, 20, "map lookup value");
+  val path_result = value_lookup_path(value_array(arr[
+    value_array(arr[value_int(42)])
+  ]), arr[value_int(0), value_int(0)]);
+  require_true(path_result.is_ok(), "nested array path");
+  val path_parsed = parse_int(path_result.unwrap());
+  require_int(path_parsed.value, 42, "nested path value");
+  val min_parsed = parse_int(value_int(-9223372036854775807 - 1));
+  require_true(min_parsed.ok, "minimum parses");
+  require_int(min_parsed.value, -9223372036854775807 - 1, "minimum roundtrip");
+  val max_parsed = parse_int(value_int(9223372036854775807));
+  require_true(max_parsed.ok, "maximum parses");
+  require_int(max_parsed.value, 9223372036854775807, "maximum roundtrip");
+  val overflow = parse_int(value_number_lexeme(arr[57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56]));
+  require_true(!overflow.ok, "positive overflow rejected");
+  val underflow = parse_int(value_number_lexeme(arr[45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,57]));
+  require_true(!underflow.ok, "negative overflow rejected");
+  require_int(value_hash(value_array(arr[value_int(1), value_int(2)])),
+    value_hash(value_array(arr[value_int(1), value_int(2)])), "equal values have equal hashes");
+  require_true(value_lookup(value_array(arr[value_int(1)]), value_int(2)).is_err(), "out of range lookup");
+  stdio.println("dynamic value backend contract: PASS");
+  return;
+}

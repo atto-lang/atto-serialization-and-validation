@@ -137,3 +137,8 @@ sharing remain separate release gates. In particular, mutable nested
 `List` fields cannot be safely shared across actor lanes until recursive
 `rt share` / `rt take` / `rt copy` / `rt borrow` semantics are enforced
 by the compiler. See [the ownership and AOT contract](docs/DYNAMIC-AOT-OWNERSHIP.md).
+
+## Backend compatibility
+
+See [the compiler compatibility contract](docs/BACKENDS.md) for pinned Java/LLVM
+revisions, reproducible checks, and unsupported features.

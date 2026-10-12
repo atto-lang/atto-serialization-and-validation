@@ -55,7 +55,7 @@ fnc writer_fail(
 }
 
 fnc read_u8(MsgpackCursor mut cursor): int {
-  if cursor.index >= cursor.input.length then
+  if cursor.index >= cursor.input.size then
     cursor_fail(cursor, "unexpected_eof", "truncated MessagePack value");
     return 0;
   fi
@@ -177,7 +177,7 @@ fnc read_bytes(
     return output;
   fi
 
-  if !byte_range_fits(cursor.input.length, cursor.index, length) then
+  if !byte_range_fits(cursor.input.size, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated MessagePack payload");
     return output;
   fi
@@ -240,7 +240,7 @@ fnc map_keys_unique(List<MapEntry> entries): bool {
   let int i = 0;
 
   loop do
-    if i >= entries.length then
+    if i >= entries.size then
       break;
     fi
 
@@ -352,7 +352,7 @@ fnc decode_map(
         entries[existing] = new MapEntry(key, member_value);
       fi
     else
-      let int index = entries.length;
+      let int index = entries.size;
       entries.add(new MapEntry(key, member_value));
       remember_map_entry(buckets, key, index);
     fi
@@ -566,7 +566,7 @@ pub fnc decode(
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
-  if input.length > options.max_input_bytes then
+  if input.size > options.max_input_bytes then
     return Err(decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
   fi
 
@@ -588,7 +588,7 @@ pub fnc decode(
     return Err(cursor.error);
   fi
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !options.allow_trailing_data && cursor.index != input.size then
     return Err(decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
   fi
 
@@ -605,7 +605,7 @@ fnc append_byte(MsgpackWriter mut writer, int byte): void {
     return;
   fi
 
-  if writer.output.length >= writer.options.max_output_bytes then
+  if writer.output.size >= writer.options.max_output_bytes then
     writer_fail(writer, "output_limit", "MessagePack output exceeds max_output_bytes");
     return;
   fi
@@ -769,7 +769,7 @@ fnc encode_string(
     return;
   fi
 
-  let int length = text.bytes.length;
+  let int length = text.bytes.size;
 
   if length <= 31 then
     append_byte(writer, 160 + length);
@@ -792,7 +792,7 @@ fnc encode_binary(
   MsgpackWriter mut writer,
   List<int> bytes
 ): void {
-  let int length = bytes.length;
+  let int length = bytes.size;
 
   if length <= 255 then
     append_byte(writer, 196);
@@ -818,7 +818,7 @@ fnc encode_extension(
     return;
   fi
 
-  let int length = value.bytes_value.length;
+  let int length = value.bytes_value.size;
 
   if length == 1 then
     append_byte(writer, 212);
@@ -898,7 +898,7 @@ fnc encode_value(
   fi
 
   if value.kind == 5 then
-    let int count = value.array_value.length;
+    let int count = value.array_value.size;
 
     if count <= 15 then
       append_byte(writer, 144 + count);
@@ -929,7 +929,7 @@ fnc encode_value(
       return;
     fi
 
-    let int count = value.object_value.length;
+    let int count = value.object_value.size;
 
     if count <= 15 then
       append_byte(writer, 128 + count);
@@ -957,7 +957,7 @@ fnc encode_value(
       return;
     fi
 
-    let int count = value.map_value.length;
+    let int count = value.map_value.size;
 
     if count <= 15 then
       append_byte(writer, 128 + count);
