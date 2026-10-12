@@ -114,10 +114,10 @@ pub fnc check_metadata(CodecTypeMeta metadata): MetadataCheck {
           return new MetadataCheck(false, metadata, new MetadataError("duplicate_source_name", i, "duplicate source field name in codec metadata"));
         fi
       done
-      candidates.push(i);
+      candidates.add(i);
     else
-      let List<int> candidates = new List<int>();
-      candidates.push(i);
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
       source_buckets.set(source_hash, candidates);
     fi
 
@@ -129,10 +129,10 @@ pub fnc check_metadata(CodecTypeMeta metadata): MetadataCheck {
           return new MetadataCheck(false, metadata, new MetadataError("duplicate_wire_name", i, "duplicate wire field name in codec metadata"));
         fi
       done
-      candidates.push(i);
+      candidates.add(i);
     else
-      let List<int> candidates = new List<int>();
-      candidates.push(i);
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
       wire_buckets.set(wire_hash, candidates);
     fi
 
@@ -140,8 +140,8 @@ pub fnc check_metadata(CodecTypeMeta metadata): MetadataCheck {
       if number_buckets.contains(field.field_number) then
         return new MetadataCheck(false, metadata, new MetadataError("duplicate_field_number", i, "duplicate Protobuf field number in codec metadata"));
       fi
-      let List<int> indices = new List<int>();
-      indices.push(i);
+      val List<int> indices = new List<int>();
+      indices.add(i);
       number_buckets.set(field.field_number, indices);
     fi
 

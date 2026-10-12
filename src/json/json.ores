@@ -21,14 +21,14 @@ define class JsonCursor as
 end
 
 define class JsonWriter as
-  pub let List<int> output;
+  pub let mut List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
 end
 
 pub define class JsonIncrementalDecoder as
-  pub let List<int> buffer;
+  pub let mut List<int> buffer;
   pub val DecodeOptions options;
   pub let bool complete;
 
@@ -225,7 +225,7 @@ pub define class JsonIncrementalDecoder as
     done
   
     for const byte of chunk do
-      self.buffer.push(byte);
+      self.buffer.add(byte);
     done
   
     let int scan_status = self.scan_incremental();
@@ -627,7 +627,7 @@ fnc push_number_byte(
     return false;
   fi
 
-  lexeme.push(byte);
+  lexeme.add(byte);
   return true;
 }
 

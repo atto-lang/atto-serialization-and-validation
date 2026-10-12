@@ -14,13 +14,13 @@ pub fnc run_validation_tests(): void {
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
   val Utf8Text age_key = new Utf8Text(new List<int>(97, 103, 101));
 
-  let List<WireMember> members = new List<WireMember>();
-  members.push(new WireMember(rt borrow username_key, value_string(new Utf8Text(new List<int>(97, 98)))));
-  members.push(new WireMember(rt borrow age_key, value_int(151)));
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(rt borrow username_key, value_string(new Utf8Text(new List<int>(97, 98)))));
+  members.add(new WireMember(rt borrow age_key, value_int(151)));
 
-  let List<FieldRule> fields = new List<FieldRule>();
-  fields.push(field_rule(rt borrow username_key, true, false, string_rule(3, 64, false, false, false, false)));
-  fields.push(field_rule(rt borrow age_key, true, false, number_rule(true, 0.0, false, true, 150.0, false)));
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(field_rule(rt borrow username_key, true, false, string_rule(3, 64, false, false, false, false)));
+  fields.add(field_rule(rt borrow age_key, true, false, number_rule(true, 0.0, false, true, 150.0, false)));
   val ObjectSchema schema = object_schema(fields, true);
 
   val List<int> valid_json = new List<int>(
@@ -53,12 +53,12 @@ pub fnc run_validation_tests(): void {
     "canonical UUID must validate"
   );
 
-  let List<WireMember> object_a_members = new List<WireMember>();
-  object_a_members.push(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
-  object_a_members.push(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
-  let List<WireMember> object_b_members = new List<WireMember>();
-  object_b_members.push(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
-  object_b_members.push(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+  val List<WireMember> object_a_members = new List<WireMember>();
+  object_a_members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+  object_a_members.add(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
+  val List<WireMember> object_b_members = new List<WireMember>();
+  object_b_members.add(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
+  object_b_members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
   val Value object_a = value_object(object_a_members);
   val Value object_b = value_object(object_b_members);
   require_true(
@@ -92,9 +92,9 @@ pub fnc run_validation_tests(): void {
     "basic email must validate"
   );
 
-  let List<WireMember> duplicate_members = new List<WireMember>();
-  duplicate_members.push(new WireMember(rt borrow username_key, value_int(1)));
-  duplicate_members.push(new WireMember(rt borrow username_key, value_int(2)));
+  val List<WireMember> duplicate_members = new List<WireMember>();
+  duplicate_members.add(new WireMember(rt borrow username_key, value_int(1)));
+  duplicate_members.add(new WireMember(rt borrow username_key, value_int(2)));
   val ValidationReport duplicate_object = validate_object(
     value_object(duplicate_members),
     rt borrow schema,
@@ -102,11 +102,11 @@ pub fnc run_validation_tests(): void {
   );
   require_true(!report_is_valid(rt borrow duplicate_object), "direct object validation must reject duplicate field names");
 
-  let List<FieldRule> oversized_schema_fields = new List<FieldRule>();
+  val List<FieldRule> oversized_schema_fields = new List<FieldRule>();
   let int schema_index = 0;
   loop do
     if schema_index > max_schema_fields() then break; fi
-    oversized_schema_fields.push(field_rule(rt borrow username_key, false, false, any_rule()));
+    oversized_schema_fields.add(field_rule(rt borrow username_key, false, false, any_rule()));
     schema_index = schema_index + 1;
   done
   val ValidationReport oversized_schema = validate_object(
@@ -119,11 +119,11 @@ pub fnc run_validation_tests(): void {
     "object schema field ceiling must fail closed before expensive validation"
   );
 
-  let List<int> huge_fraction = new List<int>(48, 46);
+  val List<int> huge_fraction = new List<int>(48, 46);
   let int fraction_digit = 0;
   loop do
     if fraction_digit >= 400 then break; fi
-    huge_fraction.push(57);
+    huge_fraction.add(57);
     fraction_digit = fraction_digit + 1;
   done
   val ValidationReport non_finite_conversion = validate_value(
