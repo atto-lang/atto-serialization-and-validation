@@ -39,6 +39,28 @@ pub fnc main(): void {
   require_int(value_hash(value_array(arr[value_int(1), value_int(2)])),
     value_hash(value_array(arr[value_int(1), value_int(2)])), "equal values have equal hashes");
   require_true(value_lookup(value_array(arr[value_int(1)]), value_int(2)).is_err(), "out of range lookup");
+  for const input of arr[-1000000000000000000, -1000000000000000001, -999999999999999999,
+    -1000, -100, -10, -1, 0, 1, 9, 10, 99, 100, 999, 1000,
+    999999999999999999, 1000000000000000000, 1000000000000000001] do
+    val roundtrip = parse_int(value_int(input));
+    require_true(roundtrip.ok, "decimal boundary parses");
+    require_int(roundtrip.value, input, "decimal boundary roundtrip");
+  done
+  val empty_path = value_lookup_path(value_int(42), new List<Value>());
+  require_true(empty_path.is_ok(), "empty path returns root");
+  val empty_parsed = parse_int(empty_path.unwrap());
+  require_int(empty_parsed.value, 42, "empty path root value");
+  let mut List<Value> long_path = new List<Value>();
+  let int path_length = 0;
+  loop do
+    if path_length == 129 then break; fi
+    long_path.add(value_int(0));
+    path_length = path_length + 1;
+  done
+  val too_long = value_lookup_path(value_int(42), long_path);
+  require_true(too_long.is_err(), "overlong path rejected before traversal");
+  require_true(value_lookup(value_array(arr[value_int(1)]), value_int(-1)).is_err(), "negative index rejected");
+  require_true(value_lookup(value_array(arr[value_int(1)]), value_number_lexeme(arr[48,46,53])).is_err(), "fractional index rejected");
   stdio.println("dynamic value backend contract: PASS");
   return;
 }

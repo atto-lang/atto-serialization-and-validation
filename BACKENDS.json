@@ -9,8 +9,14 @@
     "pin": "LLVM_SOURCE_REF",
     "execution": "unsupported",
     "rejection_probes": [
-      "tests/main.ores",
-      "src/core/value.ores"
+      {
+        "path": "tests/main.ores",
+        "diagnostic": "oreslang-llvmc: expected fnc or routine at byte 0"
+      },
+      {
+        "path": "src/core/value.ores",
+        "diagnostic": "oreslang-llvmc: expected fnc or routine at byte 257"
+      }
     ]
   }
 }

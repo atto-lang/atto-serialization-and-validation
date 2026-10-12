@@ -774,7 +774,7 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
 
 // Path segments are Value strings for JSON/object keys, Value numbers for
 // array indices, and arbitrary Values for MessagePack/CBOR map keys.
-// Empty path denotes the root. Bounded iteration avoids unbounded paths.
+// Empty path denotes the root. Recursion is limited to 128 path segments.
 pub fnc value_lookup_path(
   Value root,
   List<Value> segments
