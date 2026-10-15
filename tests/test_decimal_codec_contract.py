@@ -19,6 +19,18 @@ class DecimalCodecContractTest(unittest.TestCase):
         mutated = SOURCE.replace("let int digit =", "let int missing_digit =", 1)
         self.assertTrue(validate_decimal_source(mutated))
 
+    def test_zeroed_digit_expression_is_rejected(self):
+        source_line = "let int digit = remainder < 0 ? 0 - remainder : remainder;"
+        self.assertIn(source_line, SOURCE)
+        mutated = SOURCE.replace(source_line, "let int digit = 0;", 1)
+        self.assertTrue(validate_decimal_source(mutated))
+
+    def test_raw_non_ascii_digit_emission_is_rejected(self):
+        source_line = "reversed.add(48 + digit);"
+        self.assertIn(source_line, SOURCE)
+        mutated = SOURCE.replace(source_line, "reversed.add(digit);", 1)
+        self.assertTrue(validate_decimal_source(mutated))
+
     def test_reversed_owner_shadowing_rejected(self):
         mutated = SOURCE.replace(
             "let List<int> reversed = new List<int>();",
