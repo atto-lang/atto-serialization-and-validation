@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 from transport_contract_audit import audit_transport_contracts
+from decimal_conversion_contract import audit_decimal_converter
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_ROOTS = [ROOT / "src", ROOT / "tests", ROOT / "examples"]
@@ -78,6 +79,7 @@ def fail(errors, path, line_no, message):
 def main() -> int:
     errors = []
     errors.extend(audit_transport_contracts(ROOT))
+    errors.extend(audit_decimal_converter(ROOT))
     files = list(source_files())
 
     for path in files:
