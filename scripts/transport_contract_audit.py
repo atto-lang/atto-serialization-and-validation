@@ -28,13 +28,74 @@ ANY_DECL = re.compile(
 )
 
 
+CONTROL_DECL = re.compile(
+    r"\b(?:define\s+(?:pub\s+)?(?:class|interface|trait)|"
+    r"pub\s+define\s+(?:class|interface|trait)|type)\s+"
+    r"(?:SupervisorControlCodec|ControlCodec)\b"
+)
+
+
+def code_without_comments_or_strings(text: str) -> str:
+    """Erase comments and quoted payloads, preserving lines and identifiers.
+
+    Never let a disabled declaration satisfy codec admission. This is an
+    intentionally conservative lexical guard, not an Oreslang parser.
+    """
+    out: list[str] = []
+    i = 0
+    state = "code"
+    quote = ""
+    while i < len(text):
+        ch = text[i]
+        nxt = text[i + 1] if i + 1 < len(text) else ""
+        if state == "code":
+            if ch == "/" and nxt in ("/", "*"):
+                state = "line" if nxt == "/" else "block"
+                out.extend("  ")
+                i += 2
+                continue
+            if ch in ("'", '"', chr(96)):
+                state, quote = "quoted", ch
+                out.append(" ")
+            else:
+                out.append(ch)
+        elif state == "line":
+            out.append("\n" if ch == "\n" else " ")
+            if ch == "\n":
+                state = "code"
+        elif state == "block":
+            if ch == "*" and nxt == "/":
+                out.extend("  ")
+                i += 2
+                state = "code"
+                continue
+            out.append("\n" if ch == "\n" else " ")
+        elif state == "quoted":
+            if ch == "\\":
+                out.append(" ")
+                if nxt:
+                    out.append("\n" if nxt == "\n" else " ")
+                    i += 2
+                    continue
+            elif ch == quote:
+                state = "code"
+            out.append("\n" if ch == "\n" else " ")
+        i += 1
+    if state in ("block", "quoted"):
+        raise ValueError(f"unterminated {state} construct in codec contract source")
+    return "".join(out)
+
+
 def normalize_signature(signature: str) -> str:
     return re.sub(r"\s+", " ", signature.strip())
 
 
 def validate_interface_source(text: str) -> list[str]:
     """Inspect declarations only, not runtime correctness of codecs."""
-    code = "\n".join(line.split("//", 1)[0] for line in text.splitlines())
+    try:
+        code = code_without_comments_or_strings(text)
+    except ValueError as exc:
+        return [str(exc)]
     matches = list(DECL.finditer(code))
     errors: list[str] = []
     found: set[str] = set()
@@ -55,6 +116,8 @@ def validate_interface_source(text: str) -> list[str]:
             errors.append(f"{name}: required explicit interface missing")
     if len(list(ANY_DECL.finditer(code))) != len(matches):
         errors.append("codec names must be declared once each as generic interfaces")
+    if CONTROL_DECL.search(code):
+        errors.append("supervisor CONTROL codec is reserved to the runtime")
     return errors
 
 
@@ -67,10 +130,15 @@ def audit_transport_contracts(root: Path) -> list[str]:
     for other in (root / "src").rglob("*.ores"):
         if other == path:
             continue
-        code = "\n".join(line.split("//", 1)[0] for line in
-                         other.read_text(encoding="utf-8").splitlines())
+        try:
+            code = code_without_comments_or_strings(other.read_text(encoding="utf-8"))
+        except ValueError as exc:
+            errors.append(f"{other.relative_to(root)}: {exc}")
+            continue
         if ANY_DECL.search(code):
             errors.append(f"{other.relative_to(root)}: cannot redeclare codec contracts")
+        if CONTROL_DECL.search(code):
+            errors.append(f"{other.relative_to(root)}: supervisor CONTROL codec is reserved")
     return errors
 
 
