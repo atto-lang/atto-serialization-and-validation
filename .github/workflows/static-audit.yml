@@ -20,4 +20,4 @@ jobs:
       - name: Audit Oreslang source invariants
         run: python3 scripts/audit.py
       - name: Check network/actor codec and native decimal contract mutations
-        run: python3 -m unittest discover -s tests -p 'test_*contract.py' -v
+        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
