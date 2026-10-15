@@ -14,13 +14,13 @@ pub fnc max_channel_bytes(): int {
   return 256 * 1024 * 1024;
 }
 
-define class ByteStreamError as
+define pub class ByteStreamError as
   pub val String code;
   pub val int offset;
   pub val String message;
 end
 
-define class ByteStreamResult as
+define pub class ByteStreamResult as
   pub val bool ok;
   pub val List<int> bytes;
   pub val ByteStreamError error;
