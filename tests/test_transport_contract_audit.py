@@ -51,6 +51,11 @@ class TransportContractAuditTest(unittest.TestCase):
     def test_multiline_comment_declarations_are_not_proof(self):
         self.assertTrue(validate_interface_source("/*\n" + valid() + "\n*/"))
 
+    def test_nested_comment_is_ignored(self):
+        from transport_contract_audit import code_without_comments_or_strings
+        comment = "/" + "*" + "outer " + "/" + "*" + "inner " + "*" + "/" + " body" + "*" + "/"
+        self.assertFalse("outer" in code_without_comments_or_strings(comment))
+
     def test_partial_block_comment_cannot_forge_network_interface(self):
         self.assertTrue(validate_interface_source(
             "/*\n" + valid().split("pub define interface ActorMessageCodec")[0]
