@@ -88,6 +88,30 @@ class TransportContractAuditTest(unittest.TestCase):
             self.assertTrue(any("supervisor CONTROL" in e
                                 for e in audit_transport_contracts(root)))
 
+    def test_non_interface_shadow_types_cannot_claim_codec_names(self):
+        for kind in ("class", "struct", "enum", "pattern", "module", "contract", "actor"):
+            source = valid() + f"\ndefine {kind} NetworkCodec as\nend\n"
+            self.assertTrue(validate_interface_source(source), kind)
+            source = valid() + f"\ndefine {kind} ControlCodec as\nend\n"
+            self.assertIn("supervisor CONTROL",
+                          " ".join(validate_interface_source(source)), kind)
+
+    def test_comment_wrapped_mutation_matrix_rejects_all_missing_declarations(self):
+        # Deterministic adversarial lexical matrix; never rely on comments
+        # as evidence of implemented interface signatures.
+        source = valid()
+        methods = (
+            "pub define interface NetworkCodec<T>",
+            "pub define interface ActorMessageCodec<T>",
+            "fnc encode_network(borrow T value)",
+            "fnc decode_actor_message(borrow List<int> bytes)",
+        )
+        for marker in methods:
+            for start, end in (("/*", "*/"), ("//", "\n"), ("/*\n", "\n*/")):
+                forged = source.replace(marker, start + marker + end)
+                self.assertTrue(validate_interface_source(forged),
+                                f"{marker}: {start!r}")
+
     def test_extra_optional_dispatch_is_rejected(self):
         text = valid().replace(
             "fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;",
