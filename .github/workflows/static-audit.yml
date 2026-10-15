@@ -19,3 +19,5 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Audit Oreslang source invariants
         run: python3 scripts/audit.py
+      - name: Check network and actor codec contract mutation tests
+        run: python3 -m unittest discover -s tests -p 'test_transport_contract_audit.py' -v
