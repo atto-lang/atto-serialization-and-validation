@@ -28,6 +28,15 @@ def validate_decimal_source(source: str) -> list[str]:
         faults.append("decimal codec: missing signed-safe truncating quotient")
     if not re.search(r"\bremainder\s*=\s*current\s*-\s*\(\s*quotient\s*\*\s*10\s*\)\s*;", body):
         faults.append("decimal codec: missing non-overflowing signed remainder")
+    # A declared digit is not enough: "let int digit = 0" would silently
+    # serialize every nonzero integer incorrectly while passing the old lint.
+    if not re.search(
+        r"\blet\s+int\s+digit\s*=\s*remainder\s*<\s*0\s*\?\s*0\s*-\s*remainder\s*:\s*remainder\s*;",
+        body,
+    ):
+        faults.append("decimal codec: expected non-overflowing absolute digit")
+    if not re.search(r"\breversed\.add\s*\(\s*48\s*\+\s*digit\s*\)\s*;", body):
+        faults.append("decimal codec: missing ASCII digit emission")
     if not re.search(r"\bcurrent\s*=\s*quotient\s*;", body):
         faults.append("decimal codec: loop must advance toward zero")
     if re.search(r"\b(?:current|value)\s*=\s*-\s*(?:current|value)\b", body):
