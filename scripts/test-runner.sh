@@ -3,6 +3,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/ores-runner.XXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+tmp="$(cd "$tmp" && pwd -P)"
 project="$tmp/project with spaces"
 mkdir -p "$project/scripts" "$project/tests" "$tmp/bin" "$tmp/empty"
 cp "$root/scripts/test.sh" "$project/scripts/test.sh"
