@@ -48,6 +48,46 @@ class TransportContractAuditTest(unittest.TestCase):
         text = valid().replace("pub define interface NetworkCodec<T>", "// pub define interface NetworkCodec<T>")
         self.assertTrue(validate_interface_source(text))
 
+    def test_multiline_comment_declarations_are_not_proof(self):
+        self.assertTrue(validate_interface_source("/*\n" + valid() + "\n*/"))
+
+    def test_partial_block_comment_cannot_forge_network_interface(self):
+        self.assertTrue(validate_interface_source(
+            "/*\n" + valid().split("pub define interface ActorMessageCodec")[0]
+            + "*/\n" + "pub define interface ActorMessageCodec"
+            + valid().split("pub define interface ActorMessageCodec")[1]))
+
+    def test_control_codec_declaration_is_reserved(self):
+        forged = valid() + "\npub define interface SupervisorControlCodec as\nend"
+        self.assertIn("supervisor CONTROL", " ".join(validate_interface_source(forged)))
+
+    def test_unterminated_block_comment_fails_closed(self):
+        self.assertTrue(validate_interface_source(valid() + "\n/* broken"))
+
+    def test_comment_markers_inside_quotes_not_lexed_as_code(self):
+        from transport_contract_audit import code_without_comments_or_strings
+        clean = code_without_comments_or_strings("val String sample = \"text // /* comment\";\n" + valid())
+        self.assertEqual([], validate_interface_source(clean))
+
+    def test_borrowed_codec_cannot_be_hidden_inside_block_comment(self):
+        malformed = "/* fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>; */"
+        self.assertTrue(validate_interface_source(valid().replace(
+            "fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>;",
+            malformed)))
+
+    def test_control_codec_in_other_source_file_is_reserved(self):
+        import tempfile
+        from transport_contract_audit import audit_transport_contracts
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "src/schema").mkdir(parents=True)
+            (root / "src/example").mkdir()
+            (root / "src/schema/transport_interfaces.ores").write_text(valid())
+            (root / "src/example/rogue.ores").write_text(
+                "pub define interface ControlCodec<T> as\nend\n")
+            self.assertTrue(any("supervisor CONTROL" in e
+                                for e in audit_transport_contracts(root)))
+
     def test_extra_optional_dispatch_is_rejected(self):
         text = valid().replace(
             "fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;",
