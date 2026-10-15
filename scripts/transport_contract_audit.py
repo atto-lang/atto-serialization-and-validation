@@ -21,17 +21,19 @@ DECL = re.compile(
     r"\s*<\s*T\s*>\s+as\s*\n(.*?)^\s*end\s*$",
     re.DOTALL | re.MULTILINE,
 )
-ANY_DECL = re.compile(
-    r"\b(?:define\s+(?:pub\s+)?(?:class|interface|trait)|"
-    r"pub\s+define\s+(?:class|interface|trait)|type)\s+"
-    r"(NetworkCodec|ActorMessageCodec)\b"
+# An actor codec/CONTROL name must not be recreated as a struct, enum,
+# nominal type alias, actor, module or contract after the two required
+# declarations. This is name-reservation lint, not guest-code registration.
+DECLARATION_KIND = r"(?:class|interface|trait|struct|enum|pattern|module|contract|actor)"
+DECLARATION_PREFIX = (
+    r"\b(?:(?:define\s+(?:pub\s+)?|pub\s+define\s+)"
+    + DECLARATION_KIND + r"|type)\s+"
 )
-
-
+ANY_DECL = re.compile(
+    DECLARATION_PREFIX + r"(NetworkCodec|ActorMessageCodec)\b"
+)
 CONTROL_DECL = re.compile(
-    r"\b(?:define\s+(?:pub\s+)?(?:class|interface|trait)|"
-    r"pub\s+define\s+(?:class|interface|trait)|type)\s+"
-    r"(?:SupervisorControlCodec|ControlCodec)\b"
+    DECLARATION_PREFIX + r"(?:SupervisorControlCodec|ControlCodec)\b"
 )
 
 
