@@ -47,12 +47,15 @@ def code_without_comments_or_strings(text: str) -> str:
     i = 0
     state = "code"
     quote = ""
+    block_depth = 0
     while i < len(text):
         ch = text[i]
         nxt = text[i + 1] if i + 1 < len(text) else ""
         if state == "code":
             if ch == "/" and nxt in ("/", "*"):
                 state = "line" if nxt == "/" else "block"
+                if nxt == "*":
+                    block_depth = 1
                 out.extend("  ")
                 i += 2
                 continue
@@ -66,10 +69,20 @@ def code_without_comments_or_strings(text: str) -> str:
             if ch == "\n":
                 state = "code"
         elif state == "block":
-            if ch == "*" and nxt == "/":
+            # The Java/GraalVM lexer nests block comments. A single-depth
+            # stripper can incorrectly activate source still inside the
+            # outer comment and accept forged codec declarations.
+            if ch == "/" and nxt == "*":
+                block_depth += 1
                 out.extend("  ")
                 i += 2
-                state = "code"
+                continue
+            if ch == "*" and nxt == "/":
+                block_depth -= 1
+                out.extend("  ")
+                i += 2
+                if block_depth == 0:
+                    state = "code"
                 continue
             out.append("\n" if ch == "\n" else " ")
         elif state == "quoted":
