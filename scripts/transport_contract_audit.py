@@ -59,7 +59,8 @@ def code_without_comments_or_strings(text: str) -> str:
                 out.extend("  ")
                 i += 2
                 continue
-            if ch in ("'", '"', chr(96)):
+            # The compiler treats backtick as a token, not a string quote.
+            if ch in ("'", '"'):
                 state, quote = "quoted", ch
                 out.append(" ")
             else:
