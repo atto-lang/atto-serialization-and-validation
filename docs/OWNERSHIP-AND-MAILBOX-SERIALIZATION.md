@@ -1,5 +1,13 @@
 # Ownership-aware codecs and actor-safe serialization
 
+**Domain split (2026-10-15):** network I/O uses `NetworkCodec<T>`;
+supervisor/actor **DATA** messages use `ActorMessageCodec<T>`. These
+are separate source interfaces with no implicit conversion or automatic
+codegen registration. Supervisor `CONTROL` (panic/raise/throw/lifecycle)
+is sealed runtime authority, **not** a third user-definable serializer. See
+[`NETWORK_VS_ACTOR_SERDE.md`](NETWORK_VS_ACTOR_SERDE.md) for ownership,
+rollback, borrowed input, codec signatures and integration gates.
+
 Cross-repo compiler change: [Oreslang PR #411](https://github.com/ores-truffle-oreslang/oreslang-source.java/pull/411).
 
 Binding contract: `const x` fixed/read-only; `val x` = `const mut x` fixed/mutable; `let x` rebindable/read-only; `let mut x` rebindable/mutable. Referent mutation still requires exclusive access and recursively checked nested paths.
