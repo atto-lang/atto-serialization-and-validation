@@ -55,6 +55,8 @@ class TransportContractAuditTest(unittest.TestCase):
         from transport_contract_audit import code_without_comments_or_strings
         comment = "/" + "*" + "outer " + "/" + "*" + "inner " + "*" + "/" + " body" + "*" + "/"
         self.assertFalse("outer" in code_without_comments_or_strings(comment))
+        specimen = comment.replace(" body", "\n" + valid() + "\n")
+        self.assertTrue(validate_interface_source(specimen))
 
     def test_partial_block_comment_cannot_forge_network_interface(self):
         self.assertTrue(validate_interface_source(
