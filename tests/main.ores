@@ -1,4 +1,5 @@
 import fnc run_json_tests from './json_test';
+import fnc run_decimal_codec_tests from './decimal_codec_test';
 import fnc run_messagepack_tests from './messagepack_test';
 import fnc run_cbor_tests from './cbor_test';
 import fnc run_protobuf_tests from './protobuf_test';
@@ -10,6 +11,7 @@ import fnc run_json_channel_tests from './json_channel_test';
 import fnc run_channel_codec_tests from './channel_codec_test';
 
 pub async fnc main(): void {
+  run_decimal_codec_tests();
   run_json_tests();
   run_messagepack_tests();
   run_cbor_tests();
