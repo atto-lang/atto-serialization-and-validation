@@ -50,8 +50,8 @@ class TransportContractAuditTest(unittest.TestCase):
 
     def test_extra_optional_dispatch_is_rejected(self):
         text = valid().replace(
-            "fnc message_schema_id() => String;",
-            "fnc message_schema_id() => String;\n  fnc allow_control() => bool;")
+            "fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;",
+            "fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;\n  fnc allow_control() => bool;")
         self.assertIn("ActorMessageCodec", " ".join(validate_interface_source(text)))
 
 
