@@ -51,6 +51,10 @@ class TransportContractAuditTest(unittest.TestCase):
     def test_multiline_comment_declarations_are_not_proof(self):
         self.assertTrue(validate_interface_source("/*\n" + valid() + "\n*/"))
 
+    def test_backtick_is_ordinary_source_token(self):
+        from transport_contract_audit import code_without_comments_or_strings
+        assert code_without_comments_or_strings(chr(96)) == chr(96)
+
     def test_nested_comment_is_ignored(self):
         from transport_contract_audit import code_without_comments_or_strings
         comment = "/" + "*" + "outer " + "/" + "*" + "inner " + "*" + "/" + " body" + "*" + "/"
