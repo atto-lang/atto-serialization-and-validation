@@ -12,7 +12,6 @@ EXPECTED = {
         "fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>;",
     ),
     "ActorMessageCodec": (
-        "fnc message_schema_id() => String;",
         "fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;",
         "fnc decode_actor_message(borrow List<int> bytes) => Result<T, DecodeError>;",
     ),
