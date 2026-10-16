@@ -18,7 +18,7 @@ EXPECTED = {
 }
 DECL = re.compile(
     r"(?m)^\s*(?:pub\s+)?define\s+interface\s+(NetworkCodec|ActorMessageCodec)"
-    r"\s*<\s*T\s*>\s+as\s*\n(.*?)^\s*end\s*$",
+    r"\s*<\s*(T(?:\s*,\s*F)?)\s*>\s+as\s*\n(.*?)^\s*end\s*$",
     re.DOTALL | re.MULTILINE,
 )
 # An actor codec/CONTROL name must not be recreated as a struct, enum,
@@ -120,9 +120,12 @@ def validate_interface_source(text: str) -> list[str]:
         if name in found:
             errors.append(f"duplicate {name} interface")
         found.add(name)
+        expected_generics = "T,F" if name == "NetworkCodec" else "T"
+        if re.sub(r"\s+", "", match.group(2)) != expected_generics:
+            errors.append(f"{name}: wrong generic parameters; expected <{expected_generics}>")
         methods = [
             normalize_signature(row)
-            for row in match.group(2).splitlines()
+            for row in match.group(3).splitlines()
             if row.strip()
         ]
         if methods != [normalize_signature(m) for m in EXPECTED[name]]:
