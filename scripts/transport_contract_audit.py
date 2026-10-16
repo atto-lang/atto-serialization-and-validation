@@ -155,6 +155,28 @@ def validate_interface_source(text: str) -> list[str]:
         errors.append("Sendable/Serializable proof is reserved to the compiler")
     if OTHER_DECL.search(code):
         errors.append("transport interface unit cannot contain unrelated declarations")
+    # A signature-only regex can be fooled by an unexpected top-level
+    # instruction, unsafe annotation or extra import. The declaration unit
+    # is deliberately closed: one exact error-type import, two interfaces,
+    # and no other active code. The comment/string eraser preserves offsets,
+    # so the import can be compared against its unmodified source spelling.
+    residual = list(code)
+    for declaration in matches:
+        for pos in range(declaration.start(), declaration.end()):
+            if residual[pos] != "\n":
+                residual[pos] = " "
+    imports = list(re.finditer(r"(?m)^[ \t]*import[^\n]*$", "".join(residual)))
+    if len(imports) != 1:
+        errors.append("transport interface unit requires exactly one canonical import")
+    for declaration in imports:
+        original = text[declaration.start():declaration.end()].strip()
+        if original != "import class DecodeError, EncodeError from '../core/options';":
+            errors.append("transport interface unit has a noncanonical import")
+        for pos in range(declaration.start(), declaration.end()):
+            if residual[pos] != "\n":
+                residual[pos] = " "
+    if "".join(residual).strip():
+        errors.append("transport interface unit contains non-contract executable code")
     return errors
 
 
