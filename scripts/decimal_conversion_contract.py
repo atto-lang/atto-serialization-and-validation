@@ -39,6 +39,16 @@ def validate_decimal_source(source: str) -> list[str]:
         faults.append("decimal codec: missing ASCII digit emission")
     if not re.search(r"\bcurrent\s*=\s*quotient\s*;", body):
         faults.append("decimal codec: loop must advance toward zero")
+    # The native compatibility gate caught subtraction on List.length typed
+    # as unknown by an older compiler. Keep the digit count explicitly typed.
+    if not re.search(r"\blet\s+int\s+digit_count\s*=\s*0\s*;", body):
+        faults.append("decimal codec: explicit digit counter is missing")
+    if not re.search(r"\bdigit_count\s*=\s*digit_count\s*\+\s*1\s*;", body):
+        faults.append("decimal codec: every emitted reversed digit must increment its counter")
+    if not re.search(r"\blet\s+int\s+i\s*=\s*digit_count\s*;", body):
+        faults.append("decimal codec: reverse scan must begin at the explicit digit count")
+    if re.search(r"\breversed\.length\s*-", body):
+        faults.append("decimal codec: arithmetic on untyped List.length is forbidden")
     if re.search(r"\b(?:current|value)\s*=\s*-\s*(?:current|value)\b", body):
         faults.append("decimal codec: negating the int64 minimum is forbidden")
     if not re.search(r"\boutput\.add\s*\(\s*45\s*\)", body):
