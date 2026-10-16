@@ -52,6 +52,23 @@ class DecimalCodecContractTest(unittest.TestCase):
                                  "current = -current;\n    current = quotient;", 1)
         self.assertTrue(validate_decimal_source(mutated))
 
+    def test_explicit_digit_counter_must_remain_declared(self):
+        self.assertIn("let int digit_count = 0;", SOURCE)
+        mutated = SOURCE.replace("let int digit_count = 0;", "", 1)
+        self.assertTrue(validate_decimal_source(mutated))
+
+    def test_explicit_digit_counter_must_advance(self):
+        self.assertIn("digit_count = digit_count + 1;", SOURCE)
+        mutated = SOURCE.replace("digit_count = digit_count + 1;", "", 1)
+        self.assertTrue(validate_decimal_source(mutated))
+
+    def test_list_length_arithmetic_regression_rejected(self):
+        self.assertIn("let int i = digit_count;", SOURCE)
+        mutated = SOURCE.replace(
+            "let int i = digit_count;", "let int i = reversed.length - 1;", 1
+        )
+        self.assertTrue(validate_decimal_source(mutated))
+
     def test_excess_nested_loop_rejected(self):
         mutated = SOURCE.replace("loop do\n    if current == 0 then",
                                  "loop do\n    loop do\n    if current == 0 then", 1)
