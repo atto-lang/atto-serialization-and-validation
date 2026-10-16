@@ -1,4 +1,4 @@
-# NetworkCodec<T> vs ActorMessageCodec<T>: serialization/borrow contract
+# NetworkCodec<T, F> vs ActorMessageCodec<T>: serialization/borrow contract
 
 **Status (2026-10-15): API declarations + boundary audit.** Both source
 interfaces live in `src/schema/transport_interfaces.ores`. Their existence
@@ -8,7 +8,15 @@ descriptors, a trusted registry, a verified implementation, and runtime tests.
 
 ## The two source contracts
 
-| | NetworkCodec<T> | ActorMessageCodec<T> |
+`F` is an explicit wire format selector for JSON, MessagePack or Protobuf.
+It must ultimately be validated against a compiler-owned closed format set;
+current declarations alone do not implement that check. Network formats
+must not be sniffed from untrusted input or used to choose actor DATA codecs.
+`Sendable<T>` is a compiler-derived ownership/data eligibility proof,
+not a user-implementable marker or a consequence of `Serializable<T, F>`.
+See [Sendable vs Serializable](SENDABLE_VS_SERIALIZABLE_AND_WIRE_FORMATS.md).
+
+| | NetworkCodec<T, F> | ActorMessageCodec<T> |
 | --- | --- | --- |
 | Use | TCP/HTTP/WebSocket/RPC/external persistence | supervisor→actor, actor→actor and actor→supervisor **DATA** |
 | Input trust | untrusted, arbitrary bytes | trusted compiler schema; sender identity and receiver generation still validated |
