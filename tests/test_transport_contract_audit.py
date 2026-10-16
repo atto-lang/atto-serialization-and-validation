@@ -10,7 +10,7 @@ from transport_contract_audit import EXPECTED, validate_interface_source
 
 
 def valid() -> str:
-    return "\n".join(
+    return "import class DecodeError, EncodeError from '../core/options';\n\n" + "\n".join(
         "pub define interface " + name + ("<T, F>" if name == "NetworkCodec" else "<T>") + " as\n  "
         + "\n  ".join(methods) + "\nend"
         for name, methods in EXPECTED.items()
@@ -63,6 +63,24 @@ class TransportContractAuditTest(unittest.TestCase):
     def test_proof_names_inside_comments_are_not_declarations(self):
         decorated = valid() + "\n// define trait Sendable<T> as\n"
         self.assertEqual([], validate_interface_source(decorated))
+
+    def test_rejects_top_level_code_and_unsafe_annotation(self):
+        for extra in ("const bypass = 1;", "@Unsafe", "rt panic;",
+                      "pub async fnc smuggle(): void { return; }"):
+            errors = validate_interface_source(valid() + "\n" + extra)
+            self.assertIn("non-contract executable code", " ".join(errors), extra)
+
+    def test_rejects_extra_import_or_changed_import_path(self):
+        self.assertIn("noncanonical import", " ".join(validate_interface_source(
+            valid().replace("../core/options", "../guest/capabilities"))))
+        self.assertIn("exactly one canonical import", " ".join(
+            validate_interface_source(valid() + "\nimport class Foo from '../guest';")))
+
+    def test_interface_only_contract_is_not_full_source_unit(self):
+        missing = valid().replace(
+            "import class DecodeError, EncodeError from '../core/options';\n\n", "")
+        self.assertIn("exactly one canonical import", " ".join(
+            validate_interface_source(missing)))
 
     def test_encoded_borrow_must_be_explicit(self):
         self.assertIn("NetworkCodec", " ".join(validate_interface_source(
@@ -125,7 +143,8 @@ class TransportContractAuditTest(unittest.TestCase):
     def test_comment_markers_inside_quotes_not_lexed_as_code(self):
         from transport_contract_audit import code_without_comments_or_strings
         clean = code_without_comments_or_strings("val String sample = \"text // /* comment\";\n" + valid())
-        self.assertEqual([], validate_interface_source(clean))
+        self.assertIn("val String sample", clean)
+        self.assertIn("non-contract executable code", " ".join(validate_interface_source(clean)))
 
     def test_borrowed_codec_cannot_be_hidden_inside_block_comment(self):
         malformed = "/* fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>; */"
