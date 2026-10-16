@@ -117,9 +117,9 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   let List<int> output = new List<int>();
   if value == 0 then
     output.add(48);
-    return output;
   fi
 
+  // Both zero and nonzero paths return at the single ownership exit.
   let int current = value;
   if current < 0 then
     output.add(45);
