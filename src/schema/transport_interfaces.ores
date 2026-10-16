@@ -5,13 +5,21 @@
 // Only a compiler-produced descriptor plus a verified codec implementation
 // may authorize a network or mailbox boundary.
 //
-// NetworkCodec<T>:
+// NetworkCodec<T, F>:
+// - F is a compiler-validated wire-format marker (JSON, MessagePack or
+//   Protobuf), chosen explicitly by the caller/protocol, never guessed from
+//   attacker-supplied bytes; separate F implementations cannot authorize one
+//   another or an actor mailbox transport;
 // - externally supplied bytes are untrusted and must pass strict format,
 //   version, schema, UTF-8, quota and numeric validation;
 // - decode_network returns an independently owned T, never a borrowed view
 //   into bytes that the caller can release/reuse;
 // - encode_network may read a synchronous borrow, but may not retain it
 //   across async I/O or write to the input owner.
+//
+// Sendable<T> is a compiler-owned proof of recursively owned/immutable DATA,
+// not a user-implementable interface, marker annotation or codec-derived flag.
+// A Serializable/NetworkCodec implementation does not prove Sendable<T>.
 //
 // ActorMessageCodec<T>:
 // - for data messages among supervisors and actors (and between actors);
@@ -34,7 +42,7 @@
 
 import class DecodeError, EncodeError from '../core/options';
 
-pub define interface NetworkCodec<T> as
+pub define interface NetworkCodec<T, F> as
   fnc encode_network(borrow T value) => Result<List<int>, EncodeError>;
   fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>;
 end
