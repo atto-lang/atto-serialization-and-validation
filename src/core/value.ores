@@ -126,6 +126,7 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   fi
 
   let List<int> reversed = new List<int>();
+  let int digit_count = 0;
   loop do
     if current == 0 then
       break;
@@ -137,16 +138,19 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
     let int remainder = current - (quotient * 10);
     let int digit = remainder < 0 ? 0 - remainder : remainder;
     reversed.add(48 + digit);
+    digit_count = digit_count + 1;
     current = quotient;
   done
 
-  let int i = reversed.length - 1;
+  // Maintain an explicitly typed count: early compiler snapshots may not
+  // infer arithmetic on List.length even though List indexing is supported.
+  let int i = digit_count;
   loop do
-    if i < 0 then
+    if i <= 0 then
       break;
     fi
-    output.add(reversed[i]);
     i = i - 1;
+    output.add(reversed[i]);
   done
 
   return output;
