@@ -11,7 +11,7 @@ from transport_contract_audit import EXPECTED, validate_interface_source
 
 def valid() -> str:
     return "\n".join(
-        "pub define interface " + name + "<T> as\n  "
+        "pub define interface " + name + ("<T, F>" if name == "NetworkCodec" else "<T>") + " as\n  "
         + "\n  ".join(methods) + "\nend"
         for name, methods in EXPECTED.items()
     )
@@ -20,6 +20,18 @@ def valid() -> str:
 class TransportContractAuditTest(unittest.TestCase):
     def test_two_distinct_contracts(self):
         self.assertEqual([], validate_interface_source(valid()))
+
+    def test_network_format_parameter_is_mandatory(self):
+        self.assertIn("NetworkCodec", " ".join(validate_interface_source(
+            valid().replace("NetworkCodec<T, F>", "NetworkCodec<T>"))))
+
+    def test_actor_codec_cannot_acquire_network_format_parameter(self):
+        self.assertIn("ActorMessageCodec", " ".join(validate_interface_source(
+            valid().replace("ActorMessageCodec<T>", "ActorMessageCodec<T, F>"))))
+
+    def test_network_format_must_not_be_dynamic(self):
+        self.assertIn("NetworkCodec", " ".join(validate_interface_source(
+            valid().replace("NetworkCodec<T, F>", "NetworkCodec<T, DynamicFormat>"))))
 
     def test_encoded_borrow_must_be_explicit(self):
         self.assertIn("NetworkCodec", " ".join(validate_interface_source(
@@ -45,7 +57,7 @@ class TransportContractAuditTest(unittest.TestCase):
         self.assertTrue(validate_interface_source(text))
 
     def test_comments_cannot_forge_missing_interface(self):
-        text = valid().replace("pub define interface NetworkCodec<T>", "// pub define interface NetworkCodec<T>")
+        text = valid().replace("pub define interface NetworkCodec<T, F>", "// pub define interface NetworkCodec<T, F>")
         self.assertTrue(validate_interface_source(text))
 
     def test_multiline_comment_declarations_are_not_proof(self):
@@ -116,7 +128,7 @@ class TransportContractAuditTest(unittest.TestCase):
         # as evidence of implemented interface signatures.
         source = valid()
         methods = (
-            "pub define interface NetworkCodec<T>",
+            "pub define interface NetworkCodec<T, F>",
             "pub define interface ActorMessageCodec<T>",
             "fnc encode_network(borrow T value)",
             "fnc decode_actor_message(borrow List<int> bytes)",
