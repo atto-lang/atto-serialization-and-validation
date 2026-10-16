@@ -33,6 +33,37 @@ class TransportContractAuditTest(unittest.TestCase):
         self.assertIn("NetworkCodec", " ".join(validate_interface_source(
             valid().replace("NetworkCodec<T, F>", "NetworkCodec<T, DynamicFormat>"))))
 
+    def test_compiler_ownership_proofs_are_not_guest_declarations(self):
+        for name in ("Sendable", "Serializable"):
+            for kind in ("interface", "trait", "class", "struct", "type"):
+                declaration = (f"define {kind} {name}<T> as\\nend"
+                               if kind != "type" else f"type {name}<T> = int;")
+                failure = validate_interface_source(valid() + "\\n" + declaration)
+                self.assertIn("reserved to the compiler", " ".join(failure),
+                              (kind, name, failure))
+
+    def test_schema_contract_cannot_hide_inside_foreign_module(self):
+        forged = "define module TransportShim as\\n" + valid() + "\\nend\\n"
+        self.assertIn("unrelated declarations", " ".join(
+            validate_interface_source(forged)))
+
+    def test_proof_spoofing_in_sibling_source_is_rejected(self):
+        import tempfile
+        from transport_contract_audit import audit_transport_contracts
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "src/schema").mkdir(parents=True)
+            (root / "src/guest").mkdir()
+            (root / "src/schema/transport_interfaces.ores").write_text(valid())
+            (root / "src/guest/forged.ores").write_text(
+                "pub define trait Sendable<T> as\\nend\\n")
+            failures = audit_transport_contracts(root)
+            self.assertIn("reserved to the compiler", " ".join(failures))
+
+    def test_proof_names_inside_comments_are_not_declarations(self):
+        decorated = valid() + "\\n// define trait Sendable<T> as\\n"
+        self.assertEqual([], validate_interface_source(decorated))
+
     def test_encoded_borrow_must_be_explicit(self):
         self.assertIn("NetworkCodec", " ".join(validate_interface_source(
             valid().replace("borrow T value", "T value", 1))))
