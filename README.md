@@ -25,7 +25,7 @@ The public API should stay format-neutral where possible while preserving format
 ## Two distinct serialization interfaces
 
 The source declarations in [`src/schema/transport_interfaces.ores`](src/schema/transport_interfaces.ores)
-define `NetworkCodec<T>` for external HTTP/TCP/WebSocket/RPC/persistence
+define `NetworkCodec<T, F>` (explicit JSON/MessagePack/Protobuf format) for external HTTP/TCP/WebSocket/RPC/persistence
 payloads and `ActorMessageCodec<T>` for supervisor-to-actor and actor-to-actor
 **DATA** messages. They share primitive codec machinery but never implicitly
 grant one another's permissions. Supervisor `CONTROL` (including
@@ -37,7 +37,10 @@ views, `Pointer<T>`, closures, stream/channel handles and actor capabilities
 cannot be serialized or smuggled through generic containers. An actor send
 requires an atomic reserve/encode/commit boundary with rollback on failure;
 this part remains a compiler/runtime integration gate, not an enabled
-userland feature. See [the two-domain ownership contract](docs/NETWORK_VS_ACTOR_SERDE.md).
+userland feature. `Sendable<T>` is compiler-verified data/ownership eligibility,
+not a user-implementable trait or a synonym for serializable.
+See [the two-domain ownership contract](docs/NETWORK_VS_ACTOR_SERDE.md)
+and [the Sendable vs Serializable format model](docs/SENDABLE_VS_SERIALIZABLE_AND_WIRE_FORMATS.md).
 
 ## Architecture
 
