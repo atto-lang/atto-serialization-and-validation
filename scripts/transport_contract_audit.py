@@ -35,6 +35,20 @@ ANY_DECL = re.compile(
 CONTROL_DECL = re.compile(
     DECLARATION_PREFIX + r"(?:SupervisorControlCodec|ControlCodec)\b"
 )
+# These properties are compiler-owned proof, not guest-defined protocols.
+# The source API currently has no safe user-implementable marker for either.
+PROOF_DECL = re.compile(
+    DECLARATION_PREFIX + r"(?:Sendable|Serializable)\b"
+)
+# The canonical transport declaration unit must contain ONLY the two
+# explicitly admitted generic interfaces. A nested module can otherwise
+# satisfy the loose static signature scan without exporting either contract.
+OTHER_DECL = re.compile(
+    DECLARATION_PREFIX
+    + r"(?!NetworkCodec\b|ActorMessageCodec\b|"
+    + r"SupervisorControlCodec\b|ControlCodec\b|"
+    + r"Sendable\b|Serializable\b)[A-Za-z_][A-Za-z0-9_]*"
+)
 
 
 def code_without_comments_or_strings(text: str) -> str:
@@ -137,6 +151,10 @@ def validate_interface_source(text: str) -> list[str]:
         errors.append("codec names must be declared once each as generic interfaces")
     if CONTROL_DECL.search(code):
         errors.append("supervisor CONTROL codec is reserved to the runtime")
+    if PROOF_DECL.search(code):
+        errors.append("Sendable/Serializable proof is reserved to the compiler")
+    if OTHER_DECL.search(code):
+        errors.append("transport interface unit cannot contain unrelated declarations")
     return errors
 
 
@@ -158,6 +176,8 @@ def audit_transport_contracts(root: Path) -> list[str]:
             errors.append(f"{other.relative_to(root)}: cannot redeclare codec contracts")
         if CONTROL_DECL.search(code):
             errors.append(f"{other.relative_to(root)}: supervisor CONTROL codec is reserved")
+        if PROOF_DECL.search(code):
+            errors.append(f"{other.relative_to(root)}: Sendable/Serializable proof is reserved to the compiler")
     return errors
 
 
