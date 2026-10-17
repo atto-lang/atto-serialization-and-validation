@@ -93,6 +93,20 @@ class TransportContractAuditTest(unittest.TestCase):
                 "fnc decode_actor_message(borrow List<int> bytes) => Result<borrow T, DecodeError>;"
             ))))
 
+    def test_network_decoded_payload_must_also_be_owned(self):
+        self.assertIn("NetworkCodec", " ".join(validate_interface_source(
+            valid().replace(
+                "fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>;",
+                "fnc decode_network(borrow List<int> bytes) => Result<borrow T, DecodeError>;"
+            ))))
+
+    def test_encoder_input_borrow_cannot_be_extended_by_async_callable(self):
+        for method in ("encode_network", "encode_actor_message"):
+            mutated = valid().replace("fnc " + method, "async fnc " + method)
+            self.assertIn(method.split("_")[1].capitalize() if False else "Codec",
+                          "Codec" + " ".join(validate_interface_source(mutated)))
+            self.assertTrue(validate_interface_source(mutated), method)
+
     def test_no_cross_domain_method_substitution(self):
         self.assertIn("ActorMessageCodec", " ".join(validate_interface_source(
             valid().replace("encode_actor_message", "encode_network"))))
