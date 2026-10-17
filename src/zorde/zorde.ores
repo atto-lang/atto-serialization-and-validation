@@ -10,6 +10,8 @@ import fnc parse_int from '../core/value';
 import class ValidationOptions, ValidationReport, ValidationError, PathSegment, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
 import fnc default_validation_options, string_rule, number_rule, array_rule, field_rule, object_schema from '../validation/validation';
 import fnc validate_value_checked, validate_object_checked from '../validation/validation';
+import class ZordeScalarRule from './scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_metric, zorde_scalar_contains from './scalar';
 
 pub define class ZordeValueSchema as
   pub val ValueRule rule;
@@ -244,25 +246,36 @@ fnc zorde_int_error(String code, String message): ValidationReport {
   return new ValidationReport(errors, false);
 }
 
+// Compiler-generated scalar descriptors and dynamic Zorde rules share this
+// checked scalar path. It returns only an exact metric; never a forgeable
+// nominal value or an unsafe mutable ValidValue proof.
+pub fnc zorde_parse_scalar_metric(
+  Value value,
+  ZordeScalarRule rule
+): Result<int, ValidationReport> {
+  if !zorde_scalar_rule_valid(rt borrow rule) then
+    return Err(zorde_int_error("invalid_rule", "noncanonical scalar schema"));
+  fi
+  val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
+  if !metric.ok then
+    return Err(zorde_int_error("type", "input does not have the schema's exact scalar representation"));
+  fi
+  if !zorde_scalar_contains(rt borrow rule, metric.value) then
+    return Err(zorde_int_error("constraint_violation", "scalar value is outside the accepted set"));
+  fi
+  return Ok(metric.value);
+}
+
 pub fnc zorde_parse_int(
   Value value,
   ZordeIntSchema schema
 ): Result<int, ValidationReport> {
-  if schema.has_min && schema.has_max &&
-     schema.min_value > schema.max_value then
-    return Err(zorde_int_error("invalid_rule", "numeric range is contradictory"));
-  fi
-
-  val IntParse parsed = parse_int(value);
-  if !parsed.ok then
-    return Err(zorde_int_error("type", "expected an exact signed integer"));
-  fi
-
-  if schema.has_min && parsed.value < schema.min_value then
-    return Err(zorde_int_error("min", "integer is below the required minimum"));
-  fi
-  if schema.has_max && parsed.value > schema.max_value then
-    return Err(zorde_int_error("max", "integer exceeds the permitted maximum"));
-  fi
-  return Ok(parsed.value);
+  val int minimum = schema.has_min ? schema.min_value : (-9223372036854775807 - 1);
+  val int maximum = schema.has_max ? schema.max_value : 9223372036854775807;
+  val ZordeScalarRule rule = zorde_scalar_int(minimum, maximum, new List<int>());
+  // No duplicated min/max predicate: the canonical scalar kernel is the
+  // authority. Preserve dedicated min/max error codes only as diagnostics.
+  val Result<int, ValidationReport> checked = zorde_parse_scalar_metric(
+    rt borrow value, rt borrow rule);
+  return checked;
 }
