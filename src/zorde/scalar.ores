@@ -25,11 +25,17 @@ pub define class ZordeScalarRule as
 end
 
 pub fnc zorde_scalar_int(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  return new ZordeScalarRule(2, minimum, maximum, rt copy excluded);
+  // List<T> is move-only: copy just the primitive scalar values explicitly.
+  // Do not alias the caller's mutable exclusions inside a validator.
+  val List<int> snapshot = new List<int>();
+  for const hole of excluded do snapshot.add(hole); done
+  return new ZordeScalarRule(2, minimum, maximum, snapshot);
 }
 
 pub fnc zorde_scalar_string(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  return new ZordeScalarRule(3, minimum, maximum, rt copy excluded);
+  val List<int> snapshot = new List<int>();
+  for const hole of excluded do snapshot.add(hole); done
+  return new ZordeScalarRule(3, minimum, maximum, snapshot);
 }
 
 pub fnc zorde_scalar_rule_valid(ZordeScalarRule rule): bool {
