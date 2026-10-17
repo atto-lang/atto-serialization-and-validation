@@ -39,6 +39,12 @@ pub fnc zorde_nonempty_string(): ZordeValueSchema {
 }
 
 pub fnc zorde_exact_string(int length): ZordeValueSchema {
+  if length < 0 then
+    // -1 means UNBOUNDED in the underlying ValueRule engine. Never allow
+    // a negative exact-length request to silently become "any string".
+    // -2 is an invalid rule sentinel: every checked parse returns invalid_rule.
+    return zorde_string(-2, -2);
+  fi
   return zorde_string(length, length);
 }
 
