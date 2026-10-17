@@ -101,11 +101,12 @@ class TransportContractAuditTest(unittest.TestCase):
             ))))
 
     def test_encoder_input_borrow_cannot_be_extended_by_async_callable(self):
-        for method in ("encode_network", "encode_actor_message"):
+        for method, contract in (
+                ("encode_network", "NetworkCodec"),
+                ("encode_actor_message", "ActorMessageCodec")):
             mutated = valid().replace("fnc " + method, "async fnc " + method)
-            self.assertIn(method.split("_")[1].capitalize() if False else "Codec",
-                          "Codec" + " ".join(validate_interface_source(mutated)))
-            self.assertTrue(validate_interface_source(mutated), method)
+            errors = validate_interface_source(mutated)
+            self.assertIn(contract, " ".join(errors), (method, errors))
 
     def test_no_cross_domain_method_substitution(self):
         self.assertIn("ActorMessageCodec", " ".join(validate_interface_source(
