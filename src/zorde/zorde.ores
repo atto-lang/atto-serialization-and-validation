@@ -270,8 +270,10 @@ pub fnc zorde_parse_int(
   Value value,
   ZordeIntSchema schema
 ): Result<int, ValidationReport> {
-  val int minimum = schema.has_min ? schema.min_value : (-9223372036854775807 - 1);
-  val int maximum = schema.has_max ? schema.max_value : 9223372036854775807;
+  let int minimum = -9223372036854775807 - 1;
+  let int maximum = 9223372036854775807;
+  if schema.has_min then minimum = schema.min_value; fi
+  if schema.has_max then maximum = schema.max_value; fi
   val ZordeScalarRule rule = zorde_scalar_int(minimum, maximum, new List<int>());
   // No duplicated min/max predicate: the canonical scalar kernel is the
   // authority. Preserve dedicated min/max error codes only as diagnostics.
