@@ -1,0 +1,204 @@
+// Zorde: ergonomic runtime schema validation over Oreslang's native
+// reflection-free validation engine.
+//
+// Compiler refinement types should lower to the same semantic rule model.
+// This module intentionally wraps the existing validation primitives rather
+// than introducing a second validator.
+
+import class Value, Utf8Text from '../core/value';
+import class ValidationOptions, ValidationReport, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
+import fnc default_validation_options, string_rule, number_rule, array_rule, field_rule, object_schema from '../validation/validation';
+import fnc validate_value_checked, validate_object_checked from '../validation/validation';
+
+pub define class ZordeValueSchema as
+  pub val ValueRule rule;
+end
+
+pub define class ZordeObjectSchema as
+  pub val ObjectSchema schema;
+end
+
+pub fnc zorde_string(
+  int min_length,
+  int max_length
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      min_length,
+      max_length,
+      false,
+      false,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_nonempty_string(): ZordeValueSchema {
+  return zorde_string(1, -1);
+}
+
+pub fnc zorde_exact_string(int length): ZordeValueSchema {
+  return zorde_string(length, length);
+}
+
+pub fnc zorde_ascii_string(
+  int min_length,
+  int max_length
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      min_length,
+      max_length,
+      true,
+      false,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_email(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      3,
+      254,
+      true,
+      true,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_uuid(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      36,
+      36,
+      true,
+      false,
+      true,
+      false
+    )
+  );
+}
+
+pub fnc zorde_url(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      1,
+      -1,
+      true,
+      false,
+      false,
+      true
+    )
+  );
+}
+
+pub fnc zorde_number(
+  bool has_min,
+  float min_value,
+  bool min_exclusive,
+  bool has_max,
+  float max_value,
+  bool max_exclusive
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    number_rule(
+      has_min,
+      min_value,
+      min_exclusive,
+      has_max,
+      max_value,
+      max_exclusive
+    )
+  );
+}
+
+pub fnc zorde_array(
+  int min_items,
+  int max_items,
+  bool unique_items
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    array_rule(
+      min_items,
+      max_items,
+      unique_items
+    )
+  );
+}
+
+pub fnc zorde_field(
+  Utf8Text key,
+  bool required,
+  bool forbidden,
+  ZordeValueSchema schema
+): FieldRule {
+  return field_rule(
+    key,
+    required,
+    forbidden,
+    schema.rule
+  );
+}
+
+pub fnc zorde_object(
+  List<FieldRule> fields,
+  bool reject_unknown_fields
+): ZordeObjectSchema {
+  return new ZordeObjectSchema(
+    object_schema(
+      fields,
+      reject_unknown_fields
+    )
+  );
+}
+
+pub fnc zorde_parse(
+  Value value,
+  ZordeValueSchema schema
+): Result<ValidValue, ValidationReport> {
+  return validate_value_checked(
+    value,
+    schema.rule,
+    default_validation_options()
+  );
+}
+
+pub fnc zorde_parse_with(
+  Value value,
+  ZordeValueSchema schema,
+  ValidationOptions options
+): Result<ValidValue, ValidationReport> {
+  return validate_value_checked(
+    value,
+    schema.rule,
+    options
+  );
+}
+
+pub fnc zorde_parse_object(
+  Value value,
+  ZordeObjectSchema schema
+): Result<ValidValue, ValidationReport> {
+  return validate_object_checked(
+    value,
+    schema.schema,
+    default_validation_options()
+  );
+}
+
+pub fnc zorde_parse_object_with(
+  Value value,
+  ZordeObjectSchema schema,
+  ValidationOptions options
+): Result<ValidValue, ValidationReport> {
+  return validate_object_checked(
+    value,
+    schema.schema,
+    options
+  );
+}
