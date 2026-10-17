@@ -1,99 +1,53 @@
-// Zorde scalar validation ABI v1 for Oreslang stdlib.
+// Zorde's dynamic Value adapter to the compiler/core scalar constraint IR.
 //
-// This module is the native *dynamic* evaluator of the compiler's canonical
-// scalar constraint IR: int.value and string.length (Unicode scalars),
-// inclusive signed-int64 intervals and sorted excluded metric values.
-//
-// It deliberately returns only a boolean or primitive scalar metric. It does
-// NOT manufacture a refinement/newtype or expose unchecked Valid<T> authority.
-// Compiler-generated typed construction will invoke the exact same contract
-// after verifying schema identity, ownership and source provenance.
-//
-// No OS services, reflection, floating point, regex or user callbacks.
+// The authoritative acceptance kernel is scalar_core.ores. This adapter
+// ONLY extracts exact int64 or valid UTF-8 scalar metrics from wire Value;
+// it does not reimplement bounds/holes and does not manufacture typed T.
 
 import class Value, IntParse from '../core/value';
 import fnc parse_int from '../core/value';
-import fnc utf8_codepoint_count from '../core/utf8';
+import fnc utf8_scalar_count from '../core/utf8_scalar';
+import class ZordeCoreInterval from './scalar_core';
+import fnc zorde_core_interval, zorde_core_interval_valid, zorde_core_interval_contains from './scalar_core';
 
 pub define class ZordeScalarRule as
-  // kind 2 = exact signed int64; kind 3 = validated UTF-8 string length.
+  // 2 = exact int64, 3 = UTF-8 string whose length uses Unicode scalars.
   pub val int kind;
-  pub val int minimum;
-  pub val int maximum;
-  // Immutable only by convention for the dynamic API. Not a typed proof.
-  pub val List<int> excluded;
+  pub val ZordeCoreInterval interval;
 end
 
 pub fnc zorde_scalar_int(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  // List<T> is move-only: copy just the primitive scalar values explicitly.
-  // Do not alias the caller's mutable exclusions inside a validator.
-  val List<int> snapshot = new List<int>();
-  for const hole of excluded do snapshot.add(hole); done
-  return new ZordeScalarRule(2, minimum, maximum, snapshot);
+  return new ZordeScalarRule(2, zorde_core_interval(minimum, maximum, excluded));
 }
 
 pub fnc zorde_scalar_string(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  val List<int> snapshot = new List<int>();
-  for const hole of excluded do snapshot.add(hole); done
-  return new ZordeScalarRule(3, minimum, maximum, snapshot);
+  return new ZordeScalarRule(3, zorde_core_interval(minimum, maximum, excluded));
 }
 
 pub fnc zorde_scalar_rule_valid(ZordeScalarRule rule): bool {
   if rule.kind != 2 && rule.kind != 3 then return false; fi
-  if rule.minimum > rule.maximum then return false; fi
-  if rule.kind == 3 && rule.minimum < 0 then return false; fi
-
-  // Fingerprints require a canonical sorted, unique, in-domain exclusion set.
-  // A hand-written dynamic schema is never permitted to pass malformed rule
-  // metadata to a future typed constructor.
-  let bool had_previous = false;
-  let int previous = 0;
-  let int first_available = rule.minimum;
-  let bool has_allowed = false;
-  for const hole of rule.excluded do
-    if hole < rule.minimum || hole > rule.maximum then return false; fi
-    if had_previous && hole <= previous then return false; fi
-    had_previous = true;
-    previous = hole;
-    if hole > first_available then has_allowed = true; fi
-    if hole == first_available then
-      if first_available == rule.maximum then
-        // Every integer in the domain is excluded (or this is a singleton).
-        if !has_allowed then return false; fi
-      else
-        first_available = first_available + 1;
-      fi
-    fi
-  done
-  return true;
+  return zorde_core_interval_valid(rt borrow rule.interval, rule.kind == 3);
 }
 
 pub fnc zorde_scalar_contains(ZordeScalarRule rule, int metric): bool {
-  if !zorde_scalar_rule_valid(rule) then return false; fi
-  if metric < rule.minimum || metric > rule.maximum then return false; fi
-  for const hole of rule.excluded do
-    if hole == metric then return false; fi
-  done
-  return true;
+  if !zorde_scalar_rule_valid(rt borrow rule) then return false; fi
+  return zorde_core_interval_contains(
+    rt borrow rule.interval, rule.kind == 3, metric);
 }
 
 pub fnc zorde_scalar_metric(Value value, ZordeScalarRule rule): IntParse {
-  if !zorde_scalar_rule_valid(rule) then return new IntParse(false, 0); fi
+  if !zorde_scalar_rule_valid(rt borrow rule) then return new IntParse(false, 0); fi
   if value.kind != rule.kind then return new IntParse(false, 0); fi
+  if rule.kind == 2 then return parse_int(value); fi
 
-  if rule.kind == 2 then
-    return parse_int(value);
-  fi
-
-  // utf8_codepoint_count rejects malformed UTF-8, overlong encodings,
-  // isolated surrogates and out-of-range scalar values.
-  val int count = utf8_codepoint_count(value.string_value.bytes);
+  // Unicode scalar length is shared with compiler refinements and codecs.
+  val int count = utf8_scalar_count(value.string_value.bytes);
   if count < 0 then return new IntParse(false, 0); fi
   return new IntParse(true, count);
 }
 
 pub fnc zorde_scalar_accepts(Value value, ZordeScalarRule rule): bool {
-  val IntParse metric = zorde_scalar_metric(value, rt borrow rule);
+  val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
   if !metric.ok then return false; fi
   return zorde_scalar_contains(rt borrow rule, metric.value);
 }
