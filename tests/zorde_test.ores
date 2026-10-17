@@ -1,0 +1,65 @@
+import fnc require_true from './assert';
+
+import class Value, Utf8Text, WireMember from '../src/core/value';
+import fnc value_string, value_int, value_object from '../src/core/value';
+import class FieldRule from '../src/validation/validation';
+import class ZordeValueSchema, ZordeObjectSchema from '../src/zorde/zorde';
+import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
+
+pub fnc run_zorde_tests(): void {
+  val ZordeValueSchema nonempty = zorde_nonempty_string();
+
+  val Result valid_nonempty = zorde_parse(
+    value_string(new Utf8Text(new List<int>(111, 114, 101, 115))),
+    rt borrow nonempty
+  );
+  require_true(!valid_nonempty.is_err(), "Zorde nonempty string must accept non-empty text");
+
+  val Result invalid_empty = zorde_parse(
+    value_string(new Utf8Text(new List<int>())),
+    rt borrow nonempty
+  );
+  require_true(invalid_empty.is_err(), "Zorde nonempty string must reject empty text");
+
+  // U+1F600 encoded as UTF-8 is one Unicode scalar value, not four bytes.
+  val ZordeValueSchema exactly_one = zorde_exact_string(1);
+  val Result emoji = zorde_parse(
+    value_string(new Utf8Text(new List<int>(240, 159, 152, 128))),
+    rt borrow exactly_one
+  );
+  require_true(!emoji.is_err(), "Zorde exact string length must count Unicode scalar values");
+
+  val Utf8Text name_key = new Utf8Text(new List<int>(110, 97, 109, 101));
+  val Utf8Text age_key = new Utf8Text(new List<int>(97, 103, 101));
+
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(zorde_field(
+    rt borrow name_key,
+    true,
+    false,
+    zorde_nonempty_string()
+  ));
+  fields.add(zorde_field(
+    rt borrow age_key,
+    true,
+    false,
+    zorde_number(true, 0.0, false, true, 150.0, false)
+  ));
+
+  val ZordeObjectSchema person = zorde_object(fields, true);
+
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(
+    rt borrow name_key,
+    value_string(new Utf8Text(new List<int>(122)))
+  ));
+  members.add(new WireMember(rt borrow age_key, value_int(42)));
+
+  val Result valid_person = zorde_parse_object(
+    value_object(members),
+    rt borrow person
+  );
+  require_true(!valid_person.is_err(), "Zorde object schema must accept a valid object");
+
+  return;
+}
