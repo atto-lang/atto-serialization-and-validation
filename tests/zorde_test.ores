@@ -62,10 +62,10 @@ pub fnc run_zorde_tests(): void {
 
   val List<WireMember> members = new List<WireMember>();
   members.add(new WireMember(
-    rt copy name_key,
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
     value_string(new Utf8Text(new List<int>(122)))
   ));
-  members.add(new WireMember(rt copy age_key, value_int(42)));
+  members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(42)));
 
   val Result<ValidValue, ValidationReport> valid_person = zorde_parse_object(
     value_object(members),
