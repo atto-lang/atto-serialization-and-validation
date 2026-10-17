@@ -22,6 +22,14 @@ pub fnc run_zorde_tests(): void {
   require_true(invalid_empty.is_err(), "Zorde nonempty string must reject empty text");
 
   // U+1F600 encoded as UTF-8 is one Unicode scalar value, not four bytes.
+  val ZordeValueSchema negative_exact = zorde_exact_string(-1);
+  val Result<ValidValue, ValidationReport> negative_exact_result = zorde_parse(
+    value_string(new Utf8Text(new List<int>(120))),
+    rt borrow negative_exact
+  );
+  require_true(negative_exact_result.is_err(),
+    "Zorde negative exact length must fail closed instead of becoming unbounded");
+
   val ZordeValueSchema exactly_one = zorde_exact_string(1);
   val Result<ValidValue, ValidationReport> emoji = zorde_parse(
     value_string(new Utf8Text(new List<int>(240, 159, 152, 128))),
