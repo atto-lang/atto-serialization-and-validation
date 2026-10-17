@@ -6,6 +6,9 @@ import class FieldRule, ValidValue, ValidationReport from '../src/validation/val
 import class ZordeValueSchema, ZordeObjectSchema, ZordeIntSchema from '../src/zorde/zorde';
 import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
 import fnc zorde_int_min, zorde_int_max, zorde_int_range, zorde_parse_int from '../src/zorde/zorde';
+import class ZordeScalarRule from '../src/zorde/scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_accepts from '../src/zorde/scalar';
+import fnc zorde_parse_scalar_metric from '../src/zorde/zorde';
 
 pub fnc run_zorde_tests(): void {
   val ZordeValueSchema nonempty = zorde_nonempty_string();
@@ -93,6 +96,66 @@ pub fnc run_zorde_tests(): void {
   require_true(!parse_int(value_number_lexeme(new List<int>(
     45, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 57
   ))).ok, "signed minimum minus one must not wrap");
+
+  // Exact runtime implementation of compiler-owned scalar ConstraintIR.
+  // Int metrics, Unicode scalar string length, and holes must match the
+  // Java compiler's normalized interval semantics.
+  val ZordeScalarRule port_rule = zorde_scalar_int(1, 65535, new List<int>());
+  require_true(zorde_scalar_rule_valid(rt borrow port_rule), "canonical Port rule");
+  require_true(!zorde_scalar_accepts(value_int(0), rt borrow port_rule),
+    "canonical Port rule rejects zero");
+  require_true(zorde_scalar_accepts(value_int(443), rt borrow port_rule),
+    "canonical Port rule accepts in-domain integer");
+  require_true(!zorde_scalar_accepts(value_int(65536), rt borrow port_rule),
+    "canonical Port rule rejects values above maximum");
+  require_true(!zorde_scalar_accepts(value_number_lexeme(new List<int>(49,46,48)),
+    rt borrow port_rule), "canonical int rule cannot coerce floating-point lexemes");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(new List<int>(49))),
+    rt borrow port_rule), "canonical int rule rejects string number coercion");
+
+  val ZordeScalarRule excluding_42 = zorde_scalar_int(1, 100, new List<int>(42));
+  require_true(zorde_scalar_rule_valid(rt borrow excluding_42),
+    "one live exclusion is canonical");
+  require_true(!zorde_scalar_accepts(value_int(42), rt borrow excluding_42),
+    "canonical excluded value rejected");
+  require_true(zorde_scalar_accepts(value_int(43), rt borrow excluding_42),
+    "adjacent non-excluded value accepted");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 2, new List<int>(1,2))),
+    "exclusions covering the full interval fail closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(7,5))),
+    "unsorted exclusion metadata fails closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(5,5))),
+    "duplicate exclusion metadata fails closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(0))),
+    "compiler must normalize off-domain exclusions before emission");
+
+  val ZordeScalarRule scalar_one = zorde_scalar_string(1, 1, new List<int>());
+  require_true(zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))), rt borrow scalar_one
+  ), "emoji counts as one Unicode scalar");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(101,204,129))), rt borrow scalar_one
+  ), "e plus combining mark counts as two scalars");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>())), rt borrow scalar_one
+  ), "nonempty constraint rejects empty string");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(192,175))), rt borrow scalar_one
+  ), "overlong UTF8 sequence must never pass");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(237,160,128))), rt borrow scalar_one
+  ), "UTF8 surrogate encoding must never pass");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_string(-1, 4, new List<int>())),
+    "negative string length bound rejected");
+
+  val Result<int, ValidationReport> emoji_metric = zorde_parse_scalar_metric(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))), rt borrow scalar_one
+  );
+  require_true(!emoji_metric.is_err(),
+    "canonical scalar parse returns a successful UTF8 scalar metric");
+  require_true(zorde_parse_scalar_metric(
+    value_int(443), rt borrow scalar_one
+  ).is_err(), "wrong scalar-kind parse must return Err");
 
   // Exact signed-int64 Zorde checks share @Min/@Max/@Range semantics.
   val ZordeIntSchema ports = zorde_int_range(1, 65535);
