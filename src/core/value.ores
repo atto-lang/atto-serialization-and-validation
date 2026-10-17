@@ -114,34 +114,49 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  // Exact, overflow-safe decimal encoding for all signed int64 values.
-  // Critically, never negate the entire negative value: -INT64_MIN overflows.
-  if value == 0 then
-    return new List<int>(48);
+  // Encode exact signed int64 without floating-point division, int64
+  // overflow or a nonexistent integer-division operator. In Oreslang,
+  // '/' is real division (float) EVEN for int/int, so using it here
+  // would corrupt integers above 2^53 and violate Zorde refinements.
+  if value == 0 then return new List<int>(48); fi
+
+  val List<int> output = new List<int>();
+  let int remaining = value;
+  if value < 0 then
+    output.add(45);
+  else
+    // Negating positive int64 is safe, including Long.MAX_VALUE.
+    // Keeping the magnitude negative also supports Long.MIN_VALUE.
+    remaining = -value;
   fi
 
-  val List<int> result = new List<int>();
-  let int current = value;
-  if current < 0 then
-    result.add(45);
-  fi
-
-  val List<int> reversed = new List<int>();
-  loop do
-    if current == 0 then break; fi
-    let int digit = current % 10;
-    if digit < 0 then digit = -digit; fi
-    reversed.add(48 + digit);
-    current = current / 10;
+  // Decimal long division by powers of ten, with at most nine subtractions
+  // per digit. No '/', no float conversion, and no abs(INT64_MIN).
+  val List<int> places = new List<int>(
+    1000000000000000000, 100000000000000000,
+    10000000000000000, 1000000000000000,
+    100000000000000, 10000000000000,
+    1000000000000, 100000000000,
+    10000000000, 1000000000,
+    100000000, 10000000,
+    1000000, 100000,
+    10000, 1000,
+    100, 10, 1
+  );
+  let bool started = false;
+  for const place of places do
+    let int digit = 0;
+    loop do
+      if remaining > -place then break; fi
+      remaining = remaining + place;
+      digit = digit + 1;
+    done
+    if digit != 0 || started then
+      started = true;
+      output.add(48 + digit);
+    fi
   done
-
-  let int index = reversed.length - 1;
-  loop do
-    if index < 0 then break; fi
-    result.add(reversed[index]);
-    index = index - 1;
-  done
-  return result;
+  return output;
 }
 
 pub fnc value_int(int value): Value {
