@@ -18,9 +18,14 @@ Oreslang refinements have two enforcement phases:
    command-line input, FFI, dynamic maps, deserialization, and other dynamic
    or untrusted values.
 
-A successful runtime validation establishes validated typestate. The same
-immutable value should not be repeatedly revalidated merely because it crosses
-ordinary internal function calls.
+The long-term goal is sound validated typestate. **The current ValidValue
+facade is not yet a proof-carrying immutable refinement**: a Value tree may
+contain mutable arrays, maps, or nested objects, and a schema holds mutable
+field collections. Until the ownership/borrow checker prevents post-validation
+mutation through all aliases (or the validator returns an owned, deeply frozen
+snapshot), do not use ValidValue to bypass validation at later trust boundaries.
+Revalidate dynamically sourced or mutable values at each relevant boundary.
+Immutable values with a proven invariant need not be repeatedly checked.
 
     type NonEmpty = string with length gt 0;
     type Username = string with length gte 3 and length lte 32;
@@ -151,7 +156,7 @@ validator:
 
 - zorde_string(min, max)
 - zorde_nonempty_string()
-- zorde_exact_string(length)
+- zorde_exact_string(length) (negative exact bounds produce invalid rules; they never mean unbounded)
 - zorde_ascii_string(min, max)
 - zorde_email()
 - zorde_uuid()
@@ -213,3 +218,25 @@ A schema fingerprint should include at least:
 The compiler, Zorde, serializers, actor admission, and hot-reload verifier
 should consume the same fingerprint rather than maintaining parallel notions
 of validity.
+
+## Security gates still pending
+
+- **Typestate/alias stability:** Validation of a mutable Value or ObjectSchema
+  does not make future mutations safe. Freeze/copy with proven ownership or
+  forbid invariant-breaking aliases before asserting trusted ValidValue.
+- **Opaque construction:** Audit that user modules cannot directly forge
+  ValidValue or a nominal newtype through a public/default constructor, FFI,
+  deserialization, reflection, or unchecked casting. A public-looking
+  wrapper alone is not evidence of unforgeability.
+- **Schema identity:** The common-source nominal_id is currently a prototype
+  simple name. Production fingerprints must use compiler-issued, fully
+  qualified and versioned nominal identities, not collision-prone short names.
+- **Integer precision:** Numeric wire validators must not round int64 into a
+  float before admission.
+- **Invalid schema construction:** Zorde exact-length builders must reject
+  negative lengths. The current facade maps these to an invalid rule and
+  returns an invalid_rule report from checked parse; a future builder can
+  expose Result<Schema, SchemaError> directly.
+
+These gates are mandatory before treating Zorde validation as a secure
+compiler refinement boundary.
