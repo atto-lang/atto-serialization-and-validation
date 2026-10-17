@@ -23,7 +23,7 @@ immutable value should not be repeatedly revalidated merely because it crosses
 ordinary internal function calls.
 
     type NonEmpty = string with length gt 0;
-    type Username = string with length ge 3 and length le 32;
+    type Username = string with length gte 3 and length lte 32;
 
     const NonEmpty a = "ores";   // compile-time proof
     const NonEmpty b = "";       // compile-time error
@@ -43,10 +43,10 @@ constraint descriptor:
     @Size(min=1, max=32)
     type A = string;
 
-    type B = string with length ge 1 and length le 32;
+    type B = string with length gte 1 and length lte 32;
 
     define newtype C(string)
-      with length ge 1 and length le 32;
+      with length gte 1 and length lte 32;
 
 A and B have equivalent refinement predicates. C adds nominal identity. For
 dynamic construction, compiler-generated C.try_from(...) must call the same
@@ -79,21 +79,21 @@ type can appear:
 
 Examples:
 
-    type Port = int with value ge 1 and value le 65535;
-    type Percentage = int with value ge 0 and value le 100;
+    type Port = int with value gte 1 and value lte 65535;
+    type Percentage = int with value gte 0 and value lte 100;
     type NonEmpty = string with length gt 0;
     type Sha256 = bytes with length eq 32;
     type NonEmptyList<T> = List<T> with length gt 0;
 
     define struct User as
       name: NonEmpty;
-      age: int with value ge 0 and value le 150;
+      age: int with value gte 0 and value lte 150;
     end
 
 Inline refined type expressions are a useful follow-up grammar feature:
 
     fnc greet(string with length gt 0 name): void;
-    fnc choose(): int with value ge 0 and value lt 10;
+    fnc choose(): int with value gte 0 and value lt 10;
 
 Until inline type-expression grammar is implemented, aliases/newtypes provide
 the same invariant without adding special parameter/field syntax.
@@ -170,17 +170,17 @@ typed-object construction.
 
 ## Refinement-to-Zorde normalization
 
-Built-in compiler predicates should normalize mechanically:
+Built-in compiler predicates should normalize mechanically. Canonical textual comparators are `eq`, `ne`, `gt`, `gte`, `lt`, and `lte`; `==`, `!=`, `>`, `>=`, `<`, and `<=` are equivalent symbolic spellings. `ge`/`le` are not supported aliases:
 
 | Compiler refinement | Zorde runtime rule |
 | --- | --- |
 | string with length gt 0 | string min length 1 |
 | string with length eq N | string min/max length N |
-| string with length ge A and length le B | string min/max A/B |
-| int with value ge A and value le B | numeric inclusive range |
+| string with length gte A and length lte B | string min/max A/B |
+| int with value gte A and value lte B | numeric inclusive range |
 | int with value gt A and value lt B | numeric exclusive range |
-| List<T> with length ge A | array min items A |
-| Map<K,V> with size le B | object/map max entries B (future native rule) |
+| List<T> with length gte A | array min items A |
+| Map<K,V> with size lte B | object/map max entries B (future native rule) |
 | bytes with length eq N | byte exact length N |
 
 ne/excluded-value predicates, map-size predicates, and arbitrary where
