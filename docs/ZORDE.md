@@ -188,6 +188,12 @@ predicates require explicit runtime representations before the compiler may
 claim complete Zorde parity. Unsupported descriptors are errors, not ignored
 metadata.
 
+The current generic numeric ValueRule path materializes wire numbers through a
+float for range validation. It therefore must **not** be used to claim exact
+64-bit integer-refinement parity outside the exactly representable range.
+Compiler-generated int refinements need an integer-exact Zorde rule/validator
+before that boundary is marked supported.
+
 ## ABI and hot reload
 
 Exported refinement predicates and Zorde schema fingerprints are part of the
