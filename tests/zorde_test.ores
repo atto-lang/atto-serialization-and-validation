@@ -177,14 +177,14 @@ pub fnc run_zorde_tests(): void {
   ).is_err(), "Zorde integer schema must not coerce decimal 1.0");
 
   // 2^53 + 1: a binary double cannot represent this integer exactly.
-  val Value above_double_precision = value_number_lexeme(
-    new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 51)
-  );
   val ZordeIntSchema precise = zorde_int_range(
     9007199254740993, 9007199254740993
   );
-  require_true(!zorde_parse_int(above_double_precision, rt borrow precise).is_err(),
-    "Zorde must accept exact integer 2^53+1 without float rounding");
+  require_true(!zorde_parse_int(
+    value_number_lexeme(new List<int>(
+      57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 51)),
+    rt borrow precise
+  ).is_err(), "Zorde must accept exact integer 2^53+1 without float rounding");
   require_true(zorde_parse_int(
     value_number_lexeme(new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 50)),
     rt borrow precise
