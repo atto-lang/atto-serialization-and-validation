@@ -1,7 +1,7 @@
 import fnc require_true from './assert';
 
-import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc value_string, value_int, value_number_lexeme, value_object from '../src/core/value';
+import class Value, Utf8Text, WireMember, IntParse from '../src/core/value';
+import fnc value_string, value_int, value_number_lexeme, value_object, parse_int, int_to_decimal_bytes from '../src/core/value';
 import class FieldRule, ValidValue, ValidationReport from '../src/validation/validation';
 import class ZordeValueSchema, ZordeObjectSchema, ZordeIntSchema from '../src/zorde/zorde';
 import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
@@ -69,6 +69,30 @@ pub fnc run_zorde_tests(): void {
     rt borrow person
   );
   require_true(!valid_person.is_err(), "Zorde object schema must accept a valid object");
+
+  // The native Value integer codec must preserve the compiler's exact int64
+  // scalar contract. No float intermediate, no abs(INT64_MIN) overflow.
+  val int min_i64 = -9223372036854775807 - 1;
+  val int max_i64 = 9223372036854775807;
+  val IntParse roundtrip_min = parse_int(value_int(min_i64));
+  val IntParse roundtrip_max = parse_int(value_int(max_i64));
+  val IntParse roundtrip_zero = parse_int(value_int(0));
+  require_true(roundtrip_min.ok && roundtrip_min.value == min_i64,
+    "Zorde native signed-int64 minimum must round trip exactly");
+  require_true(roundtrip_max.ok && roundtrip_max.value == max_i64,
+    "Zorde native signed-int64 maximum must round trip exactly");
+  require_true(roundtrip_zero.ok && roundtrip_zero.value == 0,
+    "Zorde native zero must encode and decode exactly");
+  require_true(int_to_decimal_bytes(min_i64).length == 20,
+    "signed minimum decimal encoding has sign and 19 digits");
+  require_true(int_to_decimal_bytes(max_i64).length == 19,
+    "signed maximum decimal encoding has exactly 19 digits");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 56
+  ))).ok, "signed maximum plus one must not wrap");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 57
+  ))).ok, "signed minimum minus one must not wrap");
 
   // Exact signed-int64 Zorde checks share @Min/@Max/@Range semantics.
   val ZordeIntSchema ports = zorde_int_range(1, 65535);
