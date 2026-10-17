@@ -307,3 +307,38 @@ Native Zorde `zorde_parse_int` remains a separately incubated, exact integer
 runtime admission path; the actual compiler-generated `zorde.schema<T>()`
 binding and guest `T.try_from()` remain pending. Do not use the float-based
 generic `zorde_number` as an exact signed-int64 validator.
+
+## Schema-first is the planned authoritative public API
+
+The intended standard-library experience is schema-first, similar to Zod:
+`const PortSchema = Zorde.int().min(1).max(65535);`
+followed by `type Port = Zorde.infer<PortSchema>;`. Annotation-first
+`@Range(min=1,max=65535)` and `with value gte/lte` are frontends for the
+**same compiler-owned constraint IR**. Runtime parsing must consume the
+compiler-generated normalized descriptor, rather than rediscovering min/max
+annotations or using an independent floating-point number validator.
+
+Only immutable statically evaluable schemas support inferred compiler types;
+runtime callbacks, dynamic schemas and coercion may validate values but must
+not forge Oreslang refinements. A future `Schema<Input,Output>` representation
+must separate input from transformed output. A structural inferred type must
+not silently become nominal, and a checked `Valid<T>` must be ownership-safe.
+
+As of this branch, compiler source-AST inference and typed projections exist
+in Java/Graal's experimental planner, **not** in the executable Oreslang type
+checker. The native `ZordeIntSchema`/`zorde_parse_int` and string validation
+facade remain independent implementations under migration; they must be
+replaced by an adapter for the canonical versioned descriptor and pass
+cross-backend conformance before the phrase "fully unified" is warranted.
+Native array/object validation must also prove deep freeze/copy/borrow safety
+before returning persistent proof-carrying values.
+
+### Exact int64 codec dependency
+
+The source `src/core/value.ores` integer-to-decimal serializer previously had
+duplicated malformed loops and a missing digit computation. This was corrected
+with a signed-remainder algorithm that does not compute `abs(INT64_MIN)`.
+`tests/zorde_test.ores` now includes signed-int64 min/max/zero round-trips
+and overflow-negative fixtures. **Native test execution remains mandatory**:
+parser/JVM smoke or the Python reference oracle alone cannot certify this
+userland serialization and validation path.
