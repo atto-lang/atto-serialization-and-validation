@@ -240,3 +240,45 @@ of validity.
 
 These gates are mandatory before treating Zorde validation as a secure
 compiler refinement boundary.
+
+## Core/std-lib placement and annotation interoperability
+
+**Placement:** Zorde is an Oreslang standard-library capability; the canonical
+future import is `std/zorde`. The compiler/core layer owns normalized
+predicates and generated exact validators, and Zorde exposes schemas/checked
+parsing. Serialization formats use the same contracts, not a separate
+Java/LLVM/JS implementation. The numeric standard-library seed lives in
+`oreslang-source.java/stdlib/zorde.ores`; `src/zorde/stdlib.ores` mirrors that
+file with an identical Git blob. The generic `src/zorde/zorde.ores` facade
+remains an incubation implementation, not packaged stdlib certification.
+
+The following are **equivalent constraint declarations** (subject to future
+compiler admission and runtime construction gates):
+
+```ores
+@MinLength(3)
+@MaxLength(32)
+type Username = string;
+
+type Username2 = string with length gte 3 and length lte 32;
+
+@Min(1)
+@Max(65535)
+type Port = int;
+
+@Range(min=1,max=65535)
+type Port2 = int;
+
+type Port3 = int with value >= 1 and value <= 65535;
+```
+
+`@MinLength/@MaxLength` apply only to string Unicode-scalar lengths;
+`@Min/@Max/@Range` apply only to integer values with exact signed-int64
+comparisons. Bounds must be compile-time constants; negative string lengths,
+wrong type uses, duplicate annotations, and contradictions are errors. No
+runtime reflection or float conversion may silently change predicate meaning.
+
+**Status:** The Java parser normalizes these on aliases/newtypes but currently
+rejects their execution until checked type construction exists. Field/local
+annotations are rejected rather than silently retained. The Zorde native tests
+have not yet proved production end-to-end stdlib validation.
