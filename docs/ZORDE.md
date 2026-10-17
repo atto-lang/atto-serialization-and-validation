@@ -167,6 +167,8 @@ validator:
 - zorde_object(...)
 - zorde_parse(...)
 - zorde_parse_object(...)
+- zorde_int_min(min), zorde_int_max(max), zorde_int_range(min, max)
+- zorde_parse_int(value, schema): Result<int, ValidationReport> (exact signed int64, native certification pending)
 
 The existing validation engine remains the implementation underneath. This
 initial facade does not claim compiler-generated zorde.schema<T>(), arbitrary
@@ -182,8 +184,8 @@ Built-in compiler predicates should normalize mechanically. Canonical textual co
 | string with length gt 0 | string min length 1 |
 | string with length eq N | string min/max length N |
 | string with length gte A and length lte B | string min/max A/B |
-| int with value gte A and value lte B | numeric inclusive range |
-| int with value gt A and value lt B | numeric exclusive range |
+| int with value gte A and value lte B | dedicated exact `ZordeIntSchema` + `zorde_parse_int` (native verification pending) |
+| int with value gt A and value lt B | integer-exact normalized interval with overflow-checked exclusive endpoints (compiler lowering pending) |
 | List<T> with length gte A | array min items A |
 | Map<K,V> with size lte B | object/map max entries B (future native rule) |
 | bytes with length eq N | byte exact length N |
@@ -196,8 +198,14 @@ metadata.
 The current generic numeric ValueRule path materializes wire numbers through a
 float for range validation. It therefore must **not** be used to claim exact
 64-bit integer-refinement parity outside the exactly representable range.
-Compiler-generated int refinements need an integer-exact Zorde rule/validator
-before that boundary is marked supported.
+The new experimental `ZordeIntSchema` API — `zorde_int_min`,
+`zorde_int_max`, `zorde_int_range`, and `zorde_parse_int` — explicitly
+parses wire-number lexemes into exact signed `int` using the shared core
+`parse_int` and returns `Result<int, ValidationReport>`, not a mutable
+`ValidValue` wrapper. It rejects decimals, scientific notation, overflow,
+contradictory ranges and out-of-bounds integers instead of coercing to float.
+Compiler-generated descriptor/codegen integration and executed native tests
+are still required before declaring complete runtime parity.
 
 ## ABI and hot reload
 
