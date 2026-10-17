@@ -5,8 +5,9 @@
 // This module intentionally wraps the existing validation primitives rather
 // than introducing a second validator.
 
-import class Value, Utf8Text from '../core/value';
-import class ValidationOptions, ValidationReport, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
+import class Value, Utf8Text, IntParse from '../core/value';
+import fnc parse_int from '../core/value';
+import class ValidationOptions, ValidationReport, ValidationError, PathSegment, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
 import fnc default_validation_options, string_rule, number_rule, array_rule, field_rule, object_schema from '../validation/validation';
 import fnc validate_value_checked, validate_object_checked from '../validation/validation';
 
@@ -207,4 +208,61 @@ pub fnc zorde_parse_object_with(
     schema.schema,
     options
   );
+}
+
+
+// Integer-exact schema and checked construction for compiler @Min/@Max/@Range
+// lowering. Unlike generic ValueRule numbers, this never converts int64 to
+// floating point. The result is an owned int, not a mutable ValidValue wrapper.
+pub define class ZordeIntSchema as
+  pub val bool has_min;
+  pub val int min_value;
+  pub val bool has_max;
+  pub val int max_value;
+end
+
+pub fnc zorde_int_min(int minimum): ZordeIntSchema {
+  return new ZordeIntSchema(true, minimum, false, 0);
+}
+
+pub fnc zorde_int_max(int maximum): ZordeIntSchema {
+  return new ZordeIntSchema(false, 0, true, maximum);
+}
+
+pub fnc zorde_int_range(int minimum, int maximum): ZordeIntSchema {
+  return new ZordeIntSchema(true, minimum, true, maximum);
+}
+
+fnc zorde_int_error(String code, String message): ValidationReport {
+  val List<ValidationError> errors = new List<ValidationError>();
+  errors.add(new ValidationError(
+    code,
+    new List<PathSegment>(),
+    message,
+    -1
+  ));
+  return new ValidationReport(errors, false);
+}
+
+pub fnc zorde_parse_int(
+  Value value,
+  ZordeIntSchema schema
+): Result<int, ValidationReport> {
+  if schema.has_min && schema.has_max &&
+     schema.min_value > schema.max_value then
+    return Err(zorde_int_error("invalid_rule", "numeric range is contradictory"));
+  fi
+
+  val IntParse parsed = parse_int(value);
+  if !parsed.ok then
+    return Err(zorde_int_error("type", "expected an exact signed integer"));
+  fi
+
+  if schema.has_min && parsed.value < schema.min_value then
+    return Err(zorde_int_error("min", "integer is below the required minimum"));
+  fi
+  if schema.has_max && parsed.value > schema.max_value then
+    return Err(zorde_int_error("max", "integer exceeds the permitted maximum"));
+  fi
+  return Ok(parsed.value);
 }
