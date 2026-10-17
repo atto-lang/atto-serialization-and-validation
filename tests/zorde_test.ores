@@ -1,10 +1,11 @@
 import fnc require_true from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc value_string, value_int, value_object from '../src/core/value';
+import fnc value_string, value_int, value_number_lexeme, value_object from '../src/core/value';
 import class FieldRule, ValidValue, ValidationReport from '../src/validation/validation';
-import class ZordeValueSchema, ZordeObjectSchema from '../src/zorde/zorde';
+import class ZordeValueSchema, ZordeObjectSchema, ZordeIntSchema from '../src/zorde/zorde';
 import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
+import fnc zorde_int_min, zorde_int_max, zorde_int_range, zorde_parse_int from '../src/zorde/zorde';
 
 pub fnc run_zorde_tests(): void {
   val ZordeValueSchema nonempty = zorde_nonempty_string();
@@ -68,6 +69,39 @@ pub fnc run_zorde_tests(): void {
     rt borrow person
   );
   require_true(!valid_person.is_err(), "Zorde object schema must accept a valid object");
+
+  // Exact signed-int64 Zorde checks share @Min/@Max/@Range semantics.
+  val ZordeIntSchema ports = zorde_int_range(1, 65535);
+  val Result<int, ValidationReport> good_port = zorde_parse_int(value_int(443), rt borrow ports);
+  require_true(!good_port.is_err(), "Zorde range should accept TCP port 443");
+  require_true(zorde_parse_int(value_int(0), rt borrow ports).is_err(),
+    "Zorde range should reject port zero");
+  require_true(zorde_parse_int(value_int(65536), rt borrow ports).is_err(),
+    "Zorde range should reject port above 65535");
+  require_true(zorde_parse_int(value_int(1), zorde_int_min(1)).is_err() == false,
+    "Zorde minimum should accept the inclusive bound");
+  require_true(zorde_parse_int(value_int(100), zorde_int_max(100)).is_err() == false,
+    "Zorde maximum should accept the inclusive bound");
+  require_true(zorde_parse_int(value_int(42), zorde_int_range(20, 10)).is_err(),
+    "Zorde contradictory numeric ranges must fail closed");
+  require_true(zorde_parse_int(
+    value_number_lexeme(new List<int>(49, 46, 48)),
+    rt borrow ports
+  ).is_err(), "Zorde integer schema must not coerce decimal 1.0");
+
+  // 2^53 + 1: a binary double cannot represent this integer exactly.
+  val Value above_double_precision = value_number_lexeme(
+    new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 51)
+  );
+  val ZordeIntSchema precise = zorde_int_range(
+    9007199254740993, 9007199254740993
+  );
+  require_true(!zorde_parse_int(above_double_precision, rt borrow precise).is_err(),
+    "Zorde must accept exact integer 2^53+1 without float rounding");
+  require_true(zorde_parse_int(
+    value_number_lexeme(new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 50)),
+    rt borrow precise
+  ).is_err(), "Zorde must reject 2^53 when the schema requires 2^53+1");
 
   return;
 }
