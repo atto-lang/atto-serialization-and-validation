@@ -290,3 +290,20 @@ runtime reflection or float conversion may silently change predicate meaning.
 rejects their execution until checked type construction exists. Field/local
 annotations are rejected rather than silently retained. The Zorde native tests
 have not yet proved production end-to-end stdlib validation.
+
+## Compiler-generated schema ABI and checked conversion status
+
+The Java compiler branch now contains a source-only scalar schema planner
+(`ZordeSchemaGenerator`) and a versioned SHA-256 descriptor/fingerprint in
+`RefinementRules`. The independent common-source
+`conformance/refinements/schema_fingerprint.py` oracle verifies the
+canonical interval and nominal identity encoding. Schema artifacts derive from
+the compiler AST, never runtime reflection. Redundant exclusions outside the
+accepted interval do not change the fingerprint.
+
+The host `Plan.tryFrom` checked-conversion test substrate accepts only
+immutable Java `String`/`Long`, and is not a guest-language constructor.
+Native Zorde `zorde_parse_int` remains a separately incubated, exact integer
+runtime admission path; the actual compiler-generated `zorde.schema<T>()`
+binding and guest `T.try_from()` remain pending. Do not use the float-based
+generic `zorde_number` as an exact signed-int64 validator.
