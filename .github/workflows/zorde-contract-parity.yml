@@ -28,7 +28,7 @@ jobs:
       # must be replaced by a reviewed, independently CI-admitted release SHA.
       # Never use a floating action tag, npm install --no-save or an unlocked graph.
       - name: Compare independent schema authorities via production-audited lockfile
-        uses: ORESoftware/typespec-json-schema-validator@da489a082bd5f05ce86a0c74393dc53934960125
+        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
         with:
           typespec: contracts/zorde/main.tsp
           schema: contracts/zorde/authored.schema.json
@@ -66,7 +66,7 @@ jobs:
       - name: Drift must fail the same parity tool and never create an admitted report
         id: drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@da489a082bd5f05ce86a0c74393dc53934960125
+        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
         with:
           typespec: contracts/zorde/main.tsp
           schema: artifacts/zorde-mutant.schema.json
