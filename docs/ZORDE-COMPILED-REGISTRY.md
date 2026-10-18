@@ -142,7 +142,7 @@ must execute all three fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Twelve source-free preflight refusal
+logs or receipts are never overwritten. Thirteen source-free preflight refusal
 cases, including symlinks in compiler/evidence **parent paths**, are exercised
 by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
