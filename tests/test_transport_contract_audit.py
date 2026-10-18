@@ -34,13 +34,26 @@ class TransportContractAuditTest(unittest.TestCase):
             valid().replace("NetworkCodec<T, F>", "NetworkCodec<T, DynamicFormat>"))))
 
     def test_compiler_ownership_proofs_are_not_guest_declarations(self):
-        for name in ("Sendable", "Serializable"):
+        for name in ("Sendable", "Serializable", "AnyCallable"):
             for kind in ("interface", "trait", "class", "struct", "type"):
                 declaration = (f"define {kind} {name}<T> as\nend"
                                if kind != "type" else f"type {name}<T> = int;")
                 failure = validate_interface_source(valid() + "\n" + declaration)
                 self.assertIn("reserved to the compiler", " ".join(failure),
                               (kind, name, failure))
+
+    def test_any_callable_may_not_override_intrinsic_in_sibling_file(self):
+        import tempfile
+        from transport_contract_audit import audit_transport_contracts
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "src/schema").mkdir(parents=True)
+            (root / "src/guest").mkdir(parents=True)
+            (root / "src/schema/transport_interfaces.ores").write_text(valid())
+            (root / "src/guest/unsafe.ores").write_text(
+                "pub define interface AnyCallable<T> as\nend\n")
+            errors = audit_transport_contracts(root)
+            self.assertIn("reserved to the compiler", " ".join(errors))
 
     def test_schema_contract_cannot_hide_inside_foreign_module(self):
         forged = "define module TransportShim as\n" + valid() + "\nend\n"
