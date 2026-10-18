@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oreslang.dev/schemas/zorde-validation-v1.schema.json",
+  "$defs": {
+    "ErrorCode": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ErrorCode",
+      "type": "string",
+      "enum": [
+        "missing-required",
+        "wrong-type",
+        "unknown-field",
+        "out-of-range"
+      ]
+    },
+    "ComparisonStatus": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ComparisonStatus",
+      "type": "string",
+      "enum": [
+        "equivalent",
+        "different",
+        "refused"
+      ]
+    },
+    "ValidationIssue": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ValidationIssue",
+      "type": "object",
+      "properties": {
+        "code": {
+          "$ref": "ErrorCode"
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "path"
+      ],
+      "unevaluatedProperties": false
+    },
+    "ValidationReport": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ValidationReport",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "valid": {
+          "type": "boolean"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "ValidationIssue"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "valid",
+        "issues"
+      ],
+      "unevaluatedProperties": false
+    },
+    "SchemaComparison": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "SchemaComparison",
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "status": {
+          "$ref": "ComparisonStatus"
+        },
+        "authoredDigest": {
+          "type": "string"
+        },
+        "generatedDigest": {
+          "type": "string"
+        },
+        "mismatchPaths": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "status",
+        "authoredDigest",
+        "generatedDigest",
+        "mismatchPaths"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}

@@ -1,0 +1,31 @@
+name: Zorde TypeSpec / authored JSON Schema parity (pilot)
+on:
+  push:
+    paths:
+      - 'contracts/zorde/**'
+      - '.github/workflows/zorde-contract-parity.yml'
+  pull_request:
+    paths:
+      - 'contracts/zorde/**'
+      - '.github/workflows/zorde-contract-parity.yml'
+permissions:
+  contents: read
+jobs:
+  dual-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Pilot only. Lock the entire npm graph before qualifying production CI.
+      - name: Install versioned contract checker
+        run: npm install --no-save --package-lock=false '@oresoftware/typespec-json-schema-validator@0.1.1'
+      - name: Compare independently authored authorities and run differential corpus
+        run: |
+          ./node_modules/.bin/tjsv check \
+            --typespec=contracts/zorde/main.tsp \
+            --schema=contracts/zorde/authored.schema.json \
+            --instances=contracts/zorde/instances \
+            --report=artifacts/zorde-schema-parity.json
