@@ -41,7 +41,7 @@ jobs:
       # receipt or a separately published versioned release.
       # Never use a floating action tag or an unlocked dependency graph.
       - name: Compare independent schema authorities via production-audited lockfile
-        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
         with:
           typespec: contracts/zorde/main.tsp
           schema: contracts/zorde/authored.schema.json
@@ -83,7 +83,7 @@ jobs:
       - name: Drift must fail the same parity tool and never create an admitted report
         id: drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
         with:
           typespec: contracts/zorde/main.tsp
           schema: artifacts/zorde-mutant.schema.json
@@ -130,7 +130,7 @@ jobs:
       - name: Independent TypeSpec-side mutation must be semantically refused
         id: typespec_drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
         with:
           typespec: artifacts/zorde-mutant.tsp
           schema: contracts/zorde/authored.schema.json
@@ -181,7 +181,7 @@ jobs:
           receipt = {
             'schema':'oreslang.zorde.dual-peer-mutant-receipts/v1',
             'head_sha':os.environ['SOURCE_SHA'],
-            'tool_sha':'b9f57de9b9c3d36437e75539fd8281f1f285f593',
+            'tool_sha':'a9aa7e0a258a0514b433178842288ab798b0947c',
             'source_sha256': {p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in
               ['contracts/zorde/main.tsp','contracts/zorde/authored.schema.json']},
             'report_sha256': {p:hashlib.sha256((Path('artifacts')/p).read_bytes()).hexdigest() for p in docs},
