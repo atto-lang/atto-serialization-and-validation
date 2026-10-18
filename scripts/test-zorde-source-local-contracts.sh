@@ -7,7 +7,15 @@ tmp="$(mktemp -d "${TMPDIR:-/tmp}/zorde-source-local-contracts.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
 src="$tmp/source with spaces"
 out="$tmp/evidence"
-mkdir -p "$src/scripts" "$out"
+mkdir -p "$src/scripts" "$src/tests" "$src/fixtures/zorde-compile-positive" "$out"
+# Synthetic local fixture; this is not private Oreslang source or compiler.
+cat > "$src/scripts/test.sh" <<'TEST_SH'
+#!/bin/sh
+set -eu
+exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
+TEST_SH
+printf '// synthetic guest path\\n' > "$src/tests/main.ores"
+printf '// synthetic public-import path\\n' > "$src/fixtures/zorde-compile-positive/public-registry-import.ores"
 chmod 700 "$out"
 cp "$root/scripts/test-zorde-registry-source-local.sh" "$src/scripts/"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
@@ -73,4 +81,26 @@ expect_refusal unsafe-permissions 'evidence directory must be caller-owned and i
 chmod 700 "$out"
 ln -s "$out" "$tmp/evidence-link"
 expect_refusal symlink-evidence 'evidence directory must not be a symlink' ZORDE_EVIDENCE_DIR="$tmp/evidence-link"
+# A noncompiler can spoof both native markers yet fail public module imports.
+# The positive control must refuse such a run without a native receipt.
+cat > "$tmp/positive-import-fails" <<'SIMULATOR'
+#!/bin/sh
+case "$1" in
+  */tests/main.ores)
+    printf 'native Zorde compiled scalar registry tests passed\\n'
+    printf 'serialization/validation native tests passed\\n'
+    exit 0 ;;
+  */fixtures/zorde-compile-positive/public-registry-import.ores)
+    printf 'synthetic public import refusal\\n' >&2
+    exit 47 ;;
+  *) exit 48 ;;
+esac
+SIMULATOR
+chmod 700 "$tmp/positive-import-fails"
+refusal_sha="$(sha256sum "$tmp/positive-import-fails" | cut -d ' ' -f 1)"
+expect_refusal public-import-control 'public registry import positive control failed' \\
+  "ORESLANG_BIN=$tmp/positive-import-fails" "EXPECTED_COMPILER_SHA256=$refusal_sha"
+test -f "$out/zorde-public-import-positive.log"
+grep -Fqx 'native Zorde compiled scalar registry tests passed' "$out/zorde-registry-native.log"
+grep -Fqx 'serialization/validation native tests passed' "$out/zorde-registry-native.log"
 printf 'Zorde source-local preflight refusal contracts: %s PASS (no native compiler executed)\n' "$count"

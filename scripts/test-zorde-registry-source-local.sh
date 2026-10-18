@@ -68,7 +68,7 @@ then
   die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
 for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
-  zorde-private-entry-import-denial.log \
+  zorde-public-import-positive.log zorde-private-entry-import-denial.log \
   zorde-private-storage-access-denial.log; do
   [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
     die "evidence output already exists; use a fresh, private directory"
@@ -89,6 +89,16 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
+# A valid public import must compile before private import failures can count.
+# Otherwise, an unrelated compiler/path failure could mimic a visibility denial.
+positive_log="$out_dir/zorde-public-import-positive.log"
+set +e
+timeout --signal=TERM --kill-after=5s 60s \
+  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-registry-import.ores" >"$positive_log" 2>&1
+positive_status=$?
+set -e
+[[ "$positive_status" -eq 0 ]] ||
+  die "public registry import positive control failed (exit=$positive_status)"
 # A parse error is insufficient: negative fixtures must fail with a real
 # export/visibility error from the same approved compiler that ran the suite.
 for fixture in private-entry-import private-storage-access; do
@@ -150,6 +160,8 @@ record = {
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
     "process_exit_code": 0,
+    "public_registry_import_control_passed": True,
+    "public_registry_import_log_sha256": hashlib.sha256((Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()).hexdigest(),
     "negative_private_entry_import_refused": True,
     "negative_private_storage_access_refused": True,
     "negative_diagnostic_sha256": {
