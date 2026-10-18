@@ -35,10 +35,10 @@ ANY_DECL = re.compile(
 CONTROL_DECL = re.compile(
     DECLARATION_PREFIX + r"(?:SupervisorControlCodec|ControlCodec)\b"
 )
-# These properties are compiler-owned proof, not guest-defined protocols.
-# The source API currently has no safe user-implementable marker for either.
+# Sendable/Serializable proofs and the erased AnyCallable top type are
+# compiler-owned, never user-defined protocols or structural authorization.
 PROOF_DECL = re.compile(
-    DECLARATION_PREFIX + r"(?:Sendable|Serializable)\b"
+    DECLARATION_PREFIX + r"(?:Sendable|Serializable|AnyCallable)\b"
 )
 # The canonical transport declaration unit must contain ONLY the two
 # explicitly admitted generic interfaces. A nested module can otherwise
@@ -47,7 +47,7 @@ OTHER_DECL = re.compile(
     DECLARATION_PREFIX
     + r"(?!NetworkCodec\b|ActorMessageCodec\b|"
     + r"SupervisorControlCodec\b|ControlCodec\b|"
-    + r"Sendable\b|Serializable\b)[A-Za-z_][A-Za-z0-9_]*"
+    + r"Sendable\b|Serializable\b|AnyCallable\b)[A-Za-z_][A-Za-z0-9_]*"
 )
 
 
@@ -152,7 +152,7 @@ def validate_interface_source(text: str) -> list[str]:
     if CONTROL_DECL.search(code):
         errors.append("supervisor CONTROL codec is reserved to the runtime")
     if PROOF_DECL.search(code):
-        errors.append("Sendable/Serializable proof is reserved to the compiler")
+        errors.append("Sendable/Serializable/AnyCallable type is reserved to the compiler")
     if OTHER_DECL.search(code):
         errors.append("transport interface unit cannot contain unrelated declarations")
     # A signature-only regex can be fooled by an unexpected top-level
@@ -199,7 +199,7 @@ def audit_transport_contracts(root: Path) -> list[str]:
         if CONTROL_DECL.search(code):
             errors.append(f"{other.relative_to(root)}: supervisor CONTROL codec is reserved")
         if PROOF_DECL.search(code):
-            errors.append(f"{other.relative_to(root)}: Sendable/Serializable proof is reserved to the compiler")
+            errors.append(f"{other.relative_to(root)}: Sendable/Serializable/AnyCallable type is reserved to the compiler")
     return errors
 
 
