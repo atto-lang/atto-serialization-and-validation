@@ -31,7 +31,7 @@ resolution graph is locked and dependency/advisory policy is reviewed.
 
 `core` remains OS-free, allocator-free by default, reflection-free and usable
 without TypeSpec, Node, a JSON DOM, a WIT runtime, or `stdlib`.
-`alloc` and `stdlib` may opt into schema loading, JSON decoding, compiled
+`alloc` and `std/zorde` may opt into schema loading, JSON decoding, compiled
 validators and diagnostic reports using explicit allocation/capability providers.
 
 At build or startup (NOT per request) a trusted `stdlib.validation` adapter
@@ -54,6 +54,18 @@ WIT adapter types map to `ValidationReport` and `ValidationIssue` but
 JSON's exact `schemaVersion=1` and `valid iff issues.empty` invariants, as
 well as max payload, UTF-8, backpressure, cancellation and resource limits
 require explicit adapter tests/proofs; WIT syntax alone does not encode them.
+
+## Existing Zorde implementation to integrate
+
+Serialization draft PR #14 already proposes `src/zorde/zorde.ores` and the
+future canonical `std/zorde` library, with compiler-owned normalized
+refinement descriptors and exact signed-int64 parsing paths. This pilot must
+*reuse* those rules rather than start a second JSON-specific validation engine.
+Its `ValidValue` facade does not currently prove deep immutability or alias
+stability: a mutable Value tree must be frozen/copied with ownership proof or
+revalidated at the next trust boundary. An external schema cannot authorize
+unsafe actor cross-heap sharing. Do not lower exact signed-int64 rules
+through the generic floating-number validation path, which may round values.
 
 ## Evidence levels
 
