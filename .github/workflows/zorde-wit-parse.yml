@@ -3,10 +3,14 @@ on:
   push:
     paths:
       - 'wit/zorde-validation.wit'
+      - 'contracts/zorde/authored.schema.json'
+      - 'scripts/audit-zorde-wit-crosswalk.mjs'
       - '.github/workflows/zorde-wit-parse.yml'
   pull_request:
     paths:
       - 'wit/zorde-validation.wit'
+      - 'contracts/zorde/authored.schema.json'
+      - 'scripts/audit-zorde-wit-crosswalk.mjs'
       - '.github/workflows/zorde-wit-parse.yml'
 
 permissions:
@@ -28,6 +32,17 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Pin Node engine for static WIT-schema crosswalk
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+
+      - name: Verify static WIT-schema crosswalk with adversarial mutants
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/audit-zorde-wit-crosswalk.mjs
 
       - name: Install checksum-pinned official wasm-tools binary
         shell: bash
