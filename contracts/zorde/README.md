@@ -93,3 +93,9 @@ Cross-repo reference: ORESoftware/typespec-json-schema-validator and its
 `docs/formal-verification.md`, `docs/wit-projection.md`; WIT parsing /
 canonicalization should come from ORESoftware/ores-wit when that dependency
 is accessible and pinned.
+
+## 2026-10-18 funded source-free contract-check smoke
+
+The Zorde pilot now pins TJSV candidate `b9f57de9b9c3d36437e75539fd8281f1f285f593` (full Ubuntu/macOS/Windows admission tests passed on that exact SHA). Its public TJSV action was **executed on a funded private runner using exclusively synthetic public test material**, without copying the private Oreslang actor/compiler tree. See [sagitta-stack/sagitta-infra PR #33](https://github.com/sagitta-stack/sagitta-infra/pull/33), [executed run 39155565618](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39155565618), and retained artifact `sourcefree-tjsv-positive-and-drift` (ID 12146133896). The job executed all steps, passed positive parity, and a deliberate independent schema mutation produced **exit 2** and `stopped_for_evaluation`. An independent receipt check required unexplained semantic findings, not just a failed step, and recorded SHA-256 of both receipts. It asserts `privateSourceTransferred=false`, `nativeOreslangCompilerExecuted=false` and `releaseReady=false`.
+
+That is **real TJSV engine smoke coverage on synthetic input**, not a run of this private Zorde contract, WIT, Dafny or native `.ores` source. Zorde's own Actions still have no executed steps. Private source export remains blocked pending independently reviewed protected-main approval and incident #22/#77 clearance, regardless of available runner minutes.
