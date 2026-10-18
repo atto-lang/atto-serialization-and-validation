@@ -648,6 +648,71 @@ pub fnc is_url(Utf8Text text): bool {
 // Bound work independently of JSON decoder settings, which callers may bypass.
 pub fnc max_validated_number_bytes(): int { return 1024; }
 
+// Lexical admission is independent of a float range comparison. Decoder
+// callers cannot bypass JSON-number grammar by building Value directly.
+// A valid unbounded JSON number need not fit IEEE double.
+pub fnc number_lexeme_valid(Value value): bool {
+  if value.kind != 2 then return false; fi
+  val List<int> bytes = value.number_lexeme;
+  if bytes.length == 0 || bytes.length > max_validated_number_bytes() then
+    return false;
+  fi
+
+  let int i = 0;
+  if bytes[i] == 45 then
+    i = i + 1;
+    if i >= bytes.length then return false; fi
+  fi
+
+  // Canonical integer: one zero, or a nonzero digit followed by digits.
+  if bytes[i] == 48 then
+    i = i + 1;
+    if i < bytes.length && bytes[i] >= 48 && bytes[i] <= 57 then
+      return false;
+    fi
+  else
+    if bytes[i] < 49 || bytes[i] > 57 then return false; fi
+    i = i + 1;
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  if i < bytes.length && bytes[i] == 46 then
+    i = i + 1;
+    if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+      return false;
+    fi
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  if i < bytes.length && (bytes[i] == 101 || bytes[i] == 69) then
+    i = i + 1;
+    if i < bytes.length && (bytes[i] == 43 || bytes[i] == 45) then
+      i = i + 1;
+    fi
+    if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+      return false;
+    fi
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  return i == bytes.length;
+}
+
 pub fnc parse_number(Value value): ParsedNumber {
   if value.kind != 2 then
     return new ParsedNumber(false, 0.0);
@@ -920,6 +985,15 @@ fnc validate_rule_at(
 
     if rule.require_unique_items then
       validate_unique(value, report, options, path);
+    fi
+  fi
+
+  if value.kind == 2 then
+    // Even type-only/any rules must not admit malformed number lexemes.
+    // Do not float-convert JSON values when no numeric range is requested.
+    if !number_lexeme_valid(rt borrow value) then
+      add_error(report, options, "number", path, "number has an invalid JSON lexeme");
+      return;
     fi
   fi
 
