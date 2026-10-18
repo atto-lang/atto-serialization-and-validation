@@ -36,9 +36,10 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22.18.0
-      # Candidate upstream security remediation PR #235. This exact revision
-      # must be replaced by a reviewed, independently CI-admitted release SHA.
-      # Never use a floating action tag, npm install --no-save or an unlocked graph.
+      # TJSV PR #235 merged on 2026-10-18; this immutable PR head is
+      # independently CI-qualified but is not a downstream Zorde execution
+      # receipt or a separately published versioned release.
+      # Never use a floating action tag or an unlocked dependency graph.
       - name: Compare independent schema authorities via production-audited lockfile
         uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
         with:
