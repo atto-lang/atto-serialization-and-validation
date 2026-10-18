@@ -42,6 +42,10 @@ end
 pub fnc zorde_registry_max_entries(): int { return 64; }
 pub fnc zorde_registry_max_id_bytes(): int { return 128; }
 pub fnc zorde_registry_max_exclusions(): int { return 256; }
+// Parsing work is bounded before handing untrusted bytes to the canonical
+// UTF-8 scalar scanner or exact integer parser.
+pub fnc zorde_registry_max_string_bytes(): int { return 65536; }
+pub fnc zorde_registry_max_number_bytes(): int { return 20; }
 
 fnc zorde_registry_error(String code, String message): ValidationReport {
   val List<ValidationError> errors = new List<ValidationError>();
@@ -152,6 +156,21 @@ pub fnc zorde_registry_parse_scalar(
       "invalid_schema_id", "invalid schema selector"
     ));
   fi
+
+  // Limit attacker-controlled scanning work *before* exact number parsing
+  // and UTF-8 Unicode-scalar counting. Unsupported value kinds are rejected
+  // by the same canonical parser, without walking their child collections.
+  if value.kind == 2 && value.number_lexeme.length > zorde_registry_max_number_bytes() then
+    return Err(zorde_registry_error(
+      "payload_limit", "numeric lexeme exceeds the exact signed-int64 wire budget"
+    ));
+  fi
+  if value.kind == 3 && value.string_value.bytes.length > zorde_registry_max_string_bytes() then
+    return Err(zorde_registry_error(
+      "payload_limit", "UTF-8 scalar input exceeds the configured byte budget"
+    ));
+  fi
+
   for const entry of registry.entries do
     if text_equal(rt borrow entry.schema_id, rt borrow schema_id) then
       return zorde_parse_scalar_metric(rt borrow value, rt borrow entry.rule);
