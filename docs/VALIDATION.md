@@ -116,11 +116,15 @@ Pattern/regex engines, custom validator registries, cross-field rules, and compi
   source-level `type X = string with length ...` declarations or compiler
   proofs of statically unsatisfiable types.
 - `is_url` is deliberately a **restricted ASCII HTTP(S) shape check**.
-  It rejects empty authority/host, trailing colon, userinfo (`@`), and
-  backslash ambiguity. It is not a complete RFC 3986 or WHATWG parser,
-  does not grant outbound network authority and is not SSRF protection.
-  Consumers must separately canonicalize URLs and enforce destination
-  allowlists and DNS/IP policies.
+  It bounds input at 8,192 bytes, rejects empty/malformed DNS-like labels,
+  unexpected authority punctuation and userinfo, and admits numeric ports
+  1–65,535 only. Bracketed IPv6-shaped literals require a colon and closing
+  bracket but **do not yet receive full IPv6 address validation**. Raw IPv6
+  without brackets is rejected. Backslash/control-byte ambiguities fail closed.
+  This is not a complete RFC 3986 or WHATWG parser, grants no network
+  authority, does no DNS/IP resolution, and is not SSRF protection. Consumers
+  must separately canonicalize URLs and enforce destination allowlists and
+  DNS/IP policies.
 - The numeric-lexeme, non-finite conversion, noncanonical JSON number and
   bounded resource-admission fixes are being reviewed independently in
   [Zorde PR #21](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/pull/21).
