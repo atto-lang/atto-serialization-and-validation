@@ -135,5 +135,84 @@ pub fnc run_validation_tests(): void {
     !report_is_valid(rt borrow non_finite_conversion),
     "numeric range validation must reject NaN-producing decimal conversion"
   );
+
+  // Direct Value construction must not bypass JSON-number lexical rules.
+  val ValidationReport leading_zero = validate_value(
+    value_number_lexeme(new List<int>(48, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow leading_zero), "01 must fail numeric range validation");
+
+  val ValidationReport negative_leading_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48, 49)),
+    number_rule(false, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow negative_leading_zero), "-01 must fail numeric range validation");
+
+  // 9e308 and -9e308 convert to infinities on IEEE double. Infinity must
+  // not bypass a one-sided minimum or maximum numeric constraint.
+  val ValidationReport positive_infinity = validate_value(
+    value_number_lexeme(new List<int>(57, 101, 51, 48, 56)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow positive_infinity), "overflowed +Infinity must not pass a minimum-only bound");
+
+  val ValidationReport negative_infinity = validate_value(
+    value_number_lexeme(new List<int>(45, 57, 101, 51, 48, 56)),
+    number_rule(false, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow negative_infinity), "overflowed -Infinity must not pass a maximum-only bound");
+
+  // Nonzero decimal underflow to zero would otherwise satisfy an inclusive
+  // minimum of zero. Preserve exact nonzero/zero distinction at admission.
+  let List<int> underflow_lexeme = new List<int>(48, 46);
+  let int tiny_index = 0;
+  loop do
+    if tiny_index >= 400 then break; fi
+    underflow_lexeme.push(48);
+    tiny_index = tiny_index + 1;
+  done
+  underflow_lexeme.push(49);
+  val ValidationReport positive_underflow = validate_value(
+    value_number_lexeme(underflow_lexeme),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow positive_underflow), "nonzero decimal rounded to zero must fail numeric range admission");
+
+  // The validation boundary must bound work even when bypassing the decoder.
+  let List<int> oversized_number = new List<int>();
+  let int lexeme_index = 0;
+  loop do
+    if lexeme_index >= 1025 then break; fi
+    oversized_number.push(49);
+    lexeme_index = lexeme_index + 1;
+  done
+  val ValidationReport oversized_lexeme = validate_value(
+    value_number_lexeme(oversized_number),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow oversized_lexeme), "number lexeme size ceiling must fail closed");
+
+  // Valid canonical zeros and finite exponents must continue to work.
+  val ValidationReport zero_lexeme = validate_value(
+    value_number_lexeme(new List<int>(48, 46, 48)),
+    number_rule(true, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow zero_lexeme), "canonical decimal zero must remain accepted");
+
+  val ValidationReport finite_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 51)),
+    number_rule(true, 999.0, false, true, 1001.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow finite_exponent), "finite canonical exponent must remain accepted");
+
   return;
 }
