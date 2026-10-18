@@ -59,11 +59,11 @@ import os, stat, sys
 st = os.stat(sys.argv[1])
 sys.exit(0 if (
     stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid()
-    and (stat.S_IMODE(st.st_mode) & 0o022) == 0
+    and (stat.S_IMODE(st.st_mode) & 0o077) == 0
 ) else 1)
 PY
 then
-  die "evidence directory must be owned by caller and not group/world writable"
+  die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
 for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
   zorde-private-entry-import-denial.log \

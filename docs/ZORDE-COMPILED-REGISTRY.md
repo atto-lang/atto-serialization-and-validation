@@ -137,15 +137,18 @@ caps the positive execution at 300 seconds, then requires two compiler-negative
 privacy fixtures under `fixtures/zorde-compile-negative/` to fail with specific
 access-control diagnostics rather than an arbitrary parser error. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
-and the full native suite have actually succeeded**.
+and the full native suite have actually succeeded**. The evidence directory
+must be new, caller-owned, and mode `0700` (no group/world access); existing
+logs or receipts are never overwritten. Ten source-free preflight refusal
+cases are exercised by `scripts/test-zorde-source-local-contracts.sh`; they
+are **not** Oreslang compiler/runtime executions.
 
 ```bash
-mkdir -p /var/tmp/zorde-native-evidence
+export ZORDE_EVIDENCE_DIR="$(mktemp -d /var/tmp/zorde-native-evidence.XXXXXXXX)"
 export EXPECTED_SOURCE_SHA='<independently approved 40-hex PR head>'
 export EXPECTED_SOURCE_TREE='<reviewed exact 40-hex root Git tree>'
 export EXPECTED_COMPILER_SHA256='<independently approved 64-hex executable digest>'
 export ORESLANG_BIN='/absolute/path/to/approved/oreslang'
-export ZORDE_EVIDENCE_DIR='/var/tmp/zorde-native-evidence'
 bash ./scripts/test-zorde-registry-source-local.sh
 ```
 

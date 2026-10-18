@@ -66,8 +66,8 @@ rm "$src/new-untracked.txt"
 touch "$out/zorde-registry-native.log"
 expect_refusal existing-evidence 'evidence output already exists'
 rm "$out/zorde-registry-native.log"
-chmod 777 "$out"
-expect_refusal unsafe-permissions 'evidence directory must be owned by caller and not group/world writable'
+chmod 755 "$out"
+expect_refusal unsafe-permissions 'evidence directory must be caller-owned and inaccessible to group/world'
 chmod 700 "$out"
 ln -s "$out" "$tmp/evidence-link"
 expect_refusal symlink-evidence 'evidence directory must not be a symlink' ZORDE_EVIDENCE_DIR="$tmp/evidence-link"
