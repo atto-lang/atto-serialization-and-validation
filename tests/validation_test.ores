@@ -214,5 +214,57 @@ pub fnc run_validation_tests(): void {
   );
   require_true(report_is_valid(rt borrow finite_exponent), "finite canonical exponent must remain accepted");
 
+
+  // Direct lexeme constructors must obey the same strict JSON number grammar
+  // even if only one numeric bound is configured.
+  val ValidationReport no_integer_part = validate_value(
+    value_number_lexeme(new List<int>(46, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow no_integer_part), ".1 must fail closed");
+
+  val ValidationReport missing_fraction = validate_value(
+    value_number_lexeme(new List<int>(49, 46)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow missing_fraction), "1. must fail closed");
+
+  val ValidationReport missing_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow missing_exponent), "1e+ must fail closed");
+
+  val ValidationReport leading_plus = validate_value(
+    value_number_lexeme(new List<int>(43, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow leading_plus), "+1 must fail closed");
+
+  val ValidationReport non_ascii_lexeme = validate_value(
+    value_number_lexeme(new List<int>(49, 194, 160)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow non_ascii_lexeme), "numeric lexemes are ASCII-only");
+
+  val ValidationReport signed_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48)),
+    number_rule(true, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow signed_zero), "canonical negative zero remains valid");
+
+  val ValidationReport finite_exponent_with_plus = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43, 51)),
+    number_rule(true, 999.0, false, true, 1001.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow finite_exponent_with_plus), "1e+3 remains valid");
+
   return;
 }
