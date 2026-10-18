@@ -279,13 +279,11 @@ pub fnc value_rule_valid(ValueRule rule): bool {
     return false;
   fi
 
-  // IEEE-754 x - x is nonzero/NaN only for NaN or infinity.
-  // Neither can be a valid finite numeric constraint.
-  if rule.has_min_number && rule.min_number - rule.min_number != 0.0 then
+  if rule.has_min_number && rule.min_number != rule.min_number then
     return false;
   fi
 
-  if rule.has_max_number && rule.max_number - rule.max_number != 0.0 then
+  if rule.has_max_number && rule.max_number != rule.max_number then
     return false;
   fi
 
@@ -677,7 +675,6 @@ pub fnc parse_number(Value value): ParsedNumber {
 
   let float whole = 0.0;
   let bool saw_digit = false;
-  let bool saw_nonzero = false;
 
   loop do
     if i >= bytes.length then
@@ -689,7 +686,6 @@ pub fnc parse_number(Value value): ParsedNumber {
     fi
     whole = (whole * 10.0) + (byte - 48);
     saw_digit = true;
-    if byte != 48 then saw_nonzero = true; fi
     i = i + 1;
   done
 
@@ -715,7 +711,6 @@ pub fnc parse_number(Value value): ParsedNumber {
       fraction = (fraction * 10.0) + (byte - 48);
       divisor = divisor * 10.0;
       saw_fraction = true;
-      if byte != 48 then saw_nonzero = true; fi
       i = i + 1;
     done
 
@@ -779,10 +774,7 @@ pub fnc parse_number(Value value): ParsedNumber {
     j = j + 1;
   done
 
-  // A minimum-only rule must not accept +infinity as >= min, nor a
-  // maximum-only rule accept -infinity as <= max. Reject both infinities
-  // and NaN; likewise reject underflow of a nonzero decimal to zero.
-  if result - result != 0.0 || (result == 0.0 && saw_nonzero) then
+  if result != result then
     return new ParsedNumber(false, 0.0);
   fi
 
