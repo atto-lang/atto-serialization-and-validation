@@ -38,6 +38,8 @@ nominal type or run a second constraint semantics engine.
 | Registry entries | 1–64 |
 | Schema identifier | 1–128 printable ASCII bytes (no NUL/control bytes) |
 | Scalar exclusions | 0–256 per entry |
+| Signed-int64 numeric lexeme | at most 20 bytes, checked before parsing |
+| UTF-8 scalar input | at most 65,536 bytes, checked before scanning |
 | Supported descriptor | canonical v1 exact signed int64 or UTF-8 Unicode-scalar string length |
 | Duplicate selectors | refused |
 | Unsupported descriptor version/kind/property, invalid intervals, unsorted/duplicate/off-domain exclusions | refused |
@@ -63,9 +65,11 @@ concurrent actor sharing, atomic generation switches or rollback.
 ## Native test plan and evidence limitations
 
 `tests/zorde_compiled_registry_test.ores` is invoked from `tests/main.ores`.
-The suite verifies accepted/refused scalar inputs, exact 2^53+1, UTF-8
-normalization and invalid encodings, duplicate/unknown IDs, defensive input
-snapshots, descriptor version errors, capacity and complexity ceilings.
+The suite verifies accepted/refused scalar inputs, exact 2^53+1 and
+20-byte INT64_MIN, UTF-8 scalar length and invalid encodings, oversized
+numeric/UTF-8 payload refusal, maximum-length selectors, case-sensitive
+schema lookup, duplicate/unknown IDs, defensive input snapshots,
+descriptor version errors, capacity and complexity ceilings.
 
 With an approved local Oreslang compiler:
 
@@ -95,3 +99,22 @@ and the open security incidents #22 and #77.
 - Prove actor snapshot ownership, atomic generation swap, rollback and
   cross-backend Java/LLVM/Wasm parity; exercise adversarial property/fuzz
   corpus and benchmark allocation/time budgets.
+
+## Independent source-free reference tests (not native execution)
+
+The independently authored, synthetic-only scalar mathematical oracle runs on
+an available funded runner in [sagitta-infra PR #38](https://github.com/sagitta-stack/sagitta-infra/pull/38).
+Its deterministic seed drives 20,000 interval/property probes, exact signed
+int64 boundaries, malformed UTF-8, and two deliberate faulty references
+(exclusive upper bound and ignored exclusions). Its receipts explicitly
+state `actual_oreslang_compiler_executed=false`,
+`actual_oreslang_runtime_executed=false`, and
+`private_source_transferred=false`.
+
+That test validates a future **independent expectation oracle**, not the
+behavior of this private Oreslang implementation. No private Git tree, Oreslang
+source file, binary or WIT file is copied into the funded organization.
+The source-repo exact-head native tests remain blocked until GitHub Actions
+schedules runners within the authorized source trust boundary. Even an exact
+private Git-tree SHA match in another organization cannot substitute for
+the required independent source-export authorization and incident clearance.
