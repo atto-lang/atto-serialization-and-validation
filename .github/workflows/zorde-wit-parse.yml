@@ -1,0 +1,109 @@
+name: Zorde WIT syntax parser and negative fixture (not ABI certification)
+on:
+  push:
+    paths:
+      - 'wit/zorde-validation.wit'
+      - '.github/workflows/zorde-wit-parse.yml'
+  pull_request:
+    paths:
+      - 'wit/zorde-validation.wit'
+      - '.github/workflows/zorde-wit-parse.yml'
+
+permissions:
+  contents: read
+jobs:
+  wit-parser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact source revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Confirm immutable Git tree
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Pin Rust toolchain for WIT syntax parser
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.95.0
+
+      - name: Install locked wasm-tools version from crates.io
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install wasm-tools --version 1.262.0 --locked
+          wasm-tools --version
+
+      - name: Parse and roundtrip the proposed WIT world
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/wit
+          wasm-tools component wit wit/zorde-validation.wit --json > artifacts/wit/zorde-parse.json
+          test -s artifacts/wit/zorde-parse.json
+          wasm-tools component wit wit/zorde-validation.wit --wasm -o artifacts/wit/zorde-package.wasm
+          wasm-tools component wit artifacts/wit/zorde-package.wasm > artifacts/wit/zorde-roundtrip.wit
+          test -s artifacts/wit/zorde-package.wasm
+          test -s artifacts/wit/zorde-roundtrip.wit
+          sha256sum wit/zorde-validation.wit artifacts/wit/zorde-package.wasm artifacts/wit/zorde-roundtrip.wit > artifacts/wit/digests.sha256
+          test -s artifacts/wit/digests.sha256
+
+      - name: Reject a deliberately malformed WIT file after positive parser success
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp wit/zorde-validation.wit artifacts/wit/zorde-malformed.wit
+          printf '\nthis is not valid wit syntax !!!\n' >> artifacts/wit/zorde-malformed.wit
+          if wasm-tools component wit artifacts/wit/zorde-malformed.wit --json > artifacts/wit/mutant.json 2> artifacts/wit/mutant-error.log; then
+            echo 'WIT parser erroneously admitted malformed interface' >&2
+            exit 1
+          fi
+          test -s artifacts/wit/mutant-error.log
+          git diff --exit-code -- wit/zorde-validation.wit
+
+      - name: Record bounded parser-only evidence
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          p=Path("wit/zorde-validation.wit").read_bytes()
+          receipt={
+            "schema":"oreslang.zorde.wit.syntax.v1",
+            "source_sha":os.environ["SOURCE_SHA"],
+            "wit_sha256":hashlib.sha256(p).hexdigest(),
+            "tool":"wasm-tools",
+            "tool_version":"1.262.0",
+            "syntax_parsed":True,
+            "binary_wit_roundtrip":True,
+            "malformed_wit_rejected":True,
+            "canonical_abi_implemented":False,
+            "native_oreslang_guest_executed":False,
+            "wit_backward_compatibility_verified":False,
+            "release_ready":False
+          }
+          Path("artifacts/wit/receipt.json").write_text(json.dumps(receipt,sort_keys=True,indent=2)+"\n")
+          PY
+
+      - name: Retain source-local parser receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zorde-wit-syntax-only
+          path: |
+            artifacts/wit/receipt.json
+            artifacts/wit/digests.sha256
+            artifacts/wit/zorde-parse.json
+            artifacts/wit/zorde-roundtrip.wit
+            artifacts/wit/mutant-error.log
+          retention-days: 14
+          if-no-files-found: error
