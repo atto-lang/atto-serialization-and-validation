@@ -77,7 +77,9 @@ for fixture in private-entry-import private-storage-access; do
     die "private registry fixture unexpectedly succeeded: ${fixture}"
   [[ "$negative_status" -ne 124 && "$negative_status" -ne 137 ]] ||
     die "private registry fixture timed out: ${fixture}"
-  grep -Eiq 'private|non.?public|not.?export|inaccessib|visibility|not.?visible|cannot.?access' "$negative_log" ||
+  # A filename or class named "Private..." must never satisfy the verdict.
+  # Only a phrase expressing denial of visibility/export/access can count.
+  grep -Eiq '(not[[:space:]-]+export|not[[:space:]-]+public|not[[:space:]-]+visible|not[[:space:]-]+accessible|cannot[[:space:]-]+access|access[[:space:]-]+denied|inaccessible|visibility[[:space:]-]+(error|denied)|is[[:space:]-]+private|private[[:space:]-]+(class|type|member|field|declaration|symbol|import))' "$negative_log" ||
     die "negative fixture failed without an access-control diagnostic: ${fixture}"
 done
 
