@@ -63,6 +63,24 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
+# A parse error is insufficient: negative fixtures must fail with a real
+# export/visibility error from the same approved compiler that ran the suite.
+for fixture in private-entry-import private-storage-access; do
+  negative_log="$out_dir/zorde-${fixture}-denial.log"
+  rm -f "$negative_log"
+  set +e
+  timeout --signal=TERM --kill-after=5s 60s \
+    "$ORESLANG_BIN" "$root/fixtures/zorde-compile-negative/${fixture}.ores" >"$negative_log" 2>&1
+  negative_status=$?
+  set -e
+  [[ "$negative_status" -ne 0 ]] ||
+    die "private registry fixture unexpectedly succeeded: ${fixture}"
+  [[ "$negative_status" -ne 124 && "$negative_status" -ne 137 ]] ||
+    die "private registry fixture timed out: ${fixture}"
+  grep -Eiq 'private|non.?public|not.?export|inaccessib|visibility|not.?visible|cannot.?access' "$negative_log" ||
+    die "negative fixture failed without an access-control diagnostic: ${fixture}"
+done
+
 [[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
   die "native test modified source tree; cannot issue receipt"
 
@@ -70,7 +88,7 @@ grep -Fqx "serialization/validation native tests passed" "$log" ||
 # A launcher digest alone does not attest a transitive Java/JVM/LLVM dependency
 # closure; that requires separately reviewed compiler build/release provenance.
 SOURCE_SHA="$source_sha" SOURCE_TREE="$source_tree" COMPILER_SHA="$compiler_sha" NATIVE_LOG="$log" \
-  NATIVE_RECEIPT="$receipt" python3 - <<'PY'
+  NATIVE_RECEIPT="$receipt" NEGATIVE_DIR="$out_dir" python3 - <<'PY'
 import hashlib, json, os
 from pathlib import Path
 log = Path(os.environ["NATIVE_LOG"]).read_bytes()
@@ -84,6 +102,14 @@ record = {
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
     "process_exit_code": 0,
+    "negative_private_entry_import_refused": True,
+    "negative_private_storage_access_refused": True,
+    "negative_diagnostic_sha256": {
+        fixture: hashlib.sha256(
+            (Path(os.environ["NEGATIVE_DIR"]) / f"zorde-{fixture}-denial.log").read_bytes()
+        ).hexdigest()
+        for fixture in ("private-entry-import", "private-storage-access")
+    },
     "compiler_transitive_dependency_closure_attested": False,
     "graal_llvm_wasm_parity_certified": False,
     "type_ownership_cross_actor_certified": False,
