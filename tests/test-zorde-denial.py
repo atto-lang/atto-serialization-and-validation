@@ -81,6 +81,15 @@ class CheckAccessDenial(unittest.TestCase):
     def test_explicit_private_declaration(self):
         self.assert_accepted("error: private class ZordePrivateCompiledEntry", "private-entry-import")
 
+    def test_protected_field_name_is_case_sensitive(self):
+        self.assert_refused("error: ENTRIES is private", "private-storage-access")
+
+    def test_protected_class_name_is_case_sensitive(self):
+        self.assert_refused("error: ZordeprivateCompiledEntry is private", "private-entry-import")
+
+    def test_denial_wording_is_case_insensitive(self):
+        self.assert_accepted("error: entries IS PRIVATE", "private-storage-access")
+
     def test_private_access_with_quotes(self):
         self.assert_accepted("error: `entries` has private access", "private-storage-access")
 
