@@ -21,7 +21,7 @@ def denial_matcher(symbol: str) -> re.Pattern:
               r"|private[ \t]+(?:class|type|member|field|declaration|symbol|import))")
     descriptor = r"(?:(?:member|field|class|type|symbol)[ \t]+)?"
     return re.compile(r"(?:%s[ \t]+%s|%s[ \t]+%s%s)" %
-                      (target, suffix, prefix, descriptor, target), re.IGNORECASE)
+                      (target, "(?i:" + suffix + ")", "(?i:" + prefix + ")", descriptor, target))
 
 
 TARGETS = {
