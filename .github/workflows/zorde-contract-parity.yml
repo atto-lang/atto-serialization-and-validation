@@ -24,6 +24,14 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact checked-out source revision
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
       - name: Pin required Node engine
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -64,8 +72,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p artifacts
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' contracts/zorde/authored.schema.json)" = 1
           jq '."$defs".ValidationReport.properties.schemaVersion.const = 2' \
             contracts/zorde/authored.schema.json > artifacts/zorde-mutant.schema.json
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' artifacts/zorde-mutant.schema.json)" = 2
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' contracts/zorde/authored.schema.json)" = 1
+          ! cmp -s contracts/zorde/authored.schema.json artifacts/zorde-mutant.schema.json
 
       - name: Drift must fail the same parity tool and never create an admitted report
         id: drift
@@ -146,3 +158,51 @@ jobs:
             throw Error('TypeSpec mutation failed without a semantic drift receipt');
           }
           JS
+
+      - name: Retain proof-bound contract comparison receipts (not a native validator proof)
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          sha256sum contracts/zorde/main.tsp contracts/zorde/authored.schema.json \
+            artifacts/zorde-schema-parity.json artifacts/zorde-mutant-rejected.json \
+            artifacts/zorde-typespec-mutant-rejected.json \
+            > artifacts/zorde-contract-evidence.sha256
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os,hashlib
+          docs = ['zorde-schema-parity.json','zorde-mutant-rejected.json','zorde-typespec-mutant-rejected.json']
+          summaries = [json.loads((Path('artifacts')/p).read_text()) for p in docs]
+          statuses = [r.get('status') for r in summaries]
+          if statuses != ['passed','stopped_for_evaluation','stopped_for_evaluation']:
+              raise SystemExit('Unexpected semantic receipt statuses')
+          receipt = {
+            'schema':'oreslang.zorde.dual-peer-synthetic-mutations/v1',
+            'head_sha':os.environ['SOURCE_SHA'],
+            'tool_sha':'b9f57de9b9c3d36437e75539fd8281f1f285f593',
+            'source_sha256': {p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in
+              ['contracts/zorde/main.tsp','contracts/zorde/authored.schema.json']},
+            'report_sha256': {p:hashlib.sha256((Path('artifacts')/p).read_bytes()).hexdigest() for p in docs},
+            'statuses':statuses,
+            'native_compiler_executed':False,
+            'wit_abi_certified':False,
+            'formal_proof_executed':False,
+            'release_ready':False
+          }
+          Path('artifacts/zorde-contract-evidence.json').write_text(
+            json.dumps(receipt,sort_keys=True,indent=2)+'\\n',encoding='utf8')
+          PY
+
+      - name: Upload source-local positive and two negative receipts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: zorde-dual-authority-parser-only
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            artifacts/zorde-contract-evidence.json
+            artifacts/zorde-contract-evidence.sha256
+            artifacts/zorde-schema-parity.json
+            artifacts/zorde-mutant-rejected.json
+            artifacts/zorde-typespec-mutant-rejected.json
