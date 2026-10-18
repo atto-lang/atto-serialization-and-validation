@@ -187,6 +187,77 @@ pub fnc run_zorde_compiled_registry_tests(): void {
       57,48,48,55,49,57,57,50,53,52,55,52,48,57,57,50))
   ).is_err(), "adjacent 2^53 value must fail exact constraint");
 
+  // Work budgets are enforced *before* full integer/UTF-8 scanning.
+  // A well-formed 20-byte signed minimum must remain accepted, while an
+  // attacker-controlled overlong numeric lexeme cannot force unbounded work.
+  val List<ZordeScalarRegistrySpec> full_range = new List<ZordeScalarRegistrySpec>();
+  full_range.add(new ZordeScalarRegistrySpec(
+    port_id(), zorde_scalar_descriptor(
+      1,2,1,-9223372036854775807 - 1,9223372036854775807,new List<int>()
+    )
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> range_compiled =
+    zorde_compile_scalar_registry(full_range);
+  require_true(!range_compiled.is_err(), "full int64 range must compile");
+  val ZordeScalarRegistry range_registry = range_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow range_registry,port_id(),
+    value_number_lexeme(new List<int>(
+      45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,56,48,56,48))
+  ).is_err(), "valid 20-byte signed int64 minimum must be accepted");
+  val List<int> long_lexeme = new List<int>();
+  c = 0;
+  loop do
+    if c >= 21 then break; fi
+    long_lexeme.add(49);
+    c = c + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow range_registry,port_id(),value_number_lexeme(long_lexeme)
+  ).is_err(), "21-byte numeric lexeme exceeds bounded int64 scan budget");
+
+  val List<int> max_string = new List<int>();
+  c = 0;
+  loop do
+    if c >= 65536 then break; fi
+    max_string.add(97);
+    c = c + 1;
+  done
+  // The one-scalar rule rejects large *valid* strings by its length. A
+  // 65537-byte payload must be rejected before Unicode scalar scanning.
+  max_string.add(97);
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry,word_id(),
+    value_string(new Utf8Text(max_string))
+  ).is_err(), "oversize UTF-8 byte buffer rejected before scalar validation");
+
+  // Accepted key length is inclusive: 128 ASCII bytes is valid, 129 fails.
+  val List<int> exact_id_bytes = new List<int>();
+  c = 0;
+  loop do
+    if c >= 128 then break; fi
+    exact_id_bytes.add(120);
+    c = c + 1;
+  done
+  val Utf8Text exact_id = new Utf8Text(exact_id_bytes);
+  val List<ZordeScalarRegistrySpec> exact_ids = new List<ZordeScalarRegistrySpec>();
+  exact_ids.add(new ZordeScalarRegistrySpec(
+    exact_id,port_descriptor(new List<int>())
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> exact_ids_compiled =
+    zorde_compile_scalar_registry(exact_ids);
+  require_true(!exact_ids_compiled.is_err(), "128 printable ASCII bytes are permitted");
+  val ZordeScalarRegistry key_registry = exact_ids_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow key_registry,exact_id,value_int(443)
+  ).is_err(), "maximum-length selector resolves its canonical compiled rule");
+
+  // Registry namespaces are deliberately case-sensitive and lack fallback.
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry,
+    new Utf8Text(new List<int>(80,79,82,84)),value_int(443)
+  ).is_err(), "case-changing a schema ID cannot alias a registered rule");
+
   stdio.stdout.println("native Zorde compiled scalar registry tests passed");
   return;
 }
