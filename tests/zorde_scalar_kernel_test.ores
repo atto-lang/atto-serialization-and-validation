@@ -17,6 +17,20 @@ pub fnc main(): void {
   require_true(max_roundtrip.ok && max_roundtrip.value == maximum,
     "canonical native signed int64 maximum round trip");
 
+  // A near-endpoint parse must never use int/int real division for
+  // overflow checks or accidentally admit rounded/wrapped integers.
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56
+  ))).ok, "int64 maximum plus one must fail");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,57
+  ))).ok, "int64 minimum minus one must fail");
+  require_true(!parse_int(value_number_lexeme(new List<int>(48,49))).ok,
+    "noncanonical integer leading zero fails");
+  val IntParse negative_zero = parse_int(value_number_lexeme(new List<int>(45,48)));
+  require_true(negative_zero.ok && negative_zero.value == 0,
+    "signed negative zero is canonical JSON integer zero");
+
   val ZordeScalarRule port = zorde_scalar_int(1, 65535, new List<int>());
   require_true(zorde_scalar_rule_valid(rt borrow port), "compiler Port is a valid interval");
   require_true(zorde_scalar_accepts(value_int(1), rt borrow port),
