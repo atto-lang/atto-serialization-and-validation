@@ -13,14 +13,14 @@ def denial_matcher(symbol: str) -> re.Pattern:
 
     Finding a name and unrelated denial on the same diagnostic line is not proof.
     """
-    target = r"(?<!\\w)[`'\\\"]?" + re.escape(symbol) + r"[`'\\\"]?(?!\\w)"
-    suffix = (r"(?:is[ \\t]+private|has[ \\t]+private[ \\t]+access"
-              r"|(?:is[ \\t]+)?not[ \\t]+(?:exported|public|visible|accessible)"
-              r"|is[ \\t]+inaccessible|cannot[ \\t]+be[ \\t]+accessed)")
-    prefix = (r"(?:cannot[ \\t]+(?:access|import)|access[ \\t]+denied[ \\t]+(?:to[ \\t]+)?"
-              r"|private[ \\t]+(?:class|type|member|field|declaration|symbol|import))")
-    descriptor = r"(?:(?:member|field|class|type|symbol)[ \\t]+)?"
-    return re.compile(r"(?:%s[ \\t]+%s|%s[ \\t]+%s%s)" %
+    target = r"(?<!\w)[`'\\"]?" + re.escape(symbol) + r"[`'\\"]?(?!\w)"
+    suffix = (r"(?:is[ \t]+private|has[ \t]+private[ \t]+access"
+              r"|(?:is[ \t]+)?not[ \t]+(?:exported|public|visible|accessible)"
+              r"|is[ \t]+inaccessible|cannot[ \t]+be[ \t]+accessed)")
+    prefix = (r"(?:cannot[ \t]+(?:access|import)|access[ \t]+denied[ \t]+(?:to[ \t]+)?"
+              r"|private[ \t]+(?:class|type|member|field|declaration|symbol|import))")
+    descriptor = r"(?:(?:member|field|class|type|symbol)[ \t]+)?"
+    return re.compile(r"(?:%s[ \t]+%s|%s[ \t]+%s%s)" %
                       (target, suffix, prefix, descriptor, target), re.IGNORECASE)
 
 
