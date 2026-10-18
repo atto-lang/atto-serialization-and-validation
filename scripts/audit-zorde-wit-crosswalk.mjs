@@ -62,9 +62,9 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
   if(r.schemaVersion?.const!==1 || r.valid?.type!=='boolean' ||
      r.issues?.type!=='array' || r.issues.items?.$ref!=='ValidationIssue')
     refuse('validation report authored schema type drift');
-  if(!/\\bvalidate-json\\s*:\\s*func\\(schema-id:\\s*string,\\s*payload:\\s*list<u8>\\)\\s*->\\s*validation-report\\s*;/.test(wit))
+  if(!/\bvalidate-json\s*:\s*func\(schema-id:\s*string,\s*payload:\s*list<u8>\)\s*->\s*validation-report\s*;/.test(wit))
     refuse('validate-json boundary type changed');
-  if(!/\\bworld\\s+zorde-validation-guest\\s*\\{\\s*export\\s+validation\\s*;\\s*\\}/.test(wit))
+  if(!/\bworld\s+zorde-validation-guest\s*\{\s*export\s+validation\s*;\s*\}/.test(wit))
     refuse('WIT exported world changed');
   return Object.freeze({status:'STATIC_WIT_CROSSWALK_MATCH',
     nativeGuestExecuted:false,canonicalAbiImplemented:false,fullSchemaParityProven:false});
