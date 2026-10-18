@@ -258,6 +258,49 @@ pub fnc run_zorde_compiled_registry_tests(): void {
     new Utf8Text(new List<int>(80,79,82,84)),value_int(443)
   ).is_err(), "case-changing a schema ID cannot alias a registered rule");
 
+  // Positive boundary cases prevent off-by-one limits from being used as
+  // silently restrictive policies. The 65th entry is already tested above.
+  val List<ZordeScalarRegistrySpec> max_entries = new List<ZordeScalarRegistrySpec>();
+  c = 0;
+  loop do
+    if c >= 64 then break; fi
+    max_entries.add(new ZordeScalarRegistrySpec(
+      new Utf8Text(new List<int>(33 + c)),
+      port_descriptor(new List<int>())
+    ));
+    c = c + 1;
+  done
+  val Result<ZordeScalarRegistry,ValidationReport> full_compiled =
+    zorde_compile_scalar_registry(max_entries);
+  require_true(!full_compiled.is_err(), "exactly 64 distinct selectors must compile");
+  val ZordeScalarRegistry full_registry = full_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow full_registry,
+    new Utf8Text(new List<int>(96)),value_int(443)
+  ).is_err(), "the 64th registered selector remains accessible");
+
+  val List<int> permitted_holes = new List<int>();
+  c = 1;
+  loop do
+    if c > 256 then break; fi
+    permitted_holes.add(c);
+    c = c + 1;
+  done
+  val List<ZordeScalarRegistrySpec> edge_holes = new List<ZordeScalarRegistrySpec>();
+  edge_holes.add(new ZordeScalarRegistrySpec(
+    port_id(),port_descriptor(permitted_holes)
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> edge_compiled =
+    zorde_compile_scalar_registry(edge_holes);
+  require_true(!edge_compiled.is_err(), "exactly 256 sorted in-domain exclusions must compile");
+  val ZordeScalarRegistry edge_registry = edge_compiled.unwrap();
+  require_true(zorde_registry_parse_scalar(
+    rt borrow edge_registry,port_id(),value_int(256)
+  ).is_err(), "last included exclusion must be rejected");
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow edge_registry,port_id(),value_int(257)
+  ).is_err(), "adjacent nonexcluded number remains valid");
+
   stdio.stdout.println("native Zorde compiled scalar registry tests passed");
   return;
 }
