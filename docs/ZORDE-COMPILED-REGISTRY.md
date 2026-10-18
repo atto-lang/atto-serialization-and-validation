@@ -133,14 +133,18 @@ executable Oreslang compiler. The script
 refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
 executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
-caps the positive execution at 300 seconds, then requires two compiler-negative
-privacy fixtures under `fixtures/zorde-compile-negative/` to fail with specific
-access-control diagnostics rather than an arbitrary parser error. It creates
+caps the positive execution at 300 seconds. It first requires a separately
+executed public-import control under `fixtures/zorde-compile-positive/`, then
+requires two compiler-negative privacy fixtures under
+`fixtures/zorde-compile-negative/` to fail with specific access-control
+diagnostics rather than an arbitrary parser error. The same approved compiler
+must execute all three fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Ten source-free preflight refusal
-cases are exercised by `scripts/test-zorde-source-local-contracts.sh`; they
+logs or receipts are never overwritten. Twelve source-free preflight refusal
+cases, including symlinks in compiler/evidence **parent paths**, are exercised
+by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
 ```bash
@@ -159,3 +163,11 @@ Graal/JVM artifacts, LLVM backend, SDK, or native-image runtime; the receipt
 marks that gap explicitly. Source-level and transitive compiler provenance,
 authorized environment identity, separate output review and full backend
 conformance are still required for release.
+
+The launcher rejects symbolic links at any existing path component for both
+the compiler executable and evidence directory and rechecks these paths after
+execution. These checks do **not** eliminate same-user path races, hostile
+self-hosted runners, malicious approved binaries or mutable transitive JVM
+dependencies. A trusted isolated runner and independently pinned full compiler
+provenance are still required; no source-org native result is claimed by
+this script change alone.
