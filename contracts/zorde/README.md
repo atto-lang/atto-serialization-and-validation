@@ -113,3 +113,40 @@ The checksum-pinned wasm-tools installation and test method (WIT-to-JSON, binary
 To isolate infrastructure failure, [`sourcefree-runner-admission-diagnostic.yml`](../../.github/workflows/sourcefree-runner-admission-diagnostic.yml) runs with `permissions: {}`, no checkout, and a single environment-only shell step. Its initial [push run 39161105908](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39161105908) and [PR run 39161108624](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39161108624) both failed with **zero executed job steps**. This points to job allocation/policy/billing eligibility rather than a TypeSpec/WIT compiler failure, but cannot independently determine which administrative constraint is responsible. The private Zorde workflow remains `NOT_EXECUTED`.
 
 Contract parity now checks mutations of **both** independent schema authorities, requires semantic rejection reports and emits SHA-256-bound positive/negative source-local evidence only if actually run. None of these changes certifies native JVM, LLVM, Wasm, WIT ABI or formal proof execution.
+
+
+## 2026-10-18 static WIT boundary and pinned formal proof follow-up
+
+The conservative `scripts/audit-zorde-wit-crosswalk.mjs` refuses unknown
+package versions, injected functions, extra worlds/exports, unexpected WIT
+records, size overruns and changes to the mirrored independently authored
+JSON Schema fields. Its current actual source and the private WIT/schema
+inputs passed **14 isolated V8 checks** (1 positive + 13 adversarial cases),
+not native compiler/runner-backed tests. The WIT workflow also binds SHA-256
+digests for the authored WIT, authored JSON Schema, crosswalk source,
+parser JSON, binary WIT and receipt to its exact candidate source head.
+A crosswalk is a limited static projection check, **not** JSON-schema
+equivalence or WIT ABI implementation certification.
+
+A new source-local [Dafny reference verification workflow](../../.github/workflows/zorde-dafny-reference-proof.yml)
+installs a **SHA-256-pinned official Dafny 4.11.0 release** from
+`dafny-lang/dafny`. Its positive job must prove
+`formal/ZordeParity.dfy`; its independent mutant must fail with an
+actual postcondition-verification error, not an installation/parse error.
+Successful verification would demonstrate only the reference lemmas:
+it does not prove runtime Zorde or the actor/compiler implementation.
+
+The real Dafny toolchain mechanism **did execute on a funded private runner**
+against a wholly synthetic, source-free admission model in
+[sagitta-infra PR #37](https://github.com/sagitta-stack/sagitta-infra/pull/37):
+[runs 39163407514](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39163407514)
+and [39163410766](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39163410766)
+both passed. Their deliberate false postcondition reported
+`5 verified, 1 error` and retained artifacts `12150105884` /
+`12148898958`. No private actor/compiler/Zorde tree was exported.
+
+**Source-local Zorde proof run 39163514675 still failed with zero executed
+steps**. It must remain `NOT_EXECUTED` until organization runner eligibility
+is restored; no source-free test can promote this PR to production or
+compiler parity. Independent private-source export approval remains blocked
+by incident #22/#77 and protected-main prerequisites.
