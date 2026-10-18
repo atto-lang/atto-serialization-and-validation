@@ -107,31 +107,25 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
-## Validation hardening and trust boundaries (October 2026)
+## Rule consistency and restricted URL admission (October 2026)
 
-- Invalid rule definitions are errors, not data that can be ignored. A string
-  `min_length=4, max_length=3` is rejected even if the inspected value has
-  five code points; array min/max contradictions and equal exclusive numeric
-  endpoints are rejected too. These are **runtime Zorde rule checks**, not yet
-  proof that the source compiler admits `type X = string with ...` syntax.
-- Numeric range validation uses an approximate floating-point conversion.
-  Non-finite constraints and conversion outcomes are rejected, and a nonzero
-  decimal cannot silently underflow to zero. Precision-sensitive decimal
-  boundaries still require an exact decimal comparison implementation before
-  claims of fully correct JSON Schema `minimum` / `maximum` parity. For
-  now, do not treat dynamic floating-point range validation as an exact-decimal
-  verifier for finance or cryptographic amount admission.
-- `is_url` is deliberately a **restricted, ASCII-only HTTP(S) shape check**.
-  It rejects an empty authority, an empty host before `:`, dangling `:`,
-  userinfo (`@`), and backslash authority ambiguity. It is not a complete
-  URL parser or an RFC 3986 / WHATWG normalizer. Security decisions must
-  separately canonicalize addresses, resolve DNS, and enforce destination
-  allowlists; URL shape validation alone is not SSRF protection.
-- Core `Value` remains transport-neutral data; this library's validation
-  and typed wrappers live above the freestanding compiler core. Generated
-  validators should compile admitted schemas into bounded, reflection-free
-  checks. No schema or WIT declaration grants transport or FFI authority.
+- `value_rule_valid` already refuses impossible `min_length=4, max_length=3`
+  and incompatible length/type combinations. Such a contradiction is invalid
+  even if the inspected value would meet one of the two bounds. The runtime
+  regression is in `tests/validation_test.ores`. **This does not implement**
+  source-level `type X = string with length ...` declarations or compiler
+  proofs of statically unsatisfiable types.
+- `is_url` is deliberately a **restricted ASCII HTTP(S) shape check**.
+  It rejects empty authority/host, trailing colon, userinfo (`@`), and
+  backslash ambiguity. It is not a complete RFC 3986 or WHATWG parser,
+  does not grant outbound network authority and is not SSRF protection.
+  Consumers must separately canonicalize URLs and enforce destination
+  allowlists and DNS/IP policies.
+- The numeric-lexeme, non-finite conversion, noncanonical JSON number and
+  bounded resource-admission fixes are being reviewed independently in
+  [Zorde PR #21](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/pull/21).
+  Do not mistake URL/schema shape tests for exact-decimal JSON Schema parity.
 
-Source regression cases live in `tests/validation_test.ores`. The project
-requires a real Oreslang CLI/runtime for `scripts/test.sh`; a source diff or
-static audit is not evidence of guest execution.
+Real Oreslang guest execution of `scripts/test.sh` is required before this
+candidate may be considered verified. No backend parity is claimed from a
+source diff.
