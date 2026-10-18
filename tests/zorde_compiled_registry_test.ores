@@ -77,6 +77,32 @@ pub fnc run_zorde_compiled_registry_tests(): void {
     new Utf8Text(new List<int>(101,118,105,108)), value_int(443)
   ).is_err(), "post-compile spec list mutations cannot add new schemas");
 
+  // Unknown selectors must fail without looking at attacker-controlled
+  // numeric or string representations, including values that exceed budgets.
+  val Utf8Text missing_selector = new Utf8Text(new List<int>(109,105,115,115,105,110,103));
+  val List<int> oversized_unknown_integer = new List<int>();
+  let int unknown_i = 0;
+  loop do
+    if unknown_i >= 256 then break; fi
+    oversized_unknown_integer.add(57);
+    unknown_i = unknown_i + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, missing_selector,
+    value_number_lexeme(oversized_unknown_integer)
+  ).is_err(), "unknown ID cannot select scalar parsing even with oversized numeric bytes");
+  val List<int> oversized_unknown_text = new List<int>();
+  unknown_i = 0;
+  loop do
+    if unknown_i >= 65537 then break; fi
+    oversized_unknown_text.add(97);
+    unknown_i = unknown_i + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, missing_selector,
+    value_string(new Utf8Text(oversized_unknown_text))
+  ).is_err(), "unknown ID cannot select UTF8 scanning even with oversized string");
+
   // UTF-8 string length is Unicode scalar count, not bytes/UTF-16 units.
   require_true(!zorde_registry_parse_scalar(
     rt borrow registry, word_id(),
