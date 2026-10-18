@@ -37,6 +37,24 @@ jobs:
           sarif: artifacts/zorde-schema-parity.sarif
           output_dir: artifacts/zorde-generated
 
+      - name: Verify positive comparison contains executed differential evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('artifacts/zorde-schema-parity.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'passed'
+            || r.zeroUnexplainedFindings !== true
+            || r.counts?.findings !== 0
+            || r.coverage?.differentialInstanceValidation !== true
+            || !(r.differential?.summary?.probesEvaluated > 0)
+            || r.differential?.summary?.divergences !== 0) {
+            throw Error('TJSV positive receipt missing clean executed differential proof');
+          }
+          JS
+
       - name: Make deliberately divergent independent schema without changing either authority
         shell: bash
         run: |
@@ -57,7 +75,7 @@ jobs:
           sarif: ''
           output_dir: artifacts/zorde-mutant-generated
 
-      - name: Assert the deliberate contract drift was refused
+      - name: Assert meaningful schema-drift rejection, not an infrastructure failure
         shell: bash
         env:
           DRIFT_OUTCOME: ${{ steps.drift.outcome }}
@@ -65,12 +83,17 @@ jobs:
           set -euo pipefail
           test "$DRIFT_OUTCOME" = failure
           node --input-type=module - <<'JS'
-          import {existsSync,readFileSync} from 'node:fs';
-          const path='artifacts/zorde-mutant-rejected.json';
-          // A failed action may produce a bounded tombstone or no report.
-          // Either is acceptable; a positive "passed" result is never acceptable.
-          if (existsSync(path)) {
-            const r=JSON.parse(readFileSync(path,'utf8'));
-            if (r.status === 'passed') throw Error('mutant emitted an admissible receipt');
+          import {readFileSync} from 'node:fs';
+          // An action that failed to install dependencies, launch TypeSpec, or
+          // emit a report does not prove our mutation was detected.
+          const r=JSON.parse(readFileSync('artifacts/zorde-mutant-rejected.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'stopped_for_evaluation'
+            || r.zeroUnexplainedFindings !== false
+            || r.counts?.findings < 1
+            || !Array.isArray(r.findings)
+            || !r.findings.some(f => f.resolutionState === 'unexplained')
+            || r.error) {
+            throw Error('negative mutant did not produce a semantic drift refusal');
           }
           JS
