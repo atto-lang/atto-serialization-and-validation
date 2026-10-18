@@ -19,10 +19,12 @@ claimed by this branch.
 The pilot workflow no longer resolves npm dependencies ad hoc. It invokes an
 **exact SHA** of ORESoftware/typespec-json-schema-validator containing its
 lockfile and production advisory audit action, using Node **22.18.0** or newer.
-The candidate action is under review in
-[ORESoftware/typespec-json-schema-validator PR #235](https://github.com/ORESoftware/typespec-json-schema-validator/pull/235);
-its revision is **not** a reviewed release pin until that PR passes its exact-head
-CI and is admitted. Updating the SHA after merge requires separate review.
+The pinned TJSV remediation [PR #235](https://github.com/ORESoftware/typespec-json-schema-validator/pull/235)
+merged on October 18, 2026, after successful exact-head CI. The workflow
+continues to pin immutable commit `b9f57de9b9c3d36437e75539fd8281f1f285f593`.
+This is not a separately published semver release pin and **does not** qualify
+this private Zorde workflow, which still fails before runner allocation.
+Changing the pinned action commit requires independent review and consumer CI.
 
 The workflow first compares separately authored TypeSpec and Draft 2020-12
 JSON Schema, then constructs a **temporary** divergent JSON Schema under
