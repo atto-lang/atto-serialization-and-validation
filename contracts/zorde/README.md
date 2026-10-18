@@ -150,3 +150,34 @@ steps**. It must remain `NOT_EXECUTED` until organization runner eligibility
 is restored; no source-free test can promote this PR to production or
 compiler parity. Independent private-source export approval remains blocked
 by incident #22/#77 and protected-main prerequisites.
+
+
+## October 18: schema keyword narrowing hardening
+
+The WIT-to-JSON-Schema static crosswalk now additionally requires exact
+Draft 2020-12 schema metadata and **exact supported JSON Schema keyword
+sets** for the projected `ErrorCode`, `ValidationIssue`, and
+`ValidationReport` types. It refuses unreviewed sibling keywords such as
+`const`, `pattern`, `format`, `minItems`, `allOf`, `anyOf`,
+`$dynamicRef` and renamed `$id` values, even when the record fields
+and their JSON Schema `type` declarations are unchanged. This prevents
+unreviewed silent tightening or loosening at the proposed WIT boundary;
+it does **not** supersede independent TypeSpec peer-authority checking.
+
+The actual source checker and current private WIT/authored JSON Schema
+passed **26/26 isolated V8 checks** (one baseline and 25 adversarial
+refusals). The source-local WIT workflow now demands `checks=26`
+and binds that count plus SHA-256 of the parsed/binary WIT and
+authored projection files to its receipt. Source GitHub Actions remain
+`NOT_EXECUTED`, not source-validated.
+
+The official TJSV comparison engine independently rejected a **same-type
+boolean `const:false`** mutation on a **synthetic, source-free**
+contract in [sagitta-infra PR #33](https://github.com/sagitta-stack/sagitta-infra/pull/33):
+[executed run 39164525291](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39164525291)
+passed all 17 job steps and retained artifact `12149717740`, including
+the clean positive and three separate negative semantic comparison reports.
+The extra narrowing report had SHA-256
+`dbcd809f7a4e3308e0b169c9e7271b7dd0e6b65b0b5089370f735a1c79f759cb`.
+No private source was exported; this proves source-free TJSV engine
+refusal, not actual Zorde runtime equivalence.
