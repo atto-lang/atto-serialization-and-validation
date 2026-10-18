@@ -3,6 +3,7 @@
 # Independent of GitHub Actions: an authorized ephemeral/self-hosted source-local
 # runner may use it when hosted Actions cannot allocate any jobs.
 set -euo pipefail
+umask 077
 
 die() { printf 'native Zorde admission refused: %s\n' "$*" >&2; exit 2; }
 for cmd in git sha256sum timeout python3 grep; do
@@ -42,14 +43,37 @@ compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [[ "$compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] ||
   die "compiler executable digest differs from approved input"
 
+[[ ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
+  die "evidence directory must not be a symlink"
 out_dir="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out_dir" in
   "$root"|"$root"/*) die "evidence must be outside the source checkout" ;;
 esac
 
+# Refuse to overwrite previously collected evidence. Require the evidence
+# directory to be owned by this worker and not writable by other users.
+# This is a source-local confidentiality/evidence-integrity precondition, NOT
+# proof that the runner was independently approved by an administrator.
+if ! python3 - "$out_dir" <<'PY'
+import os, stat, sys
+st = os.stat(sys.argv[1])
+sys.exit(0 if (
+    stat.S_ISDIR(st.st_mode) and st.st_uid == os.geteuid()
+    and (stat.S_IMODE(st.st_mode) & 0o022) == 0
+) else 1)
+PY
+then
+  die "evidence directory must be owned by caller and not group/world writable"
+fi
+for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
+  zorde-private-entry-import-denial.log \
+  zorde-private-storage-access-denial.log; do
+  [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
+    die "evidence output already exists; use a fresh, private directory"
+done
+
 log="$out_dir/zorde-registry-native.log"
 receipt="$out_dir/zorde-registry-native-receipt.json"
-rm -f "$log" "$receipt"
 set +e
 timeout --signal=TERM --kill-after=5s 300s \
   env ORESLANG_BIN="$ORESLANG_BIN" bash "$root/scripts/test.sh" >"$log" 2>&1
@@ -67,7 +91,6 @@ grep -Fqx "serialization/validation native tests passed" "$log" ||
 # export/visibility error from the same approved compiler that ran the suite.
 for fixture in private-entry-import private-storage-access; do
   negative_log="$out_dir/zorde-${fixture}-denial.log"
-  rm -f "$negative_log"
   set +e
   timeout --signal=TERM --kill-after=5s 60s \
     "$ORESLANG_BIN" "$root/fixtures/zorde-compile-negative/${fixture}.ores" >"$negative_log" 2>&1
@@ -75,7 +98,9 @@ for fixture in private-entry-import private-storage-access; do
   set -e
   [[ "$negative_status" -ne 0 ]] ||
     die "private registry fixture unexpectedly succeeded: ${fixture}"
-  [[ "$negative_status" -ne 124 && "$negative_status" -ne 137 ]] ||
+  [[ "$negative_status" -ne 124 && "$negative_status" -ne 137 &&
+     "$negative_status" -ne 126 && "$negative_status" -ne 127 &&
+     "$negative_status" -ne 143 ]] ||
     die "private registry fixture timed out: ${fixture}"
   # A filename or class named "Private..." must never satisfy the verdict.
   # Only a phrase expressing denial of visibility/export/access can count.
@@ -127,9 +152,8 @@ record = {
     "type_ownership_cross_actor_certified": False,
     "release_ready": False,
 }
-Path(os.environ["NATIVE_RECEIPT"]).write_text(
-    json.dumps(record, indent=2, sort_keys=True) + "\n",
-    encoding="utf-8"
-)
+# Exclusive creation prevents silently replacing a previous native receipt.
+with Path(os.environ["NATIVE_RECEIPT"]).open("x", encoding="utf-8") as fp:
+    fp.write(json.dumps(record, indent=2, sort_keys=True) + "\n")
 PY
 printf 'source-local Zorde guest test executed: receipt=%s\n' "$receipt"

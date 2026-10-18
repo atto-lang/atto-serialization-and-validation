@@ -49,4 +49,5 @@ if PATH="$tmp/bin" ORESLANG_BIN="$tmp/missing" /bin/sh "$project/scripts/test.sh
   exit 1
 fi
 test ! -s "$RUNNER_LOG" # An invalid explicit binary must not fall back to PATH.
+bash "$root/scripts/test-zorde-source-local-contracts.sh"
 echo "runner contracts: PASS"
