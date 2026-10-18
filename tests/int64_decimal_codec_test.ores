@@ -35,5 +35,6 @@ pub fnc run_int64_decimal_codec_tests(): void {
     -9223372036854775807 - 1,
     new List<int>(45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56)
   );
+  stdio.stdout.println("native exact signed-int64 codec tests passed");
   return;
 }
