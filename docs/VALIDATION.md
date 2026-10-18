@@ -118,9 +118,12 @@ Pattern/regex engines, custom validator registries, cross-field rules, and compi
 - `is_url` is deliberately a **restricted ASCII HTTP(S) shape check**.
   It bounds input at 8,192 bytes, rejects empty/malformed DNS-like labels,
   unexpected authority punctuation and userinfo, and admits numeric ports
-  1–65,535 only. Bracketed IPv6-shaped literals require a colon and closing
-  bracket but **do not yet receive full IPv6 address validation**. Raw IPv6
-  without brackets is rejected. Backslash/control-byte ambiguities fail closed.
+  1–65,535 only. DNS-like hostname labels are at most 63 bytes and
+  their aggregate hostname at most 253 bytes. Bracketed IPv6 literals enforce
+  1–4 hexadecimal digits per group and either exactly eight groups or one
+  `::` compression of at least one group; IPv4-mapped dotted tails and zone
+  identifiers are intentionally unsupported. Raw IPv6 without brackets is
+  rejected. Backslash/control-byte ambiguities fail closed.
   This is not a complete RFC 3986 or WHATWG parser, grants no network
   authority, does no DNS/IP resolution, and is not SSRF protection. Consumers
   must separately canonicalize URLs and enforce destination allowlists and
