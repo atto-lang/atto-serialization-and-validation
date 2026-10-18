@@ -3,10 +3,14 @@ on:
   push:
     paths:
       - 'contracts/zorde/**'
+      - 'wit/zorde-validation.wit'
+      - 'formal/ZordeParity.dfy'
       - '.github/workflows/zorde-contract-parity.yml'
   pull_request:
     paths:
       - 'contracts/zorde/**'
+      - 'wit/zorde-validation.wit'
+      - 'formal/ZordeParity.dfy'
       - '.github/workflows/zorde-contract-parity.yml'
 permissions:
   contents: read
@@ -95,5 +99,50 @@ jobs:
             || !r.findings.some(f => f.resolutionState === 'unexplained')
             || r.error) {
             throw Error('negative mutant did not produce a semantic drift refusal');
+          }
+          JS
+
+      - name: Mutate TypeSpec authority in a temporary file, not the source declaration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const original=readFileSync('contracts/zorde/main.tsp','utf8');
+          const needle='schemaVersion: 1;';
+          if(original.split(needle).length !== 3) throw Error('expected exactly two schemaVersion declarations');
+          writeFileSync('artifacts/zorde-mutant.tsp',original.replaceAll(needle,'schemaVersion: 2;'));
+          JS
+
+      - name: Independent TypeSpec-side mutation must be semantically refused
+        id: typespec_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@b9f57de9b9c3d36437e75539fd8281f1f285f593
+        with:
+          typespec: artifacts/zorde-mutant.tsp
+          schema: contracts/zorde/authored.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-typespec-mutant-rejected.json
+          sarif: ''
+          output_dir: artifacts/zorde-typespec-mutant-generated
+
+      - name: Verify independent TypeSpec drift produced a semantic refusal
+        shell: bash
+        env:
+          DRIFT_OUTCOME: ${{ steps.typespec_drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DRIFT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('artifacts/zorde-typespec-mutant-rejected.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'stopped_for_evaluation'
+            || r.zeroUnexplainedFindings !== false
+            || !(r.counts?.findings > 0)
+            || !Array.isArray(r.findings)
+            || !r.findings.some(f=>f.resolutionState==='unexplained')
+            || r.error) {
+            throw Error('TypeSpec mutation failed without a semantic drift receipt');
           }
           JS
