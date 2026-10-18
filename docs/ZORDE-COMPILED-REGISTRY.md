@@ -127,8 +127,9 @@ the separate independently reviewed, exact-revision source-export approval.
 
 For a trusted, ephemeral runner **inside the source organization's trust
 boundary**, use [`scripts/test-zorde-registry-source-local.sh`](../scripts/test-zorde-registry-source-local.sh).
-Its required immutable identifiers are the exact repository Git SHA and the
-SHA-256 of a separately approved, executable Oreslang compiler. The script
+Its required immutable identifiers are the reviewed repository commit SHA,
+its exact root Git tree SHA, and the SHA-256 of a separately approved,
+executable Oreslang compiler. The script
 refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
 executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
@@ -138,6 +139,7 @@ machine-readable receipt **only on a successful execution**.
 ```bash
 mkdir -p /var/tmp/zorde-native-evidence
 export EXPECTED_SOURCE_SHA='<independently approved 40-hex PR head>'
+export EXPECTED_SOURCE_TREE='<reviewed exact 40-hex root Git tree>'
 export EXPECTED_COMPILER_SHA256='<independently approved 64-hex executable digest>'
 export ORESLANG_BIN='/absolute/path/to/approved/oreslang'
 export ZORDE_EVIDENCE_DIR='/var/tmp/zorde-native-evidence'
