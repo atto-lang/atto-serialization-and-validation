@@ -14,18 +14,27 @@ claimed by this branch.
 - `wit/zorde-validation.wit` is a **downstream Component Model interface proposal**,
   not a JSON Schema replacement and not evidence that an ABI implementation exists.
 
-Run (from repository root, with Node 22.9+ and installed, reviewed dependency):
-```sh
-npx tjsv check \
-  --typespec=contracts/zorde/main.tsp \
-  --schema=contracts/zorde/authored.schema.json \
-  --instances=contracts/zorde/instances \
-  --report=artifacts/zorde-schema-parity.json
-```
+## Locked CI pilot — still unadmitted
 
-CI provides a pinned **direct** tool version but has no npm lockfile yet: it
-must not be treated as a supply-chain-qualified release gate until its entire
-resolution graph is locked and dependency/advisory policy is reviewed.
+The pilot workflow no longer resolves npm dependencies ad hoc. It invokes an
+**exact SHA** of ORESoftware/typespec-json-schema-validator containing its
+lockfile and production advisory audit action, using Node **22.18.0** or newer.
+The candidate action is under review in
+[ORESoftware/typespec-json-schema-validator PR #235](https://github.com/ORESoftware/typespec-json-schema-validator/pull/235);
+its revision is **not** a reviewed release pin until that PR passes its exact-head
+CI and is admitted. Updating the SHA after merge requires separate review.
+
+The workflow first compares separately authored TypeSpec and Draft 2020-12
+JSON Schema, then constructs a **temporary** divergent JSON Schema under
+`artifacts/` (changing ValidationReport.schemaVersion from 1 to 2).
+It requires the same checker to reject the mutant; the generated source is never
+promoted to a third authority, and the original authored schema is unchanged.
+
+No passing workflow has been observed for this candidate branch yet.
+GitHub Actions zero-step failures must be recorded as NOT_EXECUTED, not as
+schema parity success. Even successfully executed parity and mutation tests
+would not certify native Zorde, WIT compatibility, Dafny proof or actor safety.
+
 
 ## Zorde runtime boundary
 
