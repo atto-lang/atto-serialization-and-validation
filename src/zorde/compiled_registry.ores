@@ -89,35 +89,26 @@ pub fnc zorde_compile_scalar_registry(
     new List<ZordePrivateCompiledEntry>();
 
   for const candidate of specs do
-    if !zorde_registry_id_valid(rt borrow candidate.schema_id) then
-      return Err(zorde_registry_error(
-        "invalid_schema_id", "schema identifier must be 1..128 printable ASCII bytes"
-      ));
-    fi
-
-    for const prior of compiled do
-      if text_equal(rt borrow prior.schema_id, rt borrow candidate.schema_id) then
-        return Err(zorde_registry_error(
-          "duplicate_schema_id", "schema identifier is present more than once"
-        ));
-      fi
-    done
-
-    // Bound metadata *before* calling the canonical descriptor evaluator or
-    // allocating our own snapshot of the exclusion list.
+    // Clone then validate: checking caller-owned metadata and only *later*
+    // snapshotting it would create a check/use gap. The compiler's borrow
+    // checker must still prohibit concurrent mutation during this loan.
+    // Limit the source length before copying so oversized exclusions never
+    // induce unbounded work or allocations.
     if candidate.descriptor.excluded.length > zorde_registry_max_exclusions() then
       return Err(zorde_registry_error(
         "registry_complexity", "scalar exclusion list exceeds the limit"
       ));
     fi
-    if !zorde_scalar_descriptor_valid(rt borrow candidate.descriptor) then
+    if candidate.schema_id.bytes.length < 1 ||
+       candidate.schema_id.bytes.length > zorde_registry_max_id_bytes() then
       return Err(zorde_registry_error(
-        "invalid_descriptor", "noncanonical or unsupported scalar descriptor"
+        "invalid_schema_id", "schema identifier exceeds the permitted length"
       ));
     fi
 
-    // Defensively copy exclusion values via the existing scalar IR factory.
-    // No direct reference to candidate.descriptor or its List escapes.
+    val Utf8Text owned_id = zorde_registry_copy_id(
+      rt borrow candidate.schema_id
+    );
     val ZordeScalarDescriptor owned_descriptor = zorde_scalar_descriptor(
       candidate.descriptor.version,
       candidate.descriptor.kind,
@@ -126,6 +117,33 @@ pub fnc zorde_compile_scalar_registry(
       candidate.descriptor.maximum,
       rt borrow candidate.descriptor.excluded
     );
+
+    // These are the actual copies retained/compiled. Recheck all constraints
+    // on the snapshots, never on the mutable source references.
+    if !zorde_registry_id_valid(rt borrow owned_id) then
+      return Err(zorde_registry_error(
+        "invalid_schema_id", "schema identifier must be 1..128 printable ASCII bytes"
+      ));
+    fi
+    if owned_descriptor.excluded.length > zorde_registry_max_exclusions() then
+      return Err(zorde_registry_error(
+        "registry_complexity", "snapshotted exclusion list exceeds the limit"
+      ));
+    fi
+    if !zorde_scalar_descriptor_valid(rt borrow owned_descriptor) then
+      return Err(zorde_registry_error(
+        "invalid_descriptor", "noncanonical or unsupported scalar descriptor"
+      ));
+    fi
+
+    for const prior of compiled do
+      if text_equal(rt borrow prior.schema_id, rt borrow owned_id) then
+        return Err(zorde_registry_error(
+          "duplicate_schema_id", "schema identifier is present more than once"
+        ));
+      fi
+    done
+
     val ZordeScalarRule compiled_rule = zorde_scalar_rule_from_descriptor(
       rt borrow owned_descriptor
     );
@@ -134,10 +152,7 @@ pub fnc zorde_compile_scalar_registry(
         "invalid_compiled_rule", "canonical scalar compilation was refused"
       ));
     fi
-    compiled.add(new ZordePrivateCompiledEntry(
-      zorde_registry_copy_id(rt borrow candidate.schema_id),
-      compiled_rule
-    ));
+    compiled.add(new ZordePrivateCompiledEntry(owned_id, compiled_rule));
   done
 
   return Ok(new ZordeScalarRegistry(compiled));
