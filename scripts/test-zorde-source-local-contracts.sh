@@ -14,8 +14,8 @@ cat > "$src/scripts/test.sh" <<'TEST_SH'
 set -eu
 exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
 TEST_SH
-printf '// synthetic guest path\\n' > "$src/tests/main.ores"
-printf '// synthetic public-import path\\n' > "$src/fixtures/zorde-compile-positive/public-registry-import.ores"
+printf '// synthetic guest path\n' > "$src/tests/main.ores"
+printf '// synthetic public-import path\n' > "$src/fixtures/zorde-compile-positive/public-registry-import.ores"
 chmod 700 "$out"
 cp "$root/scripts/test-zorde-registry-source-local.sh" "$src/scripts/"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
@@ -87,18 +87,18 @@ cat > "$tmp/positive-import-fails" <<'SIMULATOR'
 #!/bin/sh
 case "$1" in
   */tests/main.ores)
-    printf 'native Zorde compiled scalar registry tests passed\\n'
-    printf 'serialization/validation native tests passed\\n'
+    printf 'native Zorde compiled scalar registry tests passed\n'
+    printf 'serialization/validation native tests passed\n'
     exit 0 ;;
   */fixtures/zorde-compile-positive/public-registry-import.ores)
-    printf 'synthetic public import refusal\\n' >&2
+    printf 'synthetic public import refusal\n' >&2
     exit 47 ;;
   *) exit 48 ;;
 esac
 SIMULATOR
 chmod 700 "$tmp/positive-import-fails"
 refusal_sha="$(sha256sum "$tmp/positive-import-fails" | cut -d ' ' -f 1)"
-expect_refusal public-import-control 'public registry import positive control failed' \\
+expect_refusal public-import-control 'public registry import positive control failed' \
   "ORESLANG_BIN=$tmp/positive-import-fails" "EXPECTED_COMPILER_SHA256=$refusal_sha"
 test -f "$out/zorde-public-import-positive.log"
 grep -Fqx 'native Zorde compiled scalar registry tests passed' "$out/zorde-registry-native.log"
