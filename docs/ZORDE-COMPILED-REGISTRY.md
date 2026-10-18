@@ -118,3 +118,36 @@ The source-repo exact-head native tests remain blocked until GitHub Actions
 schedules runners within the authorized source trust boundary. Even an exact
 private Git-tree SHA match in another organization cannot substitute for
 the required independent source-export authorization and incident clearance.
+
+## Approved source-local native evidence runner
+
+The source-org remains unable to allocate hosted jobs (even a zero-checkout
+canary), so do **not** mirror this private Git tree into an alternate org without
+the separate independently reviewed, exact-revision source-export approval.
+
+For a trusted, ephemeral runner **inside the source organization's trust
+boundary**, use [`scripts/test-zorde-registry-source-local.sh`](../scripts/test-zorde-registry-source-local.sh).
+Its required immutable identifiers are the exact repository Git SHA and the
+SHA-256 of a separately approved, executable Oreslang compiler. The script
+refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
+executables, missing required environment variables, absent native test
+markers, nonzero process exits, and evidence output inside the checkout. It
+caps execution at 300 seconds and creates a SHA-bound, non-release
+machine-readable receipt **only on a successful execution**.
+
+```bash
+mkdir -p /var/tmp/zorde-native-evidence
+export EXPECTED_SOURCE_SHA='<independently approved 40-hex PR head>'
+export EXPECTED_COMPILER_SHA256='<independently approved 64-hex executable digest>'
+export ORESLANG_BIN='/absolute/path/to/approved/oreslang'
+export ZORDE_EVIDENCE_DIR='/var/tmp/zorde-native-evidence'
+bash ./scripts/test-zorde-registry-source-local.sh
+```
+
+Do not fill either expected digest by blindly reading the current unreviewed
+workspace or by trusting a self-reported test harness. Compiler executable
+SHA-256 does **not** attest dependency closure for an executable launcher,
+Graal/JVM artifacts, LLVM backend, SDK, or native-image runtime; the receipt
+marks that gap explicitly. Source-level and transitive compiler provenance,
+authorized environment identity, separate output review and full backend
+conformance are still required for release.
