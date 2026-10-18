@@ -178,20 +178,20 @@ jobs:
           if statuses != ['passed','stopped_for_evaluation','stopped_for_evaluation']:
               raise SystemExit('Unexpected semantic receipt statuses')
           receipt = {
-            'schema':'oreslang.zorde.dual-peer-synthetic-mutations/v1',
+            'schema':'oreslang.zorde.dual-peer-mutant-receipts/v1',
             'head_sha':os.environ['SOURCE_SHA'],
             'tool_sha':'b9f57de9b9c3d36437e75539fd8281f1f285f593',
             'source_sha256': {p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in
               ['contracts/zorde/main.tsp','contracts/zorde/authored.schema.json']},
             'report_sha256': {p:hashlib.sha256((Path('artifacts')/p).read_bytes()).hexdigest() for p in docs},
             'statuses':statuses,
-            'native_compiler_executed':False,
+            'native_oreslang_compiler_executed':False,
             'wit_abi_certified':False,
             'formal_proof_executed':False,
             'release_ready':False
           }
           Path('artifacts/zorde-contract-evidence.json').write_text(
-            json.dumps(receipt,sort_keys=True,indent=2)+'\\n',encoding='utf8')
+            json.dumps(receipt,sort_keys=True,indent=2),encoding='utf8')
           PY
 
       - name: Upload source-local positive and two negative receipts
