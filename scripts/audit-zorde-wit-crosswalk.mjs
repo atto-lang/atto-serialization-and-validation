@@ -40,6 +40,14 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
   if(rawWit.includes('/*')||rawWit.includes('*/')||rawWit.includes('@unstable'))
     refuse('unsupported WIT syntax in static crosswalk');
   const wit=rawWit.replace(/\/\/[^\n]*/g,'');
+  // A partial regex match could otherwise approve a valid-looking interface
+  // followed by extra operations, exports or a substituted package. Refuse
+  // unreviewed WIT surface until the projection mapping is expanded deliberately.
+  // This deliberately restrictive grammar is NOT a substitute for wasm-tools.
+  if(rawWit.length>16384 ||
+     !/^\s*package\s+oreslang:zorde-validation@0\.1\.0\s*;\s*interface\s+validation\s*\{\s*enum\s+error-code\s*\{[^{}]*\}\s*record\s+validation-issue\s*\{[^{}]*\}\s*record\s+validation-report\s*\{[^{}]*\}\s*validate-json\s*:\s*func\s*\([^()]*\)\s*->\s*validation-report\s*;\s*\}\s*world\s+zorde-validation-guest\s*\{\s*export\s+validation\s*;\s*\}\s*$/.test(wit)) {
+    refuse('unexpected package, declaration, operation or world surface');
+  }
   const defs=jsonSchema.$defs;
   if(!defs || typeof defs!=='object') refuse('missing authored JSON Schema definitions');
   const cases=tokens(bodyOf(wit,'enum','error-code'));
@@ -90,7 +98,18 @@ export function selftest(wit,schema) {
   const changedEnum=structuredClone(schema);
   changedEnum.$defs.ErrorCode.enum[0]='secret-error';
   expectRejected(()=>auditZordeWitProjection(wit,changedEnum));
-  return 8; // positive + seven independently checked negative cases
+  // The old permissive regexp admitted trailing world declarations, extra
+  // exported methods and package substitutions while matching valid snippets.
+  expectRejected(()=>auditZordeWitProjection(replace('@0.1.0;','@0.2.0;'),schema));
+  expectRejected(()=>auditZordeWitProjection(replace('  validate-json: func',
+    '  leak: func() -> bool;\n  validate-json: func'),schema));
+  expectRejected(()=>auditZordeWitProjection(wit+'\nworld injected {}',schema));
+  expectRejected(()=>auditZordeWitProjection(replace('  export validation;',
+    '  import secret;\n  export validation;'),schema));
+  expectRejected(()=>auditZordeWitProjection(replace('  record validation-report {',
+    '  record unexpected { leak: string, }\n  record validation-report {'),schema));
+  expectRejected(()=>auditZordeWitProjection(wit+' '.repeat(17000),schema));
+  return 14; // one positive + thirteen independent adversarial cases
 }
 
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
