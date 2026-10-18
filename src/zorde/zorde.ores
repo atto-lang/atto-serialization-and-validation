@@ -12,6 +12,8 @@ import fnc default_validation_options, string_rule, number_rule, array_rule, fie
 import fnc validate_value_checked, validate_object_checked from '../validation/validation';
 import class ZordeScalarRule from './scalar';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_metric, zorde_scalar_contains from './scalar';
+import class ZordeScalarDescriptor from './refinement_descriptor';
+import fnc zorde_scalar_descriptor_valid, zorde_scalar_rule_from_descriptor from './refinement_descriptor';
 
 pub define class ZordeValueSchema as
   pub val ValueRule rule;
@@ -264,6 +266,22 @@ pub fnc zorde_parse_scalar_metric(
     return Err(zorde_int_error("constraint_violation", "scalar value is outside the accepted set"));
   fi
   return Ok(metric.value);
+}
+
+// Parse one compiler-emitted canonical scalar descriptor. The descriptor's
+// fingerprint/nominal identity must already have been authenticated by the
+// compiler/loader; this function enforces the value acceptance semantics only.
+pub fnc zorde_parse_refinement(
+  Value value,
+  ZordeScalarDescriptor descriptor
+): Result<int, ValidationReport> {
+  if !zorde_scalar_descriptor_valid(rt borrow descriptor) then
+    return Err(zorde_int_error(
+      "invalid_descriptor", "unsupported/noncanonical refinement descriptor"));
+  fi
+  val ZordeScalarRule rule = zorde_scalar_rule_from_descriptor(
+    rt borrow descriptor);
+  return zorde_parse_scalar_metric(rt borrow value, rt borrow rule);
 }
 
 pub fnc zorde_parse_int(

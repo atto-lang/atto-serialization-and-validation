@@ -342,3 +342,22 @@ with a signed-remainder algorithm that does not compute `abs(INT64_MIN)`.
 and overflow-negative fixtures. **Native test execution remains mandatory**:
 parser/JVM smoke or the Python reference oracle alone cannot certify this
 userland serialization and validation path.
+
+
+## Canonical scalar descriptor runtime adapter
+
+This branch now exposes a native `ZordeScalarDescriptor` adapter for the
+compiler/common-source `zorde.scalar/v1` shape. Runtime acceptance uses the
+same inclusive signed-int64 interval, Unicode-scalar length metric, and sorted
+effective exclusion list as `scalar_core.ores`; it does not rediscover
+exclusive source syntax or coerce integers through float.
+
+The adapter validates version, scalar kind, property, interval and exclusion
+canonicality before constructing a runtime rule. Unknown versions, kind/property
+confusion, contradictory intervals, duplicate/unsorted holes and off-domain
+holes fail closed.
+
+The descriptor is **validation metadata, not authority**. SHA-256 schema
+fingerprints and compiler-qualified nominal identities must be authenticated by
+the compiler/linker before this adapter is invoked; runtime scalar acceptance
+alone cannot manufacture a nominal newtype or bypass ownership checks.

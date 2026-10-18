@@ -9,6 +9,9 @@ import fnc zorde_int_min, zorde_int_max, zorde_int_range, zorde_parse_int from '
 import class ZordeScalarRule from '../src/zorde/scalar';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_accepts from '../src/zorde/scalar';
 import fnc zorde_parse_scalar_metric from '../src/zorde/zorde';
+import class ZordeScalarDescriptor from '../src/zorde/refinement_descriptor';
+import fnc zorde_scalar_descriptor from '../src/zorde/refinement_descriptor';
+import fnc zorde_parse_refinement from '../src/zorde/zorde';
 
 pub fnc run_zorde_tests(): void {
   val ZordeValueSchema nonempty = zorde_nonempty_string();
@@ -189,6 +192,46 @@ pub fnc run_zorde_tests(): void {
     value_number_lexeme(new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 50)),
     rt borrow precise
   ).is_err(), "Zorde must reject 2^53 when the schema requires 2^53+1");
+
+  // Canonical compiler descriptor adapter: inclusive interval + sorted holes.
+  val ZordeScalarDescriptor descriptor_port = zorde_scalar_descriptor(
+    1, 2, 1, 1, 65535, new List<int>());
+  require_true(!zorde_parse_refinement(
+    value_int(443), rt borrow descriptor_port).is_err(),
+    "canonical compiler Port descriptor accepts 443");
+  require_true(zorde_parse_refinement(
+    value_int(0), rt borrow descriptor_port).is_err(),
+    "canonical compiler Port descriptor rejects zero");
+
+  val ZordeScalarDescriptor descriptor_hole = zorde_scalar_descriptor(
+    1, 2, 1, 1, 100, new List<int>(42));
+  require_true(zorde_parse_refinement(
+    value_int(42), rt borrow descriptor_hole).is_err(),
+    "compiler descriptor exclusion is enforced");
+  require_true(!zorde_parse_refinement(
+    value_int(43), rt borrow descriptor_hole).is_err(),
+    "adjacent compiler descriptor value is accepted");
+
+  val ZordeScalarDescriptor descriptor_scalar = zorde_scalar_descriptor(
+    1, 3, 2, 1, 1, new List<int>());
+  require_true(!zorde_parse_refinement(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))),
+    rt borrow descriptor_scalar).is_err(),
+    "compiler string descriptor uses Unicode scalar length");
+
+  for const invalid_descriptor of new List<ZordeScalarDescriptor>(
+    zorde_scalar_descriptor(2, 2, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 2, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 3, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 9, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 1, 10, 1, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 1, 1, 3, new List<int>(3,2)),
+    zorde_scalar_descriptor(1, 2, 1, 1, 3, new List<int>(0))
+  ) do
+    require_true(zorde_parse_refinement(
+      value_int(2), rt borrow invalid_descriptor).is_err(),
+      "malformed compiler descriptor must fail closed");
+  done
 
   return;
 }
