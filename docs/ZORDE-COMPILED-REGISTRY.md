@@ -135,7 +135,9 @@ executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
 caps the full suite at 300 seconds, then requires a successful public import
 positive control before the two compiler-negative privacy fixtures under `fixtures/zorde-compile-negative/` to fail with specific
-access-control diagnostics rather than an arbitrary parser error. It creates
+access-control diagnostics rather than an arbitrary parser error. A source-free 17-case denial-verifier suite rejects unrelated and
+cross-line access messages, malformed UTF-8 and oversized logs. These tests
+are **not** native compiler validation. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
