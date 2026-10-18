@@ -133,8 +133,11 @@ executable Oreslang compiler. The script
 refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
 executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
-caps execution at 300 seconds and creates a SHA-bound, non-release
-machine-readable receipt **only on a successful execution**.
+caps the positive execution at 300 seconds, then requires two compiler-negative
+privacy fixtures under `fixtures/zorde-compile-negative/` to fail with specific
+access-control diagnostics rather than an arbitrary parser error. It creates
+a SHA-bound, non-release machine-readable receipt **only after those checks
+and the full native suite have actually succeeded**.
 
 ```bash
 mkdir -p /var/tmp/zorde-native-evidence
