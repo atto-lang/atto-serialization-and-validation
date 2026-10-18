@@ -1,8 +1,8 @@
 // Executable Oreslang regression suite for the bounded compiled scalar registry.
 // This is NOT JSON Schema admission, ABI or cross-actor sharing certification.
 import fnc require_true from './assert';
-import class Utf8Text from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string from '../src/core/value';
+import class Utf8Text, IntParse from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, parse_int from '../src/core/value';
 import class ZordeScalarDescriptor from '../src/zorde/refinement_descriptor';
 import fnc zorde_scalar_descriptor from '../src/zorde/refinement_descriptor';
 import class ZordeScalarRegistry, ZordeScalarRegistrySpec from '../src/zorde/compiled_registry';
@@ -21,6 +21,21 @@ fnc port_descriptor(List<int> holes): ZordeScalarDescriptor {
 }
 
 pub fnc run_zorde_compiled_registry_tests(): void {
+  // Exact int64 admission uses integer cutoffs, never rounded floating-point
+  // division. Check parser boundaries independently of interval membership.
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56
+  ))).ok, "overflowed int64 positive value must not parse");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,57
+  ))).ok, "overflowed int64 negative value must not parse");
+  val IntParse canonical_negative_zero =
+    parse_int(value_number_lexeme(new List<int>(45,48)));
+  require_true(canonical_negative_zero.ok && canonical_negative_zero.value == 0,
+    "int64 parser accepts canonical JSON negative zero");
+  require_true(!parse_int(value_number_lexeme(new List<int>(45,48,49))).ok,
+    "int64 parser rejects noncanonical negative leading zero");
+
   val List<int> mutable_holes = new List<int>(42);
   val Utf8Text original_id = port_id();
   val List<ZordeScalarRegistrySpec> source = new List<ZordeScalarRegistrySpec>();
