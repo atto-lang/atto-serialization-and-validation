@@ -279,11 +279,13 @@ pub fnc value_rule_valid(ValueRule rule): bool {
     return false;
   fi
 
-  if rule.has_min_number && rule.min_number != rule.min_number then
+  // IEEE-754 x - x is nonzero/NaN only for NaN or infinity.
+  // Neither can be a valid finite numeric constraint.
+  if rule.has_min_number && rule.min_number - rule.min_number != 0.0 then
     return false;
   fi
 
-  if rule.has_max_number && rule.max_number != rule.max_number then
+  if rule.has_max_number && rule.max_number - rule.max_number != 0.0 then
     return false;
   fi
 
@@ -628,6 +630,13 @@ pub fnc is_url(Utf8Text text): bool {
       return false;
     fi
 
+    // WHATWG-style consumers may reinterpret backslashes as separators.
+    // Reject userinfo as well: this is a restricted HTTP(S) validator,
+    // not a permissive URL parser with credential-bearing authorities.
+    if byte == 64 || byte == 92 then
+      return false;
+    fi
+
     if byte == 47 || byte == 63 || byte == 35 then
       break;
     fi
@@ -636,7 +645,16 @@ pub fnc is_url(Utf8Text text): bool {
     i = i + 1;
   done
 
-  return saw_authority;
+  if !saw_authority then
+    return false;
+  fi
+
+  // An empty host and dangling port delimiter must not be accepted.
+  if text.bytes[host_start] == 58 || text.bytes[i - 1] == 58 then
+    return false;
+  fi
+
+  return true;
 }
 
 pub fnc parse_number(Value value): ParsedNumber {
@@ -659,6 +677,7 @@ pub fnc parse_number(Value value): ParsedNumber {
 
   let float whole = 0.0;
   let bool saw_digit = false;
+  let bool saw_nonzero = false;
 
   loop do
     if i >= bytes.length then
@@ -670,6 +689,7 @@ pub fnc parse_number(Value value): ParsedNumber {
     fi
     whole = (whole * 10.0) + (byte - 48);
     saw_digit = true;
+    if byte != 48 then saw_nonzero = true; fi
     i = i + 1;
   done
 
@@ -695,6 +715,7 @@ pub fnc parse_number(Value value): ParsedNumber {
       fraction = (fraction * 10.0) + (byte - 48);
       divisor = divisor * 10.0;
       saw_fraction = true;
+      if byte != 48 then saw_nonzero = true; fi
       i = i + 1;
     done
 
@@ -758,7 +779,10 @@ pub fnc parse_number(Value value): ParsedNumber {
     j = j + 1;
   done
 
-  if result != result then
+  // A minimum-only rule must not accept +infinity as >= min, nor a
+  // maximum-only rule accept -infinity as <= max. Reject both infinities
+  // and NaN; likewise reject underflow of a nonzero decimal to zero.
+  if result - result != 0.0 || (result == 0.0 && saw_nonzero) then
     return new ParsedNumber(false, 0.0);
   fi
 
