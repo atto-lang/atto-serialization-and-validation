@@ -39,7 +39,7 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
   // Strip only simple line comments. wasm-tools validates grammar independently.
   if(rawWit.includes('/*')||rawWit.includes('*/')||rawWit.includes('@unstable'))
     refuse('unsupported WIT syntax in static crosswalk');
-  const wit=rawWit.replace(/\\/\\/[^\\n]*/g,'');
+  const wit=rawWit.replace(/\/\/[^\n]*/g,'');
   const defs=jsonSchema.$defs;
   if(!defs || typeof defs!=='object') refuse('missing authored JSON Schema definitions');
   const cases=tokens(bodyOf(wit,'enum','error-code'));
