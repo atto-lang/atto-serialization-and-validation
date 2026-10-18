@@ -106,3 +106,32 @@ Implemented primitives include:
 Error reports are bounded by `ValidationOptions.max_errors`, and validation errors retain logical path segments without retaining the entire untrusted input payload.
 
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
+
+## Validation hardening and trust boundaries (October 2026)
+
+- Invalid rule definitions are errors, not data that can be ignored. A string
+  `min_length=4, max_length=3` is rejected even if the inspected value has
+  five code points; array min/max contradictions and equal exclusive numeric
+  endpoints are rejected too. These are **runtime Zorde rule checks**, not yet
+  proof that the source compiler admits `type X = string with ...` syntax.
+- Numeric range validation uses an approximate floating-point conversion.
+  Non-finite constraints and conversion outcomes are rejected, and a nonzero
+  decimal cannot silently underflow to zero. Precision-sensitive decimal
+  boundaries still require an exact decimal comparison implementation before
+  claims of fully correct JSON Schema `minimum` / `maximum` parity. For
+  now, do not treat dynamic floating-point range validation as an exact-decimal
+  verifier for finance or cryptographic amount admission.
+- `is_url` is deliberately a **restricted, ASCII-only HTTP(S) shape check**.
+  It rejects an empty authority, an empty host before `:`, dangling `:`,
+  userinfo (`@`), and backslash authority ambiguity. It is not a complete
+  URL parser or an RFC 3986 / WHATWG normalizer. Security decisions must
+  separately canonicalize addresses, resolve DNS, and enforce destination
+  allowlists; URL shape validation alone is not SSRF protection.
+- Core `Value` remains transport-neutral data; this library's validation
+  and typed wrappers live above the freestanding compiler core. Generated
+  validators should compile admitted schemas into bounded, reflection-free
+  checks. No schema or WIT declaration grants transport or FFI authority.
+
+Source regression cases live in `tests/validation_test.ores`. The project
+requires a real Oreslang CLI/runtime for `scripts/test.sh`; a source diff or
+static audit is not evidence of guest execution.
