@@ -12,6 +12,32 @@ done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
+
+# Reject symlinked parent directories as well as a symlink at the leaf.
+# Realpath alone resolves those components rather than proving the approved
+# command path is unredirected. This is preflight hardening, not a substitute
+# for runner isolation against same-UID path swaps during execution.
+no_symlink_components() {
+  python3 - "$1" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+if not os.path.isabs(path):
+    sys.exit(1)
+current = "/"
+for component in path.split("/"):
+    if not component or component == ".":
+        continue
+    if component == "..":
+        sys.exit(1)
+    current = os.path.join(current, component)
+    try:
+        mode = os.lstat(current).st_mode
+    except OSError:
+        sys.exit(1)
+    if stat.S_ISLNK(mode):
+        sys.exit(1)
+PY
+}
 [[ -n "${EXPECTED_SOURCE_SHA:-}" && "${EXPECTED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
   die "EXPECTED_SOURCE_SHA must be an explicit immutable 40-hex source commit"
 [[ -n "${EXPECTED_SOURCE_TREE:-}" && "${EXPECTED_SOURCE_TREE}" =~ ^[0-9a-f]{40}$ ]] ||
@@ -39,6 +65,8 @@ case "$ORESLANG_BIN" in
 esac
 [[ ! -L "$ORESLANG_BIN" ]] ||
   die "compiler executable must not be a symlink"
+no_symlink_components "$ORESLANG_BIN" ||
+  die "compiler executable path must have no symlink components or traversal"
 [[ -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" ]] ||
   die "approved compiler executable missing or not executable"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
@@ -47,6 +75,8 @@ compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 
 [[ ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
   die "evidence directory must not be a symlink"
+no_symlink_components "$ZORDE_EVIDENCE_DIR" ||
+  die "evidence directory path must have no symlink components or traversal"
 out_dir="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out_dir" in
   "$root"|"$root"/*) die "evidence must be outside the source checkout" ;;
@@ -68,6 +98,7 @@ then
   die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
 for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
+  zorde-public-export-control.log \
   zorde-private-entry-import-denial.log \
   zorde-private-storage-access-denial.log; do
   [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
@@ -89,6 +120,19 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
+# Prove the same compiler can resolve the PUBLIC registry API separately,
+# before interpreting either private import failure as visibility enforcement.
+public_log="$out_dir/zorde-public-export-control.log"
+set +e
+timeout --signal=TERM --kill-after=5s 60s \
+  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-export-control.ores" >"$public_log" 2>&1
+public_status=$?
+set -e
+[[ "$public_status" -eq 0 ]] ||
+  die "public registry export control failed (status=$public_status)"
+grep -Fqx "native Zorde public export control passed" "$public_log" ||
+  die "public registry export control success marker absent"
+
 # A parse error is insufficient: negative fixtures must fail with a real
 # export/visibility error from the same approved compiler that ran the suite.
 for fixture in private-entry-import private-storage-access; do
@@ -128,6 +172,10 @@ done
 # a pinned launcher digest alone still does not attest its transitive runtime.
 [[ ! -L "$ORESLANG_BIN" ]] ||
   die "compiler executable became a symlink during native validation"
+no_symlink_components "$ORESLANG_BIN" ||
+  die "compiler executable path acquired symlink components during native validation"
+no_symlink_components "$ZORDE_EVIDENCE_DIR" ||
+  die "evidence directory path acquired symlink components during native validation"
 final_compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [[ "$final_compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] ||
   die "compiler executable changed during native validation"
@@ -149,6 +197,10 @@ record = {
     "actual_native_guest_executed": True,
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
+    "public_export_control_executed": True,
+    "public_export_control_log_sha256": hashlib.sha256(
+        (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-export-control.log").read_bytes()
+    ).hexdigest(),
     "process_exit_code": 0,
     "negative_private_entry_import_refused": True,
     "negative_private_storage_access_refused": True,
