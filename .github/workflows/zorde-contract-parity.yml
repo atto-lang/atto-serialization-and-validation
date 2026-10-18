@@ -1,4 +1,4 @@
-name: Zorde TypeSpec / authored JSON Schema parity (pilot)
+name: Zorde independently authored TypeSpec / JSON Schema parity (pilot)
 on:
   push:
     paths:
@@ -13,19 +13,64 @@ permissions:
 jobs:
   dual-authority:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out unmodified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          node-version: '22'
-      # Pilot only. Lock the entire npm graph before qualifying production CI.
-      - name: Install versioned contract checker
-        run: npm install --no-save --package-lock=false '@oresoftware/typespec-json-schema-validator@0.1.1'
-      - name: Compare independently authored authorities and run differential corpus
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Pin required Node engine
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      # Candidate upstream security remediation PR #235. This exact revision
+      # must be replaced by a reviewed, independently CI-admitted release SHA.
+      # Never use a floating action tag, npm install --no-save or an unlocked graph.
+      - name: Compare independent schema authorities via production-audited lockfile
+        uses: ORESoftware/typespec-json-schema-validator@da489a082bd5f05ce86a0c74393dc53934960125
+        with:
+          typespec: contracts/zorde/main.tsp
+          schema: contracts/zorde/authored.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-schema-parity.json
+          sarif: artifacts/zorde-schema-parity.sarif
+          output_dir: artifacts/zorde-generated
+
+      - name: Make deliberately divergent independent schema without changing either authority
+        shell: bash
         run: |
-          ./node_modules/.bin/tjsv check \
-            --typespec=contracts/zorde/main.tsp \
-            --schema=contracts/zorde/authored.schema.json \
-            --instances=contracts/zorde/instances \
-            --report=artifacts/zorde-schema-parity.json
+          set -euo pipefail
+          mkdir -p artifacts
+          jq '."$defs".ValidationReport.properties.schemaVersion.const = 2' \
+            contracts/zorde/authored.schema.json > artifacts/zorde-mutant.schema.json
+
+      - name: Drift must fail the same parity tool and never create an admitted report
+        id: drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@da489a082bd5f05ce86a0c74393dc53934960125
+        with:
+          typespec: contracts/zorde/main.tsp
+          schema: artifacts/zorde-mutant.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-mutant-rejected.json
+          sarif: ''
+          output_dir: artifacts/zorde-mutant-generated
+
+      - name: Assert the deliberate contract drift was refused
+        shell: bash
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DRIFT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {existsSync,readFileSync} from 'node:fs';
+          const path='artifacts/zorde-mutant-rejected.json';
+          // A failed action may produce a bounded tombstone or no report.
+          // Either is acceptable; a positive "passed" result is never acceptable.
+          if (existsSync(path)) {
+            const r=JSON.parse(readFileSync(path,'utf8'));
+            if (r.status === 'passed') throw Error('mutant emitted an admissible receipt');
+          }
+          JS
