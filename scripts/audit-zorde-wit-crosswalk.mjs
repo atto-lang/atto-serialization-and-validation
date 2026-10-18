@@ -144,31 +144,14 @@ export function selftest(wit,schema) {
   expectRejected(()=>auditZordeWitProjection(replace('  record validation-report {',
     '  record unexpected { leak: string, }\n  record validation-report {'),schema));
   expectRejected(()=>auditZordeWitProjection(wit+' '.repeat(17000),schema));
-  // These constraints were previously invisible to the static WIT crosswalk:
-  // the names and types matched, but accepted JSON values could differ.
+  // Extra JSON Schema keywords can silently narrow or broaden accepted data.
   const mutateSchema=fn=>{
     const copy=structuredClone(schema);
     fn(copy);
     expectRejected(()=>auditZordeWitProjection(wit,copy));
   };
   mutateSchema(s=>{s.$defs.ValidationReport.properties.valid.const=false;});
-  mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.pattern='^[a-z]+
-}
-
-if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
-  try{
-    const wit=readFileSync('wit/zorde-validation.wit','utf8');
-    const schema=JSON.parse(readFileSync('contracts/zorde/authored.schema.json','utf8'));
-    const checks=selftest(wit,schema);
-    console.log(JSON.stringify({status:'STATIC_WIT_CROSSWALK_MATCH',checks,
-      witSyntaxParsed:false,nativeGuestExecuted:false,
-      canonicalAbiImplemented:false,releaseReady:false}));
-  }catch(e){
-    console.error(e?.message||'ZORDE_WIT_STATIC_CROSSWALK_DENIED');
-    process.exitCode=1;
-  }
-}
-;});
+  mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.pattern='^[a-z]+$';});
   mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.minItems=1;});
   mutateSchema(s=>{s.$defs.ValidationIssue.properties.code.allOf=[];});
   mutateSchema(s=>{s.$defs.ValidationReport.anyOf=[];});
@@ -179,7 +162,7 @@ if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
   mutateSchema(s=>{delete s.$schema;});
   mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.items.$dynamicRef='#next';});
   mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.format='uri';});
-  return 26; // one positive + 25 adversarial refusals
+  return 26; // one positive plus 25 adverse tests
 }
 
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
