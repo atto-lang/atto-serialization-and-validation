@@ -21,7 +21,7 @@ The pilot workflow no longer resolves npm dependencies ad hoc. It invokes an
 lockfile and production advisory audit action, using Node **22.18.0** or newer.
 The pinned TJSV remediation [PR #235](https://github.com/ORESoftware/typespec-json-schema-validator/pull/235)
 merged on October 18, 2026, after successful exact-head CI. The workflow
-continues to pin immutable commit `b9f57de9b9c3d36437e75539fd8281f1f285f593`.
+now pins the immutable merged commit `a9aa7e0a258a0514b433178842288ab798b0947c`.
 This is not a separately published semver release pin and **does not** qualify
 this private Zorde workflow, which still fails before runner allocation.
 Changing the pinned action commit requires independent review and consumer CI.
@@ -183,3 +183,10 @@ The extra narrowing report had SHA-256
 `dbcd809f7a4e3308e0b169c9e7271b7dd0e6b65b0b5089370f735a1c79f759cb`.
 No private source was exported; this proves source-free TJSV engine
 refusal, not actual Zorde runtime equivalence.
+
+
+## 2026-10-18 post-merge upstream action qualification
+
+After [TJSV PR #235](https://github.com/ORESoftware/typespec-json-schema-validator/pull/235) merged, the source-free funded peer-authority/mutation suite was run again with the **exact merge commit** `a9aa7e0a258a0514b433178842288ab798b0947c`, not a floating `main` or unreviewed tag. [Runner-backed PR run 39167799979](https://github.com/sagitta-stack/sagitta-infra/actions/runs/39167799979) passed all steps, including independently authored positive parity, deliberately divergent JSON Schema and TypeSpec contracts, and a narrowed boolean-const mutant. Retained evidence: artifact `12151022508`; [source-free test PR #33](https://github.com/sagitta-stack/sagitta-infra/pull/33). The exact merge commit's `action.yml` blob is the same as the earlier reviewed head; the funded run verifies the merge commit's dependency/code closure as exercised by those synthetic probes.
+
+This is **not** private Zorde contract execution. The source organization still fails to allocate runners even for a zero-checkout diagnostic, so `NOT_EXECUTED` remains the correct native/source-private qualification status. There was no cross-org private source transfer.
