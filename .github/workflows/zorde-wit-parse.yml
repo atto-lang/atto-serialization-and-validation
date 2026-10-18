@@ -14,7 +14,7 @@ permissions:
 jobs:
   wit-parser:
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 12
     steps:
       - name: Check out exact source revision
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -29,27 +29,41 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
 
-      - name: Pin Rust toolchain for WIT syntax parser
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
-        with:
-          toolchain: 1.95.0
-
-      - name: Install locked wasm-tools version from crates.io
+      - name: Install checksum-pinned official wasm-tools binary
         shell: bash
         run: |
           set -euo pipefail
-          cargo install wasm-tools --version 1.262.0 --locked
-          wasm-tools --version
+          archive="$RUNNER_TEMP/wasm-tools-1.262.0-x86_64-linux.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --retry 2 --max-time 90 \
+            https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz \
+            -o "$archive"
+          printf '%s  %s\n' \
+            '655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65' \
+            "$archive" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/verified-wasm-tools"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/verified-wasm-tools"
+          bin="$(find "$RUNNER_TEMP/verified-wasm-tools" -type f -name wasm-tools -print -quit)"
+          test -n "$bin"
+          test -x "$bin"
+          mkdir -p "$RUNNER_TEMP/verified-wasm-bin"
+          cp "$bin" "$RUNNER_TEMP/verified-wasm-bin/wasm-tools"
+          echo "$RUNNER_TEMP/verified-wasm-bin" >> "$GITHUB_PATH"
 
       - name: Parse and roundtrip the proposed WIT world
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/wit
+          wasm-tools --version | tee artifacts/wit/tool-version.txt
+          grep -Fq '1.262.0' artifacts/wit/tool-version.txt
           wasm-tools component wit wit/zorde-validation.wit --json > artifacts/wit/zorde-parse.json
           test -s artifacts/wit/zorde-parse.json
           wasm-tools component wit wit/zorde-validation.wit --wasm -o artifacts/wit/zorde-package.wasm
+          wasm-tools validate artifacts/wit/zorde-package.wasm
           wasm-tools component wit artifacts/wit/zorde-package.wasm > artifacts/wit/zorde-roundtrip.wit
+          wasm-tools component wit artifacts/wit/zorde-package.wasm --json > artifacts/wit/zorde-roundtrip.json
+          cmp artifacts/wit/zorde-parse.json artifacts/wit/zorde-roundtrip.json
           test -s artifacts/wit/zorde-package.wasm
           test -s artifacts/wit/zorde-roundtrip.wit
           sha256sum wit/zorde-validation.wit artifacts/wit/zorde-package.wasm artifacts/wit/zorde-roundtrip.wit > artifacts/wit/digests.sha256
@@ -84,6 +98,7 @@ jobs:
             "wit_sha256":hashlib.sha256(p).hexdigest(),
             "tool":"wasm-tools",
             "tool_version":"1.262.0",
+            "tool_archive_sha256":"655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
             "syntax_parsed":True,
             "binary_wit_roundtrip":True,
             "malformed_wit_rejected":True,
@@ -103,6 +118,8 @@ jobs:
             artifacts/wit/receipt.json
             artifacts/wit/digests.sha256
             artifacts/wit/zorde-parse.json
+            artifacts/wit/zorde-roundtrip.json
+            artifacts/wit/tool-version.txt
             artifacts/wit/zorde-roundtrip.wit
             artifacts/wit/mutant-error.log
           retention-days: 14
