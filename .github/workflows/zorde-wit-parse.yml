@@ -3,12 +3,14 @@ on:
   push:
     paths:
       - 'wit/zorde-validation.wit'
+      - 'contracts/zorde/**'
       - 'contracts/zorde/authored.schema.json'
       - 'scripts/audit-zorde-wit-crosswalk.mjs'
       - '.github/workflows/zorde-wit-parse.yml'
   pull_request:
     paths:
       - 'wit/zorde-validation.wit'
+      - 'contracts/zorde/**'
       - 'contracts/zorde/authored.schema.json'
       - 'scripts/audit-zorde-wit-crosswalk.mjs'
       - '.github/workflows/zorde-wit-parse.yml'
