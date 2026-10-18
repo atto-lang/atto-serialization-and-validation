@@ -1,0 +1,125 @@
+name: Zorde Dafny reference-model proof (not implementation proof)
+on:
+  push:
+    paths:
+      - 'formal/ZordeParity.dfy'
+      - '.github/workflows/zorde-dafny-reference-proof.yml'
+  pull_request:
+    paths:
+      - 'formal/ZordeParity.dfy'
+      - '.github/workflows/zorde-dafny-reference-proof.yml'
+permissions:
+  contents: read
+jobs:
+  reference-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - name: Checkout exact private source revision without persisting credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Verify pinned checkout identity
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Install official Dafny verifier from checksum-pinned release
+        shell: bash
+        run: |
+          set -euo pipefail
+          zip="$RUNNER_TEMP/dafny-4.11.0-x64-ubuntu-22.04.zip"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --retry 2 --max-time 120 \
+            https://github.com/dafny-lang/dafny/releases/download/v4.11.0/dafny-4.11.0-x64-ubuntu-22.04.zip \
+            -o "$zip"
+          printf '%s  %s\n' \
+            'a46a9ff7cdd720f7955854c78e95df13f4cfe6b80691b05f8654fe19e8267179' \
+            "$zip" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/verified-dafny"
+          unzip -q "$zip" -d "$RUNNER_TEMP/verified-dafny"
+          executable="$(find "$RUNNER_TEMP/verified-dafny" -type f -name dafny -print -quit)"
+          test -n "$executable"
+          test -s "$(dirname "$executable")/Dafny.dll"
+          chmod +x "$executable"
+          echo "$(dirname "$executable")" >> "$GITHUB_PATH"
+
+      - name: Verify the actual Zorde reference lemmas
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/dafny
+          dafny --version | tee artifacts/dafny/version.txt
+          grep -Fq '4.11.0' artifacts/dafny/version.txt
+          dafny verify formal/ZordeParity.dfy > artifacts/dafny/positive.log 2>&1
+          grep -Eq '[1-9][0-9]* verified, 0 errors' artifacts/dafny/positive.log
+
+      - name: A demonstrably false reference lemma must not verify
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp formal/ZordeParity.dfy artifacts/dafny/mutant.dfy
+          cat >> artifacts/dafny/mutant.dfy <<'DAFNY'
+          module DeliberatelyInvalid {
+            lemma FalsePostcondition()
+              ensures 1 == 2
+            {}
+          }
+          DAFNY
+          set +e
+          dafny verify artifacts/dafny/mutant.dfy > artifacts/dafny/negative.log 2>&1
+          status=$?
+          set -e
+          test "$status" -ne 0
+          grep -Eiq 'postcondition (might not hold|could not be proved)|verification error|assertion (might not hold|could not be proved)' artifacts/dafny/negative.log
+          grep -Eq '[1-9][0-9]* verified, [1-9][0-9]* error' artifacts/dafny/negative.log
+          git diff --exit-code -- formal/ZordeParity.dfy
+
+      - name: Record exact-head reference-only proof receipt
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          originals=['formal/ZordeParity.dfy']
+          evidence=['artifacts/dafny/positive.log','artifacts/dafny/negative.log',
+                    'artifacts/dafny/version.txt','artifacts/dafny/mutant.dfy']
+          receipt={
+            'schema':'oreslang.zorde.dafny.reference-proof.v1',
+            'source_sha':os.environ['SOURCE_SHA'],
+            'run_id':int(os.environ['RUN_ID']),
+            'tool_version':'4.11.0',
+            'tool_archive_sha256':'a46a9ff7cdd720f7955854c78e95df13f4cfe6b80691b05f8654fe19e8267179',
+            'positive_reference_lemmas_verified':True,
+            'false_postcondition_rejected':True,
+            'source_and_evidence_sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+              for p in originals+evidence},
+            'compiled_zorde_validator_verified':False,
+            'native_oreslang_executed':False,
+            'wit_abi_certified':False,
+            'release_ready':False
+          }
+          Path('artifacts/dafny/receipt.json').write_text(
+            json.dumps(receipt,sort_keys=True,indent=2)+'\n',encoding='utf8')
+          PY
+
+      - name: Upload source-local reference evidence only
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zorde-reference-dafny-lemmas-only
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            artifacts/dafny/positive.log
+            artifacts/dafny/negative.log
+            artifacts/dafny/version.txt
+            artifacts/dafny/receipt.json
