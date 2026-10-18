@@ -98,3 +98,30 @@ ActorId integer, nonce, schema hash or Protobuf unknown field as authority.
 
 See `NETWORK_VS_ACTOR_SERDE.md` and
 `src/schema/transport_interfaces.ores` for the narrower source contract.
+
+
+## Erased callable values are not portable data
+
+`AnyCallable` is a sealed compiler-intrinsic erased callable **type**, not
+a user-implementable trait or interface, `Sendable` proof, codec, or schema.
+Reifiable concrete functions may widen to it for in-process callback
+passing, but the erased type loses its known call signature: no direct
+invocation and no dynamic properties. A class with a `call` method does
+not become an `AnyCallable`.
+
+No `AnyCallable`, `Fnc<...>`, closure, bound callback, partial-constructor
+`self` capture or executable function table may be encoded as
+`NetworkCodec<T,F>` or `ActorMessageCodec<T>` data simply because its
+type is structurally callable. Callable environments may retain handles,
+borrows, mutable state, actor references, and supervisor privilege; codec
+registration cannot turn these into Sendable/Serializable owned payloads.
+Recursive containers and module-qualified aliases do not weaken that rule.
+The reserved supervisor CONTROL channel is never a deserialization target.
+If executable remote behavior is needed, use a separately authenticated
+protocol command/schema and perform permission checks on the receiver,
+not byte-level function or closure transport.
+
+All backends lacking the compiler/runtime enforcement for `AnyCallable`
+must reject the feature explicitly until real ABI and ownership conformance
+is demonstrated. Contract audit only verifies source-level reservations,
+not actual portable codec generation or callable type checking.
