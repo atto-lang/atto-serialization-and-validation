@@ -57,6 +57,8 @@ expect_refusal stale-head 'checked-out head differs' EXPECTED_SOURCE_SHA=0000000
 expect_refusal wrong-tree 'checked-out root Git tree differs' EXPECTED_SOURCE_TREE=1111111111111111111111111111111111111111
 expect_refusal wrong-compiler 'compiler executable digest differs' EXPECTED_COMPILER_SHA256=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 expect_refusal missing-compiler 'approved compiler executable missing' ORESLANG_BIN="$tmp/absent"
+ln -s "$tmp/not-a-compiler" "$tmp/compiler-link"
+expect_refusal compiler-symlink 'compiler executable must not be a symlink' ORESLANG_BIN="$tmp/compiler-link"
 mkdir -p "$src/inside-evidence"
 expect_refusal in-tree-evidence 'evidence must be outside the source checkout' ZORDE_EVIDENCE_DIR="$src/inside-evidence"
 rmdir "$src/inside-evidence"

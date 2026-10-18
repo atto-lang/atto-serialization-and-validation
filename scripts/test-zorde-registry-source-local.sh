@@ -37,6 +37,8 @@ case "$ORESLANG_BIN" in
   /*) ;;
   *) die "ORESLANG_BIN must be an absolute path (no PATH fallback)" ;;
 esac
+[[ ! -L "$ORESLANG_BIN" ]] ||
+  die "compiler executable must not be a symlink"
 [[ -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" ]] ||
   die "approved compiler executable missing or not executable"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
@@ -120,6 +122,15 @@ done
 
 [[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
   die "native test modified source tree; cannot issue receipt"
+
+# The compiler file must remain the reviewed executable throughout the run.
+# This catches persistent mutation between entry checks and evidence issuance;
+# a pinned launcher digest alone still does not attest its transitive runtime.
+[[ ! -L "$ORESLANG_BIN" ]] ||
+  die "compiler executable became a symlink during native validation"
+final_compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
+[[ "$final_compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] ||
+  die "compiler executable changed during native validation"
 
 # This is executable evidence *only for a separately approved compiler binary*.
 # A launcher digest alone does not attest a transitive Java/JVM/LLVM dependency
