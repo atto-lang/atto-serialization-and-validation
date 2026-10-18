@@ -49,10 +49,10 @@ jobs:
           node --input-type=module - <<'JS'
           import {readFileSync} from 'node:fs';
           const r=JSON.parse(readFileSync('artifacts/wit/static-crosswalk.json','utf8'));
-          if(r.status!=='STATIC_WIT_CROSSWALK_MATCH'||r.checks!==14||
+          if(r.status!=='STATIC_WIT_CROSSWALK_MATCH'||r.checks!==26||
              r.witSyntaxParsed!==false||r.nativeGuestExecuted!==false||
              r.canonicalAbiImplemented!==false||r.releaseReady!==false){
-            throw Error('static crosswalk receipt is missing 14 fail-closed checks');
+            throw Error('static crosswalk receipt is missing 26 fail-closed checks');
           }
           JS
 
@@ -120,7 +120,7 @@ jobs:
           from pathlib import Path
           p=Path("wit/zorde-validation.wit").read_bytes()
           crosswalk=json.loads(Path("artifacts/wit/static-crosswalk.json").read_text())
-          if crosswalk.get("status")!="STATIC_WIT_CROSSWALK_MATCH" or crosswalk.get("checks")!=14:
+          if crosswalk.get("status")!="STATIC_WIT_CROSSWALK_MATCH" or crosswalk.get("checks")!=26:
             raise SystemExit("crosswalk evidence is missing")
           binding_paths=[
             "wit/zorde-validation.wit",
@@ -138,7 +138,7 @@ jobs:
             "evidence_sha256":{name:hashlib.sha256(Path(name).read_bytes()).hexdigest()
               for name in binding_paths},
             "static_crosswalk_passed":True,
-            "static_crosswalk_test_cases":14,
+            "static_crosswalk_test_cases":26,
             "tool":"wasm-tools",
             "tool_version":"1.262.0",
             "tool_archive_sha256":"655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65",
