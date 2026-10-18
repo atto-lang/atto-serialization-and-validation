@@ -266,5 +266,57 @@ pub fnc run_validation_tests(): void {
   );
   require_true(report_is_valid(rt borrow finite_exponent_with_plus), "1e+3 remains valid");
 
+
+  // An unconstrained numeric type must still enforce JSON lexeme grammar.
+  // Previously these invalid Value objects passed without range bounds.
+  val ValidationReport unbounded_leading_zero = validate_value(
+    value_number_lexeme(new List<int>(48, 49)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_leading_zero),
+    "unbounded number must reject leading zero");
+
+  val ValidationReport unbounded_fraction = validate_value(
+    value_number_lexeme(new List<int>(49, 46)),
+    any_rule(),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_fraction),
+    "any_rule cannot admit malformed direct numeric Value");
+
+  val ValidationReport unbounded_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_exponent),
+    "unbounded numeric rule must reject missing exponent digits");
+
+  // Correct JSON numbers need not fit a float when there is NO float range.
+  val ValidationReport unbounded_large = validate_value(
+    value_number_lexeme(new List<int>(57, 101, 51, 48, 56)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_large),
+    "valid large JSON number accepted by type-only validator");
+
+  val ValidationReport unbounded_negative_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48)),
+    any_rule(),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_negative_zero),
+    "negative zero remains canonical for unconstrained numbers");
+
+  val ValidationReport unbounded_full_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 69, 45, 48, 48, 51)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_full_exponent),
+    "exponent leading zeroes and E-003 remain lexical JSON numbers");
+
   return;
 }
