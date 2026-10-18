@@ -1,0 +1,31 @@
+name: Source-free runner allocation diagnostic (no checkout)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/sourcefree-runner-admission-diagnostic.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/sourcefree-runner-admission-diagnostic.yml'
+
+permissions: {}
+
+jobs:
+  allocation-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Prove GitHub Actions runner allocation without accessing private source
+        shell: bash
+        env:
+          SOURCE_REPOSITORY: ${{ github.repository }}
+          SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$SOURCE_REPOSITORY" = "ores-truffle-oreslang/oreslang-serialization-and-validation"
+          test -n "$RUNNER_OS"
+          test -n "$SOURCE_HEAD"
+          echo "RUNNER_ALLOCATED_WITHOUT_CHECKOUT=true"
+          echo "PRIVATE_SOURCE_CHECKOUT=false"
+          echo "NATIVE_ORESLANG_COMPILER_EXECUTED=false"
+          echo "SOURCE_HEAD=$SOURCE_HEAD"
