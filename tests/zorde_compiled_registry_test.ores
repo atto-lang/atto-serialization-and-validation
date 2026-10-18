@@ -20,7 +20,7 @@ fnc port_descriptor(List<int> holes): ZordeScalarDescriptor {
   return new ZordeScalarDescriptor(1,2,1,1,65535,holes);
 }
 
-pub fnc main(): void {
+pub fnc run_zorde_compiled_registry_tests(): void {
   val List<int> mutable_holes = new List<int>(42);
   val Utf8Text original_id = port_id();
   val List<ZordeScalarRegistrySpec> source = new List<ZordeScalarRegistrySpec>();
