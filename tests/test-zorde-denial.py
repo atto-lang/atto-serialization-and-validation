@@ -60,5 +60,32 @@ class CheckAccessDenial(unittest.TestCase):
             result = subprocess.run([sys.executable, str(path), str(f), "private-storage-access"], check=False)
             self.assertEqual(result.returncode, 1)
 
+    def test_same_line_unrelated_private_entry(self):
+        self.assert_refused("error: ZordePrivateCompiledEntry unknown; Other is private", "private-entry-import")
+
+    def test_same_line_unrelated_private_member(self):
+        self.assert_refused("error: entries unknown; Other is private", "private-storage-access")
+
+    def test_same_line_denial_precedes_unrelated_target(self):
+        self.assert_refused("error: Other is private; ZordePrivateCompiledEntry unknown", "private-entry-import")
+
+    def test_same_line_denial_follows_unrelated_target(self):
+        self.assert_refused("error: entries unexpected; cannot access Other", "private-storage-access")
+
+    def test_same_line_access_denied_other(self):
+        self.assert_refused("error: ZordePrivateCompiledEntry not found; access denied to Other", "private-entry-import")
+
+    def test_same_line_spurious_intermediate_words(self):
+        self.assert_refused("error: entries variable is private", "private-storage-access")
+
+    def test_explicit_private_declaration(self):
+        self.assert_accepted("error: private class ZordePrivateCompiledEntry", "private-entry-import")
+
+    def test_private_access_with_quotes(self):
+        self.assert_accepted("error: `entries` has private access", "private-storage-access")
+
+    def test_import_denial(self):
+        self.assert_accepted("error: cannot import ZordePrivateCompiledEntry", "private-entry-import")
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
