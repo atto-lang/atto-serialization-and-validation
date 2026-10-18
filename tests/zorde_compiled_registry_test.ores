@@ -203,7 +203,7 @@ pub fnc run_zorde_compiled_registry_tests(): void {
   require_true(!zorde_registry_parse_scalar(
     rt borrow range_registry,port_id(),
     value_number_lexeme(new List<int>(
-      45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,56,48,56,48))
+      45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56))
   ).is_err(), "valid 20-byte signed int64 minimum must be accepted");
   val List<int> long_lexeme = new List<int>();
   c = 0;
