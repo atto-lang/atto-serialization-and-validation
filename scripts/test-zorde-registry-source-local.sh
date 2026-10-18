@@ -13,6 +13,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
 [[ -n "${EXPECTED_SOURCE_SHA:-}" && "${EXPECTED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
   die "EXPECTED_SOURCE_SHA must be an explicit immutable 40-hex source commit"
+[[ -n "${EXPECTED_SOURCE_TREE:-}" && "${EXPECTED_SOURCE_TREE}" =~ ^[0-9a-f]{40}$ ]] ||
+  die "EXPECTED_SOURCE_TREE must be the reviewed root Git tree SHA"
 [[ -n "${EXPECTED_COMPILER_SHA256:-}" && "${EXPECTED_COMPILER_SHA256}" =~ ^[0-9a-f]{64}$ ]] ||
   die "EXPECTED_COMPILER_SHA256 must be the independently approved compiler binary digest"
 [[ -n "${ORESLANG_BIN:-}" ]] || die "ORESLANG_BIN must identify the pinned compiler executable"
@@ -23,6 +25,9 @@ cd "$root"
 source_sha="$(git rev-parse HEAD)"
 [[ "$source_sha" == "$EXPECTED_SOURCE_SHA" ]] ||
   die "checked-out head differs from approved source revision"
+source_tree="$(git rev-parse 'HEAD^{tree}')"
+[[ "$source_tree" == "$EXPECTED_SOURCE_TREE" ]] ||
+  die "checked-out root Git tree differs from approved source snapshot"
 source_root="$(git rev-parse --show-toplevel)"
 [[ "$(cd "$source_root" && pwd -P)" == "$root" ]] ||
   die "source checkout root mismatch"
@@ -64,7 +69,7 @@ grep -Fqx "serialization/validation native tests passed" "$log" ||
 # This is executable evidence *only for a separately approved compiler binary*.
 # A launcher digest alone does not attest a transitive Java/JVM/LLVM dependency
 # closure; that requires separately reviewed compiler build/release provenance.
-SOURCE_SHA="$source_sha" COMPILER_SHA="$compiler_sha" NATIVE_LOG="$log" \
+SOURCE_SHA="$source_sha" SOURCE_TREE="$source_tree" COMPILER_SHA="$compiler_sha" NATIVE_LOG="$log" \
   NATIVE_RECEIPT="$receipt" python3 - <<'PY'
 import hashlib, json, os
 from pathlib import Path
@@ -72,6 +77,7 @@ log = Path(os.environ["NATIVE_LOG"]).read_bytes()
 record = {
     "schema": "oreslang.zorde.source-local.native-execution/v1",
     "source_head_sha": os.environ["SOURCE_SHA"],
+    "source_root_tree_sha": os.environ["SOURCE_TREE"],
     "compiler_executable_sha256": os.environ["COMPILER_SHA"],
     "native_log_sha256": hashlib.sha256(log).hexdigest(),
     "actual_native_guest_executed": True,
