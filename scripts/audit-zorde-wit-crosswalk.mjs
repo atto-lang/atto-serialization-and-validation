@@ -13,6 +13,17 @@ function matchesExactly(left,right) {
   return Array.isArray(left) && left.length===right.length &&
     left.every((v,i)=>v===right[i]);
 }
+function exactSchemaKeys(value, allowed, context) {
+  if(!value || typeof value!=='object' || Array.isArray(value) ||
+     Object.keys(value).length!==allowed.length ||
+     allowed.some(k=>!Object.hasOwn(value,k))) {
+    refuse('unexpected schema keyword or shape for '+context);
+  }
+}
+function exactSchemaMetadata(value, name) {
+  if(value?.$schema!=='https://json-schema.org/draft/2020-12/schema' ||
+     value?.$id!==name) refuse('schema identifier or dialect changed for '+name);
+}
 function bodyOf(text,kind,name) {
   // The three selected enum/record blocks have no nested WIT blocks.
   // This is only a conservative projection check, not a language parser.
@@ -48,8 +59,32 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
      !/^\s*package\s+oreslang:zorde-validation@0\.1\.0\s*;\s*interface\s+validation\s*\{\s*enum\s+error-code\s*\{[^{}]*\}\s*record\s+validation-issue\s*\{[^{}]*\}\s*record\s+validation-report\s*\{[^{}]*\}\s*validate-json\s*:\s*func\s*\([^()]*\)\s*->\s*validation-report\s*;\s*\}\s*world\s+zorde-validation-guest\s*\{\s*export\s+validation\s*;\s*\}\s*$/.test(wit)) {
     refuse('unexpected package, declaration, operation or world surface');
   }
+  // The WIT projection is exact, not a permissive subtype: any unknown
+  // constraint can narrow the JSON values while retaining the same fields.
+  // The peer TypeSpec and schema comparison remains a separate mandatory gate.
+  exactSchemaKeys(jsonSchema,['$schema','$id','$defs'],'root');
+  exactSchemaMetadata(jsonSchema,'https://oreslang.dev/schemas/zorde-validation-v1.schema.json');
   const defs=jsonSchema.$defs;
   if(!defs || typeof defs!=='object') refuse('missing authored JSON Schema definitions');
+  exactSchemaKeys(defs.ErrorCode,['$schema','$id','type','enum'],'ErrorCode');
+  exactSchemaMetadata(defs.ErrorCode,'ErrorCode');
+  exactSchemaKeys(defs.ValidationIssue,
+    ['$schema','$id','type','properties','required','unevaluatedProperties'],
+    'ValidationIssue');
+  exactSchemaMetadata(defs.ValidationIssue,'ValidationIssue');
+  exactSchemaKeys(defs.ValidationReport,
+    ['$schema','$id','type','properties','required','unevaluatedProperties'],
+    'ValidationReport');
+  exactSchemaMetadata(defs.ValidationReport,'ValidationReport');
+  exactSchemaKeys(defs.ValidationIssue.properties?.code,['$ref'],'ValidationIssue.code');
+  exactSchemaKeys(defs.ValidationIssue.properties?.path,['type'],'ValidationIssue.path');
+  exactSchemaKeys(defs.ValidationReport.properties?.schemaVersion,['const'],
+    'ValidationReport.schemaVersion');
+  exactSchemaKeys(defs.ValidationReport.properties?.valid,['type'],'ValidationReport.valid');
+  exactSchemaKeys(defs.ValidationReport.properties?.issues,['type','items'],
+    'ValidationReport.issues');
+  exactSchemaKeys(defs.ValidationReport.properties?.issues?.items,['$ref'],
+    'ValidationReport.issues.items');
   const cases=tokens(bodyOf(wit,'enum','error-code'));
   if(!matchesExactly(cases,defs.ErrorCode?.enum) ||
      defs.ErrorCode?.type!=='string')
@@ -109,7 +144,42 @@ export function selftest(wit,schema) {
   expectRejected(()=>auditZordeWitProjection(replace('  record validation-report {',
     '  record unexpected { leak: string, }\n  record validation-report {'),schema));
   expectRejected(()=>auditZordeWitProjection(wit+' '.repeat(17000),schema));
-  return 14; // one positive + thirteen independent adversarial cases
+  // These constraints were previously invisible to the static WIT crosswalk:
+  // the names and types matched, but accepted JSON values could differ.
+  const mutateSchema=fn=>{
+    const copy=structuredClone(schema);
+    fn(copy);
+    expectRejected(()=>auditZordeWitProjection(wit,copy));
+  };
+  mutateSchema(s=>{s.$defs.ValidationReport.properties.valid.const=false;});
+  mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.pattern='^[a-z]+
+}
+
+if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
+  try{
+    const wit=readFileSync('wit/zorde-validation.wit','utf8');
+    const schema=JSON.parse(readFileSync('contracts/zorde/authored.schema.json','utf8'));
+    const checks=selftest(wit,schema);
+    console.log(JSON.stringify({status:'STATIC_WIT_CROSSWALK_MATCH',checks,
+      witSyntaxParsed:false,nativeGuestExecuted:false,
+      canonicalAbiImplemented:false,releaseReady:false}));
+  }catch(e){
+    console.error(e?.message||'ZORDE_WIT_STATIC_CROSSWALK_DENIED');
+    process.exitCode=1;
+  }
+}
+;});
+  mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.minItems=1;});
+  mutateSchema(s=>{s.$defs.ValidationIssue.properties.code.allOf=[];});
+  mutateSchema(s=>{s.$defs.ValidationReport.anyOf=[];});
+  mutateSchema(s=>{s.anyOf=[];});
+  mutateSchema(s=>{s.$defs.ErrorCode.default='wrong-type';});
+  mutateSchema(s=>{s.$defs.ValidationReport.properties.schemaVersion.minimum=0;});
+  mutateSchema(s=>{s.$defs.ValidationReport.$id='ValidationReport-v2';});
+  mutateSchema(s=>{delete s.$schema;});
+  mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.items.$dynamicRef='#next';});
+  mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.format='uri';});
+  return 26; // one positive + 25 adversarial refusals
 }
 
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
