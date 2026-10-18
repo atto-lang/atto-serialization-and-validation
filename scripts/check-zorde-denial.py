@@ -8,20 +8,26 @@ import sys
 from pathlib import Path
 
 MAX_LOG_BYTES = 1_048_576
+def denial_matcher(symbol: str) -> re.Pattern:
+    """Accept a visibility denial only if the protected symbol is its subject/object.
+
+    Finding a name and unrelated denial on the same diagnostic line is not proof.
+    """
+    target = r"(?<!\\w)[`'\\\"]?" + re.escape(symbol) + r"[`'\\\"]?(?!\\w)"
+    suffix = (r"(?:is[ \\t]+private|has[ \\t]+private[ \\t]+access"
+              r"|(?:is[ \\t]+)?not[ \\t]+(?:exported|public|visible|accessible)"
+              r"|is[ \\t]+inaccessible|cannot[ \\t]+be[ \\t]+accessed)")
+    prefix = (r"(?:cannot[ \\t]+(?:access|import)|access[ \\t]+denied[ \\t]+(?:to[ \\t]+)?"
+              r"|private[ \\t]+(?:class|type|member|field|declaration|symbol|import))")
+    descriptor = r"(?:(?:member|field|class|type|symbol)[ \\t]+)?"
+    return re.compile(r"(?:%s[ \\t]+%s|%s[ \\t]+%s%s)" %
+                      (target, suffix, prefix, descriptor, target), re.IGNORECASE)
+
+
 TARGETS = {
-    "private-entry-import": re.compile(r"\bZordePrivateCompiledEntry\b"),
-    "private-storage-access": re.compile(r"\bentries\b"),
+    "private-entry-import": denial_matcher("ZordePrivateCompiledEntry"),
+    "private-storage-access": denial_matcher("entries"),
 }
-DENIAL = re.compile(
-    r"\b(?:not[\s-]+(?:exported|public|visible|accessible)"
-    r"|cannot[\s-]+(?:access|import)"
-    r"|access[\s-]+denied"
-    r"|inaccessible"
-    r"|visibility[\s-]+(?:error|denied)"
-    r"|is[\s-]+private"
-    r"|private[\s-]+(?:class|type|member|field|declaration|symbol|import))\b",
-    re.IGNORECASE,
-)
 
 def valid_log(content: bytes, fixture: str) -> bool:
     target = TARGETS.get(fixture)
@@ -32,7 +38,7 @@ def valid_log(content: bytes, fixture: str) -> bool:
     except UnicodeDecodeError:
         return False
     for line in data.splitlines():
-        if len(line) <= 4096 and target.search(line) and DENIAL.search(line):
+        if len(line) <= 4096 and target.search(line):
             return True
     return False
 
