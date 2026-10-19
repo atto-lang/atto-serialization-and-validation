@@ -79,29 +79,7 @@ from pathlib import Path
 log=Path(os.environ['LOG']).read_bytes()
 text=log.decode('utf-8')
 def metric(name):
-    matches=re.findall(r'^# '+name+r' (\d+)\s*
-receipt={
- 'schema':'oreslang.zorde.source-local.node-security-suite/v1',
- 'source_head_sha':os.environ['SOURCE_SHA'],
- 'source_root_tree_sha':os.environ['SOURCE_TREE'],
- 'node_executable_sha256':os.environ['NODE_SHA'],
- 'node_version':os.environ['NODE_VERSION'],
- 'source_free_test_cases_passed':passed,
- 'source_free_test_cases_failed':0,
- 'source_free_test_cases_skipped':0,
- 'node_test_log_sha256':hashlib.sha256(log).hexdigest(),
- 'real_node_crypto_filesystem_tests_executed':True,
- 'generated_oreslang_guest_executed':False,
- 'compiler_dependency_closure_attested':False,
- 'cross_backend_parity_certified':False,
- 'release_ready':False,
-}
-with Path(os.environ['RECEIPT']).open('x',encoding='utf-8') as f:
-    json.dump(receipt,f,sort_keys=True,indent=2)
-    f.write('\n')
-PY
-printf 'ZORDE_NODE_SOURCE_LOCAL_PASSED: %s\n' "$receipt"
-,text,re.M)
+    matches=re.findall(r'^# '+name+r' (\d+)\s*$',text,re.M)
     assert len(matches)==1,(name,matches)
     return int(matches[0])
 tests=metric('tests');passed=metric('pass');failed=metric('fail')
@@ -113,7 +91,7 @@ receipt={
  'source_root_tree_sha':os.environ['SOURCE_TREE'],
  'node_executable_sha256':os.environ['NODE_SHA'],
  'node_version':os.environ['NODE_VERSION'],
- 'source_free_test_cases_passed':tests,
+ 'source_free_test_cases_passed':passed,
  'source_free_test_cases_failed':0,
  'source_free_test_cases_skipped':0,
  'node_test_log_sha256':hashlib.sha256(log).hexdigest(),
