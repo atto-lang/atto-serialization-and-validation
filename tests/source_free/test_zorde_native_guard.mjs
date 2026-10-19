@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,rmSync,mkdirSync,symlinkSync} from 'node:fs';
+import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 
@@ -30,7 +31,13 @@ try {
   mkdirSync(join(tmp,'private-evidence'),{mode:0o700});
   const destination=join(tmp,'symlinked-evidence');
   symlinkSync(join(tmp,'private-evidence'),destination);
+  const fakeExecutable=join(tmp,'inert-test-executable');
+  const fakeBytes=Buffer.from('#!/bin/sh\\nexit 99\\n');
+  writeFileSync(fakeExecutable,fakeBytes,{mode:0o700});
+  const trustedTestDigest=createHash('sha256').update(fakeBytes).digest('hex');
   const base={...envBase,ZORDE_EVIDENCE_DIR:join(tmp,'private-evidence')};
+  const withExecutable={...base,ORESLANG_BIN:fakeExecutable,
+    EXPECTED_COMPILER_SHA256:trustedTestDigest};
   const cases=[
     ['no source SHA',{...base,EXPECTED_SOURCE_SHA:''},/required reviewed environment input missing/],
     ['malformed source SHA',{...base,EXPECTED_SOURCE_SHA:'not-hex'},/invalid expected source SHA/],
@@ -39,7 +46,8 @@ try {
     ['absent independent IR digest',{...base,EXPECTED_CONTRACT_IR_SHA256:''},/required reviewed environment input missing/],
     ['malformed parity digest',{...base,EXPECTED_PARITY_REPORT_SHA256:'invalid'},/invalid externally reviewed evidence digest/],
     ['malformed consumer receipt digest',{...base,EXPECTED_VERIFICATION_SHA256:'invalid'},/invalid externally reviewed evidence digest/],
-    ['evidence symlink',{...base,ZORDE_EVIDENCE_DIR:destination},/compiler must be an absolute real executable|evidence directory must preexist/],
+    ['evidence symlink',{...withExecutable,ZORDE_EVIDENCE_DIR:destination},/evidence directory must preexist/],
+    ['wrong reviewed commit',withExecutable,/source SHA changed/],
     ['compiler missing',{...base},/compiler must be an absolute real executable/],
   ];
   for(const [label,env,reason] of cases) {
