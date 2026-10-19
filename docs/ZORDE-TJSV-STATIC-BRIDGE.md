@@ -60,6 +60,7 @@ node scripts/zorde-static-contract-ir.mjs \
   --report=artifacts/zorde-scalars-parity.json \
   --ir-sha256='<reviewed SHA-256 of the exact IR file>' \
   --report-sha256='<reviewed SHA-256 of the exact report file>' \
+  --instances=contracts/zorde/scalar-instances \
   --out-dir=artifacts/zorde-generated
 ```
 
@@ -96,7 +97,7 @@ node --test tests/source_free/test_zorde_contract_ir.mjs
 
 The source-org workflow `zorde-static-ir-bridge.yml` is currently
 unable to allocate a runner. An isolated V8 test execution of the actual
-pure JavaScript functions passed **60/60** isolated pure-function cases
+pure JavaScript functions passed **73/73** isolated pure-function cases
 (including 10,000 deterministic scalar projection probes) with simulated
 noncryptographic hashing. These runs do **not** execute the Node CLI, genuine
 SHA-256/file I/O, TJSV compiler or native Oreslang guest. The additional three Node-only regression cases check real SHA-256 vectors,
@@ -121,3 +122,28 @@ funded Actions carrier.
 ## October 19 additional fail-closed gates
 
 Actual admission now requires `configuration.mode=check`, `coverage.sourceMutationCheck=true`, zero structural/differential/emitted findings, and an untruncated finding inventory. Generated plans must bind exactly three well-formed SHA-256 source-authority digests; file ingestion stops when the host cannot supply a nonzero `O_NOFOLLOW` flag rather than silently following a symlink. These logic checks passed in the isolated V8 suite; the real Node crypto/filesystem suite is still pending a source-local runner.
+
+## Reviewed corpus identity and native receipt sealing
+
+The compiler bridge now **requires** a nonempty, independently authored
+positive-and-negative JSON instance corpus for *every* admitted scalar. It
+reconciles per-declaration counts against the TJSV report, refuses anonymous
+or unasserted fixtures, and demands an identical 64-character SHA-256 corpus
+identity in `configuration.differential.instanceCorpusDigest` and
+`differential.corpusDigest`.
+
+The CLI uses `--instances=contracts/zorde/scalar-instances` to independently
+rebuild the pinned upstream `corpusIdentity`: canonical JSON SHA-256 of
+ordered `{declaration, expectation, relativePath, instance}` records. Only
+regular JSON files in the closed `<Declaration>/valid` and
+`<Declaration>/invalid` layout are accepted; symlinks, hardlinks, ambiguous
+JSON keys, extra directories and excessive input sizes fail closed. This
+check must succeed **before** any generated Oreslang output is published.
+
+The source-local native runner's pre-execution digest manifest includes
+**18 inputs**: nine authority/receipt/generated files and nine checked-in
+reviewed corpus fixtures. It recomputes the source corpus identity before
+native guest execution, and rechecks the full manifest afterward and
+immediately before issuing a non-release-qualified native receipt. These
+measures depend on a trusted ephemeral build host; a SHA of an
+attacker-controlled file does not independently attest who produced it.
