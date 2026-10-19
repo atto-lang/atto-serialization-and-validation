@@ -10,6 +10,15 @@ out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
 chmod 700 "$out"
 cp "$root/scripts/test-zorde-registry-source-local.sh" "$src/scripts/"
+# Synthetic-only script: no production source, compiler, or backend is copied.
+# It is used solely to prove tampering cannot lead to a receipt.
+mkdir -p "$src/tests"
+cat > "$src/scripts/test.sh" <<'TEST'
+#!/bin/sh
+set -eu
+exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
+TEST
+printf 'not an Oreslang guest program\n' > "$src/tests/main.ores"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
 git -C "$src" init -q
 git -C "$src" config user.name 'Zorde harness contract test'
@@ -79,4 +88,54 @@ ln -s "$out" "$tmp/evidence-link"
 expect_refusal symlink-evidence 'evidence directory must not be a symlink' ZORDE_EVIDENCE_DIR="$tmp/evidence-link"
 ln -s "$tmp" "$tmp/alias-root"
 expect_refusal evidence-parent-symlink 'evidence directory path must have no symlink components' ZORDE_EVIDENCE_DIR="$tmp/alias-root/evidence"
+
+# Regression: a broken git status that returns nonzero but no stdout is NOT
+# proof of a clean checkout. All other Git subcommands use the real binary.
+real_git="$(command -v git)"
+mkdir -p "$tmp/shadow-git"
+cat > "$tmp/shadow-git/git" <<'GIT'
+#!/bin/sh
+if [ "$1" = status ]; then exit 91; fi
+exec "$REAL_GIT" "$@"
+GIT
+chmod 700 "$tmp/shadow-git/git"
+expect_refusal git-status-error 'unable to inspect source working tree' \
+  REAL_GIT="$real_git" PATH="$tmp/shadow-git:$PATH"
+
+# Regression: a different HEAD with EXACTLY THE SAME Git tree is not the
+# reviewed commit. An intentionally fake compiler makes the workflow reach
+# the postrun identity gate, then mutates HEAD. This MUST refuse a receipt.
+# These markers are synthetic test strings, not evidence of Oreslang execution.
+alternate_head="$(printf 'synthetic alternative HEAD\n' |
+  git -C "$src" commit-tree "$tree" -p "$head")"
+cat > "$tmp/synthetic-head-switcher" <<'FAKE'
+#!/bin/sh
+set -eu
+case "$1" in
+  */tests/main.ores)
+    git -C "$FAKE_SOURCE" update-ref HEAD "$FAKE_ALT_HEAD"
+    printf '%s\n' 'native Zorde compiled scalar registry tests passed' \
+      'serialization/validation native tests passed'
+    ;;
+  */fixtures/zorde-compile-positive/public-export-control.ores)
+    printf '%s\n' 'native Zorde public export control passed'
+    ;;
+  */fixtures/zorde-compile-negative/private-entry-import.ores)
+    echo 'ZordePrivateCompiledEntry is private' >&2; exit 42
+    ;;
+  */fixtures/zorde-compile-negative/private-storage-access.ores)
+    echo 'ZordeScalarRegistry entries is private' >&2; exit 42
+    ;;
+  *) echo 'unexpected synthetic fixture' >&2; exit 78 ;;
+esac
+FAKE
+chmod 700 "$tmp/synthetic-head-switcher"
+synthetic_sha="$(sha256sum "$tmp/synthetic-head-switcher" | cut -d ' ' -f 1)"
+expect_refusal switched-head 'source HEAD changed during native validation' \
+  ORESLANG_BIN="$tmp/synthetic-head-switcher" EXPECTED_COMPILER_SHA256="$synthetic_sha" \
+  FAKE_SOURCE="$src" FAKE_ALT_HEAD="$alternate_head"
+[[ "$(git -C "$src" rev-parse HEAD)" == "$alternate_head" ]] ||
+  { echo 'synthetic fixture did not exercise a HEAD switch' >&2; exit 1; }
+[[ "$(git -C "$src" rev-parse 'HEAD^{tree}')" == "$tree" ]] ||
+  { echo 'synthetic fixture unexpectedly changed Git tree' >&2; exit 1; }
 printf 'Zorde source-local preflight refusal contracts: %s PASS (no native compiler executed)\n' "$count"
