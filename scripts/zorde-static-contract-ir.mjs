@@ -20,6 +20,35 @@ const ANNOTATIONS = new Set(['$id', '$schema', 'title', 'description']);
 function assert(ok, message) { if (!ok) throw new Error('ZORDE_STATIC_REFUSED: ' + message); }
 function object(x) { return x !== null && typeof x === 'object' && !Array.isArray(x); }
 function digest(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
+// Match the pinned upstream TJSV Contract IR canonical JSON SHA-256 scheme.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (!object(value)) return value;
+  return Object.fromEntries(Object.keys(value).sort().map(
+    key=>[key,canonicalJson(value[key])]));
+}
+export function canonicalDigest(value) {
+  return digest(Buffer.from(JSON.stringify(canonicalJson(value)),'utf8'));
+}
+export function semanticReportProjection(report) {
+  const projected=structuredClone(report);
+  assert(object(projected.configuration) && object(projected.toolchain)
+    && object(projected.inputs), 'TJSV report identity inputs are missing');
+  const c=projected.configuration;
+  c.emitterOptions=c.emitterOptions ?
+    Object.fromEntries(Object.entries(c.emitterOptions)
+      .filter(([key])=>key!=='emitter-output-dir')) : null;
+  c.executionMode=null;
+  c.differential={...c.differential,instanceCorpus:null};
+  projected.toolchain.typespecCompiler={
+    version:projected.toolchain.typespecCompiler?.version??null};
+  for (const lane of ['typespec','authoredJsonSchema','generatedJsonSchema']) {
+    assert(object(projected.inputs[lane]),'missing source lane: '+lane);
+    projected.inputs[lane]={...projected.inputs[lane],input:null};
+  }
+  if(Object.hasOwn(projected.inputs,'mapping'))projected.inputs.mapping=null;
+  return projected;
+}
 function sha(x) { return typeof x === 'string' && HEX.test(x); }
 function exactKeys(value, allowed, context) {
   assert(object(value), context + ' must be an object');
@@ -38,6 +67,9 @@ export function descriptorFromSchema(schema) {
   assert(object(schema), 'scalar schema must be an object');
   assert(Object.hasOwn(schema,'type')
     && (schema.type === 'integer' || schema.type === 'string'), 'unsupported scalar type');
+  if(Object.hasOwn(schema,'$schema')) assert(
+    schema.$schema==='https://json-schema.org/draft/2020-12/schema',
+    'unsupported JSON Schema dialect');
   const allowed = new Set(ANNOTATIONS);
   if (schema.type === 'integer') {
     for (const k of ['type', 'format', 'minimum', 'maximum']) allowed.add(k);
@@ -78,6 +110,8 @@ export function deriveStaticRegistry(ir, report) {
   assert(ir.role === 'downstream-derived-parity-artifact' && ir.editableAuthority === false,
     'Contract IR must be immutable derived evidence');
   assert(sha(ir.irId), 'invalid Contract IR identity');
+  const {irId:_,...irBody}=ir;
+  assert(canonicalDigest(irBody)===ir.irId, 'Contract IR self digest mismatch');
   assert(ir.authorities?.typespec === 'independently-authored'
     && ir.authorities?.jsonSchema === 'independently-authored'
     && ir.authorities?.generatedJsonSchema === 'comparison-evidence-only'
@@ -95,7 +129,9 @@ export function deriveStaticRegistry(ir, report) {
     && ir.admission.receipt.runId === report.runId
     && ir.admission.receipt.status === 'passed'
     && ir.admission.receipt.zeroUnexplainedFindings === true
-    && sha(ir.admission.receipt.digest), 'Contract IR/report binding mismatch');
+    && sha(ir.admission.receipt.digest)
+    && canonicalDigest(semanticReportProjection(report))===ir.admission.receipt.digest,
+    'Contract IR/report binding mismatch');
   for (const key of REQUIREMENTS) assert(ir.admission?.requirements?.[key] === true,
     'missing IR requirement ' + key);
   assert(emptyArray(ir.excludedDeclarations) && emptyArray(ir.outOfScopeDeclarations),
@@ -139,6 +175,12 @@ export function deriveStaticRegistry(ir, report) {
       'declaration authority switched');
     assert(sha(decl.assertionDigest) && sha(generated.schemaDigest)
       && sha(authored.schemaDigest), 'missing declaration digests');
+    assert(canonicalDigest(decl.assertionSchema)===decl.assertionDigest,
+      'assertion schema digest no longer matches its body');
+    assert(canonicalDigest(generated.normalizedSchema)===generated.schemaDigest,
+      'generated schema lane digest no longer matches');
+    assert(canonicalDigest(authored.normalizedSchema)===authored.schemaDigest,
+      'authored schema lane digest no longer matches');
     const assertion = semanticDescriptor(decl.assertionSchema);
     assert(assertion === semanticDescriptor(generated.normalizedSchema)
       && assertion === semanticDescriptor(authored.normalizedSchema),
