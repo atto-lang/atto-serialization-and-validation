@@ -103,7 +103,7 @@ then
   die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
 for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
-  zorde-public-export-control.log \
+  zorde-public-export-control.log zorde-public-import-positive.log \
   zorde-private-entry-import-denial.log \
   zorde-private-storage-access-denial.log; do
   [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
@@ -125,8 +125,20 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
-# Prove the same compiler can resolve the PUBLIC registry API separately,
-# before interpreting either private import failure as visibility enforcement.
+# Keep the parent's positive-import control as a separate compiler
+# invocation. Its function signature must resolve the public class/import
+# even if no guest stdout marker is emitted by this compile-only fixture.
+positive_import_log="$out_dir/zorde-public-import-positive.log"
+set +e
+timeout --signal=TERM --kill-after=5s 60s \
+  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-registry-import.ores" >"$positive_import_log" 2>&1
+positive_import_status=$?
+set -e
+[[ "$positive_import_status" -eq 0 ]] ||
+  die "public registry import positive control failed (exit=$positive_import_status)"
+
+# Independently prove that public registry API execution emits the expected
+# marker, before interpreting either private failure as visibility enforcement.
 public_log="$out_dir/zorde-public-export-control.log"
 set +e
 timeout --signal=TERM --kill-after=5s 60s \
@@ -217,6 +229,10 @@ record = {
     "actual_native_guest_executed": True,
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
+    "public_registry_import_control_passed": True,
+    "public_registry_import_log_sha256": hashlib.sha256(
+        (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()
+    ).hexdigest(),
     "public_export_control_executed": True,
     "public_export_control_log_sha256": hashlib.sha256(
         (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-export-control.log").read_bytes()
