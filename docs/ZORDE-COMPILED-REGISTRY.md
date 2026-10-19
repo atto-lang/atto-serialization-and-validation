@@ -159,3 +159,14 @@ Graal/JVM artifacts, LLVM backend, SDK, or native-image runtime; the receipt
 marks that gap explicitly. Source-level and transitive compiler provenance,
 authorized environment identity, separate output review and full backend
 conformance are still required for release.
+
+## Targeted diagnostic evidence guard
+
+The source-local runner now invokes a small Python verifier for each nonzero
+negative Oreslang compiler fixture. It requires the protected symbol and a
+visibility/export/access denial in the same or adjacent diagnostic lines.
+A 64-KiB log cap, strict UTF-8 decoding, known-fixture allowlist and refusal of
+mixed parse/internal/missing-module errors prevent unrelated failures from
+masquerading as access-control evidence. Its 18 independent source-free Python
+unit tests run from `scripts/test-runner.sh`. These tests are not native
+Oreslang compiler or backend-conformance evidence.

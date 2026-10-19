@@ -114,20 +114,11 @@ for fixture in private-entry-import private-storage-access; do
      "$negative_status" -ne 126 && "$negative_status" -ne 127 &&
      "$negative_status" -ne 143 ]] ||
     die "private registry fixture timed out: ${fixture}"
-  # A filename or class named "Private..." must never satisfy the verdict.
-  # Only a phrase expressing denial of visibility/export/access can count.
-  grep -Eiq '(not[[:space:]-]+export|not[[:space:]-]+public|not[[:space:]-]+visible|not[[:space:]-]+accessible|cannot[[:space:]-]+access|access[[:space:]-]+denied|inaccessible|visibility[[:space:]-]+(error|denied)|is[[:space:]-]+private|private[[:space:]-]+(class|type|member|field|declaration|symbol|import))' "$negative_log" ||
-    die "negative fixture failed without an access-control diagnostic: ${fixture}"
-  # Require the diagnostic to identify the protected class or storage
-  # under test, not an unrelated visibility failure elsewhere.
-  case "$fixture" in
-    private-entry-import)
-      grep -Fq 'ZordePrivateCompiledEntry' "$negative_log" ||
-        die "entry denial diagnostic did not name the protected type" ;;
-    private-storage-access)
-      grep -Eq 'entries|ZordeScalarRegistry' "$negative_log" ||
-        die "storage denial diagnostic did not name the protected member" ;;
-  esac
+  # Refuse generic/remote diagnostics: require protected symbol and access
+  # denial in the same or immediately adjacent diagnostic lines. Mixed parse,
+  # module-path, internal errors and large logs cannot create evidence.
+  python3 "$root/scripts/zorde_visibility_diagnostic.py" "$negative_log" "$fixture" ||
+    die "negative fixture lacked a targeted visibility diagnostic: ${fixture}"
 done
 
 [[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
