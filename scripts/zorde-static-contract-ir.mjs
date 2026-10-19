@@ -135,6 +135,21 @@ export function deriveStaticRegistry(ir, report) {
   assert(report.differential?.summary?.probesEvaluated > 0
     && report.differential?.summary?.divergences === 0
     && report.differential?.summary?.refusals === 0, 'differential evidence missing/refused');
+  // Synthetic differential probes do not establish independently asserted
+  // positive/negative verdicts. Each nominal declaration must have a reviewed
+  // accepted and rejected instance. Bind the corpus digest and ensure there are
+  // no unclaimed/anonymous fixtures before trusting the reported inventory.
+  const summary=report.differential.summary;
+  assert(report.configuration.differential?.enabled === true
+    && sha(report.configuration.differential.instanceCorpusDigest)
+    && Array.isArray(report.differential.declarations)
+    && Number.isSafeInteger(summary.corpusInstances)
+    && summary.corpusInstances > 0
+    && summary.corpusInstances === summary.matchedReviewedCorpusInstances
+    && summary.reviewedUnassertedInstances === 0
+    && summary.reviewedAcceptedInstances > 0
+    && summary.reviewedRejectedInstances > 0,
+    'independently reviewed scalar corpus is missing or incomplete');
   // Recompute the actual TJSV runId, not merely its SHA-256 syntax. Binding
   // source digests into a rewritten receipt is necessary but not proof of a
   // trusted producer or current checked-out source; those are CI obligations.
@@ -175,6 +190,40 @@ export function deriveStaticRegistry(ir, report) {
   assert(Array.isArray(report.declarationMap)
     && report.declarationMap.length === ir.declarations.length,
     'report declaration count mismatch');
+  assert(report.differential.declarations.length === ir.declarations.length
+    && summary.comparedDeclarations === ir.declarations.length
+    && summary.declarationsWithReviewedPositiveAndNegative === ir.declarations.length
+    && summary.declarationsWithoutReviewedFixtures === 0,
+    'positive/negative corpus not reviewed for every admitted declaration');
+  const reviewed=new Map();
+  let sumAccepted=0, sumRejected=0, sumUnasserted=0;
+  for(const entry of report.differential.declarations){
+    assert(object(entry) && typeof entry.typespec==='string'
+      && !reviewed.has(entry.typespec)
+      && entry.reviewedFixtureCoverage==='positive-and-negative'
+      && object(entry.reviewedCorpus)
+      && Number.isSafeInteger(entry.reviewedCorpus.accepted)
+      && Number.isSafeInteger(entry.reviewedCorpus.rejected)
+      && entry.reviewedCorpus.accepted > 0
+      && entry.reviewedCorpus.rejected > 0
+      && entry.reviewedCorpus.unasserted === 0
+      && entry.reviewedCorpus.total ===
+        entry.reviewedCorpus.accepted+entry.reviewedCorpus.rejected
+      && entry.behaviorallyIndistinguishable === true
+      && entry.divergences === 0 && entry.refusals === 0
+      && Number.isSafeInteger(entry.probes)
+      && entry.probes >= entry.reviewedCorpus.total,
+      'unreviewed, duplicate or contradictory declaration corpus');
+    reviewed.set(entry.typespec,entry);
+    sumAccepted+=entry.reviewedCorpus.accepted;
+    sumRejected+=entry.reviewedCorpus.rejected;
+    sumUnasserted+=entry.reviewedCorpus.unasserted;
+  }
+  assert(sumAccepted===summary.reviewedAcceptedInstances
+    && sumRejected===summary.reviewedRejectedInstances
+    && sumUnasserted===summary.reviewedUnassertedInstances
+    && sumAccepted+sumRejected===summary.corpusInstances,
+    'per-declaration corpus counts contradict the report summary');
   const mapped = new Map();
   for (const item of report.declarationMap) {
     assert(object(item) && typeof item.typespec === 'string'
@@ -191,6 +240,10 @@ export function deriveStaticRegistry(ir, report) {
     assert(object(decl.names) && decl.names.typespec === decl.id,
       'nominal schema identity mismatched');
     const pair = mapped.get(decl.id);
+    const corpus=reviewed.get(decl.id);
+    assert(corpus && corpus.generated === decl.names.generatedJsonSchema
+      && corpus.authored === decl.names.authoredJsonSchema,
+      'verified corpus nominal identity mismatches the admitted declaration');
     assert(pair && ['scalar','alias','scalar-like'].includes(pair.kind),
       'mapped declaration is not a scalar kind');
     assert(pair && pair.generated === decl.names.generatedJsonSchema
