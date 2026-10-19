@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync,readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {join,resolve} from 'node:path';
+import {join,resolve,dirname,normalize,relative,isAbsolute} from 'node:path';
 
 // Host-side fail-closed preflight only. This suite does NOT execute or
 // authenticate the Oreslang compiler, any private code export, or native
@@ -64,3 +64,45 @@ try {
   // registration; keep the fixtures through execution by cleanup on exit.
   process.once('exit',()=>rmSync(tmp,{recursive:true,force:true}));
 }
+
+
+// Compare the current trusted guest dependency graph with the reviewed pilot
+// closure. This is a STATIC source test only; no compiler execution is implied.
+test('native manifest covers exact recursive Zorde guest import closure',()=>{
+  const expected=[
+    'src/core/utf8.ores','src/core/utf8_scalar.ores','src/core/value.ores',
+    'src/validation/validation.ores',
+    'src/zorde/compiled_registry.ores','src/zorde/refinement_descriptor.ores',
+    'src/zorde/scalar.ores','src/zorde/scalar_core.ores','src/zorde/zorde.ores',
+    'tests/assert.ores',
+  ];
+  const roots=[
+    'tests/assert.ores','src/zorde/compiled_registry.ores',
+    'src/zorde/refinement_descriptor.ores','src/core/value.ores',
+    'src/validation/validation.ores',
+  ];
+  const done=new Set();
+  function visit(filename){
+    assert.ok(!isAbsolute(filename) && !filename.startsWith('..'));
+    if(done.has(filename))return;
+    assert.ok(done.size<64,'dependency size limit exceeded');
+    done.add(filename);
+    const source=readFileSync(resolve(filename),'utf8');
+    for(const line of source.split('\n')){
+      if(!line.trimStart().startsWith('import '))continue;
+      const match=line.match(/^\s*import\s+.+\s+from\s+(['"])(\.[^'"]+)\1;\s*$/);
+      assert.ok(match,'unreviewed import grammar in '+filename);
+      const target=normalize(join(dirname(filename),match[2]+'.ores'));
+      assert.ok(!isAbsolute(target) && target!=='..' && !target.startsWith('..'+requirePathSeparator),
+        'dependency escapes the approved source tree');
+      visit(target.split('\\').join('/'));
+    }
+  }
+  const requirePathSeparator=process.platform==='win32'?'\\':'/';
+  for(const root of roots)visit(root);
+  assert.deepEqual([...done].sort(),expected.sort());
+  const guard=readFileSync(script,'utf8');
+  assert.match(guard,/staticGuestImportClosure/);
+  assert.match(guard,/len\(manifest\["files"\]\)==18\+len\(manifest\["staticGuestImportClosure"\]\)/);
+  assert.match(guard,/static_guest_import_closure_sealed/);
+});
