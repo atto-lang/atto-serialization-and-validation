@@ -70,17 +70,8 @@ timeout --signal=TERM --kill-after=5s 300s \
 status=$?
 set -e
 [[ "$status" -eq 0 ]] || die "real Node test suite failed; private log retained (exit $status)"
-python3 - "$log" <<'PY' || die 'invalid, incomplete or unexpectedly small Node TAP results'
-import re,sys
-s=open(sys.argv[1],encoding='utf-8').read()
-def metric(name):
-    hits=re.findall(r'^# '+name+r' (\d+)\s*$',s,re.MULTILINE)
-    assert len(hits)==1,(name,hits)
-    return int(hits[0])
-n=metric('tests');passed=metric('pass');fail=metric('fail')
-skip=metric('skipped');todo=metric('todo');cancelled=metric('cancelled')
-assert n>=80 and passed==n and fail==0 and skip==0 and todo==0 and cancelled==0, (n,passed,fail,skip,todo,cancelled)
-PY
+# Validate TAP only after source/binary rechecks. The final receipt signer
+# performs one bounded O_NOFOLLOW read and parses that same verified byte set.
 [[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] ||
   die 'Node binary changed during test execution'
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" &&
@@ -92,7 +83,7 @@ while IFS= read -r -d '' file; do
 done < <(git ls-files --others --exclude-standard -z)
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" \
 NODE_SHA="$EXPECTED_NODE_SHA256" NODE_VERSION="$node_version" \
-LOG="$log" RECEIPT="$receipt" python3 - <<'PY'
+LOG="$log" RECEIPT="$receipt" python3 - <<'PY' || die 'invalid private Node TAP log or receipt creation was refused'
 import hashlib,json,os,re,stat
 from pathlib import Path
 # Open the exact output log without following symbolic links and prove it is
