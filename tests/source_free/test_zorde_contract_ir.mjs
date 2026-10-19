@@ -62,6 +62,17 @@ function fixture() {
       },
     }],
   };
+  const identity=semanticReportProjection(report);
+  report.runId=canonicalDigest({
+    schema:report.schema,status:report.status,
+    configuration:identity.configuration,
+    inputDigests:{typespec:report.inputs.typespec.digest,
+      authored:report.inputs.authoredJsonSchema.digest,
+      generated:report.inputs.generatedJsonSchema.digest},
+    toolchain:identity.toolchain,
+    findings:[],
+  });
+  ir.admission.receipt.runId=report.runId;
   const d=ir.declarations[0];
   d.assertionDigest=canonicalDigest(d.assertionSchema);
   d.lanes.typespecGeneratedJsonSchema.schemaDigest=
@@ -187,6 +198,22 @@ for (const [idx,scalar] of badShapes.entries()) {
     assert.throws(()=>descriptorFromSchema(scalar),/ZORDE_STATIC_REFUSED/);
   });
 }
+test('forged runId is rejected even after rewriting IR receipt and self digest',()=>{
+  const {ir,report}=fixture();
+  report.runId='e'.repeat(64);
+  ir.admission.receipt.runId=report.runId;
+  ir.admission.receipt.digest=canonicalDigest(semanticReportProjection(report));
+  const {irId:_,...body}=ir;
+  ir.irId=canonicalDigest(body);
+  assert.throws(()=>deriveStaticRegistry(ir,report),/runId content digest mismatch/);
+});
+test('changed compiler version invalidates runId even if receipt self digest is rewritten',()=>{
+  const {ir,report}=fixture();
+  report.toolchain.typespecCompiler.version='999.0.0';
+  ir.admission.receipt.digest=canonicalDigest(semanticReportProjection(report));
+  const {irId:_,...body}=ir;ir.irId=canonicalDigest(body);
+  assert.throws(()=>deriveStaticRegistry(ir,report),/runId content digest mismatch/);
+});
 test('schema-body substitution is rejected despite forged matching IR self digest',()=>{
   const {ir,report}=fixture();
   const d=ir.declarations[0];
