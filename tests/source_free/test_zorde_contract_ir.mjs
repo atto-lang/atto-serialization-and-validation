@@ -399,6 +399,10 @@ test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and sy
     const alt=join(tmp,'linked-root');
     symlinkSync(root,alt,'dir');
     assert.throws(()=>reviewedCorpusIdentity(alt),/ZORDE_STATIC_REFUSED/);
+    const linkedParent=join(tmp,'linked-parent');
+    symlinkSync(tmp,linkedParent,'dir');
+    assert.throws(()=>reviewedCorpusIdentity(join(linkedParent,'reviewed-corpus')),
+      /ZORDE_STATIC_REFUSED/);
   } finally{rmSync(tmp,{recursive:true,force:true});}
 });
 
