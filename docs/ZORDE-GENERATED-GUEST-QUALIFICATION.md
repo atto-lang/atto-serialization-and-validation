@@ -146,3 +146,40 @@ must stop execution or the final receipt. The manifest records
 guest and before the receipt is issued. The source-free host test checks the
 exact expected import graph. This **does not attest the compiler binary's
 transitive dependency closure** and cannot replace real native guest tests.
+
+## Source-local Node security qualification (without GitHub Actions minutes)
+
+The actual Node SHA-256, strict JSON, reviewed-corpus mutation, source-bound
+build CLI and source-local runner preflight tests can run **before** the
+TypeSpec and native backend stages on an approved source-local Linux machine.
+This neither exports the private Git tree nor requires GitHub Actions minutes.
+
+Review the exact source commit and Git tree, Node 22 executable SHA-256,
+and destination path **independently**, not from attacker-supplied candidate
+bytes. Create a fresh 0700 private evidence directory outside checkout.
+
+```bash
+export EXPECTED_SOURCE_SHA='<reviewed 40-hex private source commit>'
+export EXPECTED_SOURCE_TREE='<reviewed 40-hex Git root tree>'
+export NODE_BIN='/approved/absolute/node22-executable'
+export EXPECTED_NODE_SHA256='<independently reviewed 64-hex binary digest>'
+export ZORDE_EVIDENCE_DIR='/approved/private/fresh-0700-directory'
+
+bash scripts/test-zorde-node-source-local.sh
+```
+
+The script denies symlinked Node executables, incorrect SHA/tree, dirty
+tracked checkout, unexpected untracked source files, unsafe evidence folders,
+changed Node binaries, nonzero test exits, missing TAP counts, failures and
+skips. It demands at least 80 executed Node cases and rechecks the source and
+Node executable after the tests. A successful invocation issues the exclusive
+`zorde-node-real-suite-receipt.json` with exact source/tree/binary/log digests.
+
+The receipt can certify `real_node_crypto_filesystem_tests_executed:true`,
+but explicitly keeps `generated_oreslang_guest_executed:false`,
+`cross_backend_parity_certified:false`, and `release_ready:false`.
+
+The shell gate was smoke-tested in a **synthetic** local Git checkout with
+90 passing dummy Node tests, and an incorrect source SHA was refused. That
+is not private Oreslang source-test evidence. The actual tests on the exact
+private revision are still required before this gate can be marked qualified.
