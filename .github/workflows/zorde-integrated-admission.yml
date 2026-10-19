@@ -94,6 +94,7 @@ jobs:
             --report=artifacts/zorde-scalars-parity.json \
             --ir-sha256="$ir_sha" \
             --report-sha256="$report_sha" \
+            --instances=contracts/zorde/scalar-instances \
             --out-dir=artifacts/zorde-generated
           node --input-type=module - <<'JS'
           import {readFileSync} from 'node:fs';
@@ -107,6 +108,11 @@ jobs:
             ||receipt.guestSmokeCompiled!==false||receipt.guestSmokeExecuted!==false
             ||receipt.releaseReady!==false||receipt.nativeGuestExecuted!==false)
             throw Error('incomplete or misrepresented static build');
+          const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
+          if(receipt.reviewedCorpusDigest!==report.differential?.corpusDigest
+            ||receipt.reviewedCorpusDigest!==report.configuration?.differential?.instanceCorpusDigest
+            ||receipt.reviewedCorpusInstances!==report.differential?.summary?.corpusInstances)
+            throw Error('source-bound reviewed corpus identity was not retained');
           const plan=JSON.parse(readFileSync(dir+'registry-plan.json','utf8'));
           const names=plan.entries.map(x=>x.schemaId);
           if(JSON.stringify(names)!==JSON.stringify([
