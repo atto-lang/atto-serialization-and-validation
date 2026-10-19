@@ -10,6 +10,7 @@ out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
 chmod 700 "$out"
 cp "$root/scripts/test-zorde-registry-source-local.sh" "$src/scripts/"
+cp "$root/scripts/verify-zorde-checkout.py" "$src/scripts/"
 # Synthetic-only script: no production source, compiler, or backend is copied.
 # It is used solely to prove tampering cannot lead to a receipt.
 mkdir -p "$src/tests"
@@ -78,6 +79,20 @@ rmdir "$src/inside-evidence"
 printf 'dirty\n' > "$src/new-untracked.txt"
 expect_refusal dirty-checkout 'source tree is not clean'
 rm "$src/new-untracked.txt"
+
+# Git status can report 'clean' if the index deliberately hides a modified
+# tracked source file. Byte-to-tree attestation must reject both mechanisms.
+git -C "$src" update-index --assume-unchanged fixture.txt
+printf 'hidden source mutation\n' > "$src/fixture.txt"
+expect_refusal hidden-assume-unchanged 'source bytes differ from reviewed Git tree'
+git -C "$src" update-index --no-assume-unchanged fixture.txt
+git -C "$src" restore -- fixture.txt
+git -C "$src" update-index --skip-worktree fixture.txt
+printf 'hidden source mutation\n' > "$src/fixture.txt"
+expect_refusal hidden-skip-worktree 'source bytes differ from reviewed Git tree'
+git -C "$src" update-index --no-skip-worktree fixture.txt
+git -C "$src" restore -- fixture.txt
+
 touch "$out/zorde-registry-native.log"
 expect_refusal existing-evidence 'evidence output already exists'
 rm "$out/zorde-registry-native.log"
