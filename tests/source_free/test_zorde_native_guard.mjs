@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
-import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync,readFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync,readFileSync,realpathSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
 import {join,resolve,dirname,normalize,relative,isAbsolute} from 'node:path';
@@ -10,6 +10,7 @@ import {join,resolve,dirname,normalize,relative,isAbsolute} from 'node:path';
 // authenticate the Oreslang compiler, any private code export, or native
 // guest conformance. It detects accidental bypasses before checkout tests.
 const script=resolve('scripts/test-zorde-generated-guest-source-local.sh');
+const nodeGate=resolve('scripts/test-zorde-node-source-local.sh');
 const envBase={
   ...process.env,
   EXPECTED_SOURCE_SHA:'a'.repeat(40),
@@ -105,4 +106,39 @@ test('native manifest covers exact recursive Zorde guest import closure',()=>{
   assert.match(guard,/staticGuestImportClosure/);
   assert.match(guard,/len\(manifest\["files"\]\)==18\+len\(manifest\["staticGuestImportClosure"\]\)/);
   assert.match(guard,/static_guest_import_closure_sealed/);
+});
+
+
+test('source-local Node gate refuses missing independent source snapshot and unsafe evidence',()=>{
+  const bin=realpathSync(process.execPath);
+  const tmp=mkdtempSync(join(tmpdir(),'zorde-node-gate-negative-'));
+  try{
+    const safe=join(tmp,'evidence');
+    mkdirSync(safe,{mode:0o700});
+    const link=join(tmp,'linked-evidence');
+    symlinkSync(safe,link,'dir');
+    const good={
+      ...process.env,
+      NODE_BIN:bin,
+      ZORDE_EVIDENCE_DIR:safe,
+      EXPECTED_SOURCE_SHA:'a'.repeat(40),
+      EXPECTED_SOURCE_TREE:'b'.repeat(40),
+      EXPECTED_NODE_SHA256:createHash('sha256').update(readFileSync(bin)).digest('hex'),
+    };
+    const cases=[
+      ['missing source approval',{...good,EXPECTED_SOURCE_SHA:''},/required reviewed input missing/],
+      ['short source root tree',{...good,EXPECTED_SOURCE_TREE:'bad'},/invalid immutable source root tree/],
+      ['invalid Node binary digest',{...good,EXPECTED_NODE_SHA256:'invalid'},/invalid independently approved Node binary digest/],
+      ['symlink evidence',{...good,ZORDE_EVIDENCE_DIR:link},/evidence directory must preexist/],
+      ['unreviewed source SHA',good,/source commit does not match approval/],
+    ];
+    for(const [name,env,reason] of cases){
+      const proc=spawnSync('bash',[nodeGate],{
+        cwd:resolve('.'),env,encoding:'utf8',timeout:5000,maxBuffer:8192});
+      assert.equal(proc.status,2,name+': '+proc.stderr);
+      assert.match(proc.stderr,/ZORDE_NODE_QUALIFICATION_REFUSED:/,name);
+      assert.match(proc.stderr,reason,name);
+      assert.equal(proc.stdout,'',name+': must not issue a receipt');
+    }
+  } finally {rmSync(tmp,{recursive:true,force:true});}
 });
