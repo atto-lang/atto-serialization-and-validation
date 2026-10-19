@@ -6,7 +6,6 @@
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "$id": "Port",
       "type": "integer",
-      "format": "int32",
       "minimum": 1,
       "maximum": 65535
     },
