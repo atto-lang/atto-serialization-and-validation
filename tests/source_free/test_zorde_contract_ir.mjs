@@ -77,6 +77,20 @@ test('bounded Unicode scalar length is an admitted descriptor, without string co
   }),{version:1,kind:3,property:2,minimum:1,maximum:64,excluded:[]});
 });
 
+test('emitter rejects forged plans and source injection even when called directly',()=>{
+  const {ir,report}=fixture();
+  const valid=deriveStaticRegistry(ir,report);
+  const evil=structuredClone(valid);
+  evil.entries[0].schemaId='Port"); panic(); //';
+  assert.throws(()=>emitOreslangSpecs(evil),/ZORDE_STATIC_REFUSED/);
+  const widened=structuredClone(valid);
+  widened.entries[0].descriptor.maximum=Number.MAX_SAFE_INTEGER;
+  assert.throws(()=>emitOreslangSpecs(widened),/ZORDE_STATIC_REFUSED/);
+  const dishonest=structuredClone(valid);
+  dishonest.releaseReady=true;
+  assert.throws(()=>emitOreslangSpecs(dishonest),/ZORDE_STATIC_REFUSED/);
+});
+
 const badShapes=[
   {type:'integer',minimum:1.25,maximum:3},
   {type:'integer',minimum:1,maximum:3,exclusiveMinimum:1},
