@@ -157,9 +157,47 @@ export function deriveStaticRegistry(ir, report) {
   };
 }
 
-export function emitOreslangSpecs(plan) {
-  assert(plan.schema === 'oreslang.zorde.static-scalar-registry-plan/v1',
+function assertSafePlan(plan) {
+  assert(object(plan) && plan.schema ===
+    'oreslang.zorde.static-scalar-registry-plan/v1',
     'invalid generated plan');
+  assert(plan.role === 'non-authoritative-generated-build-artifact'
+    && plan.releaseReady === false
+    && plan.runtimeImplementationVerified === false
+    && plan.actorSafeSharingVerified === false,
+    'plan cannot claim release/implementation verification');
+  assert(sha(plan.irId) && sha(plan.tjsvRunId),
+    'plan must bind a reviewed IR and TJSV receipt identity');
+  assert(Array.isArray(plan.entries) && plan.entries.length >= 1
+    && plan.entries.length <= 64, 'invalid plan entry count');
+  const ids = new Set();
+  for (const entry of plan.entries) {
+    assert(object(entry) && SCALAR_ID.test(entry.schemaId)
+      && !ids.has(entry.schemaId), 'unsafe/duplicate schema identity in plan');
+    ids.add(entry.schemaId);
+    const d = entry.descriptor;
+    assert(object(d) && d.version === 1 && Array.isArray(d.excluded)
+      && d.excluded.length === 0, 'unsupported descriptor/exclusions in plan');
+    if (d.kind === 2) {
+      assert(d.property === 1
+        && boundedInteger(d.minimum,-2147483648,2147483647)
+        && boundedInteger(d.maximum,-2147483648,2147483647),
+        'unsafe integer plan descriptor');
+    } else if (d.kind === 3) {
+      assert(d.property === 2
+        && boundedInteger(d.minimum,0,65536)
+        && boundedInteger(d.maximum,0,65536),
+        'unsafe string plan descriptor');
+    } else assert(false, 'unsupported plan kind');
+    assert(d.minimum <= d.maximum, 'empty plan interval');
+    assert(Object.keys(d).sort().join(',') ===
+      ['excluded','kind','maximum','minimum','property','version'].join(','),
+      'unexpected descriptor fields');
+  }
+}
+
+export function emitOreslangSpecs(plan) {
+  assertSafePlan(plan);
   const lines = [
     '// GENERATED from digest-bound TJSV Contract IR; never an authority.',
     '// Review the accepted source and toolchain before using this at runtime.',
