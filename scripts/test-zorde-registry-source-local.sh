@@ -47,7 +47,9 @@ PY
 [[ -n "${ORESLANG_BIN:-}" ]] || die "ORESLANG_BIN must identify the pinned compiler executable"
 [[ -n "${ZORDE_EVIDENCE_DIR:-}" ]] || die "ZORDE_EVIDENCE_DIR is required (outside checkout)"
 [[ -d "$ZORDE_EVIDENCE_DIR" ]] || die "evidence directory must exist before test execution"
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
+git_status="$(git status --porcelain --untracked-files=all)" ||
+  die "unable to inspect source working tree"
+[[ -z "$git_status" ]] ||
   die "source tree is not clean"
 source_sha="$(git rev-parse HEAD)"
 [[ "$source_sha" == "$EXPECTED_SOURCE_SHA" ]] ||
@@ -164,8 +166,21 @@ for fixture in private-entry-import private-storage-access; do
   esac
 done
 
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
+# A failing Git command with empty stdout must not be interpreted as a clean
+# checkout. Re-verify source identity, not just cleanliness: HEAD can move
+# to a distinct commit with an identical tree without changing git status.
+git_status="$(git status --porcelain --untracked-files=all)" ||
+  die "unable to inspect source working tree after native validation"
+[[ -z "$git_status" ]] ||
   die "native test modified source tree; cannot issue receipt"
+post_source_sha="$(git rev-parse HEAD)" ||
+  die "unable to inspect source HEAD after native validation"
+[[ "$post_source_sha" == "$source_sha" ]] ||
+  die "source HEAD changed during native validation"
+post_source_tree="$(git rev-parse 'HEAD^{tree}')" ||
+  die "unable to inspect source root tree after native validation"
+[[ "$post_source_tree" == "$source_tree" ]] ||
+  die "source root Git tree changed during native validation"
 
 # The compiler file must remain the reviewed executable throughout the run.
 # This catches persistent mutation between entry checks and evidence issuance;
