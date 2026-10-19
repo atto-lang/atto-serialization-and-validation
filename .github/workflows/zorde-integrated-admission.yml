@@ -90,6 +90,8 @@ jobs:
           const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
           if(receipt.planSha256!==sha(dir+'registry-plan.json')
             ||receipt.guestSha256!==sha(dir+'registry-specs.ores')
+            ||receipt.smokeSha256!==sha(dir+'registry-smoke.ores')
+            ||receipt.guestSmokeCompiled!==false||receipt.guestSmokeExecuted!==false
             ||receipt.releaseReady!==false||receipt.nativeGuestExecuted!==false)
             throw Error('incomplete or misrepresented static build');
           const plan=JSON.parse(readFileSync(dir+'registry-plan.json','utf8'));
@@ -114,7 +116,8 @@ jobs:
             'artifacts/zorde-scalars-consumer-verification.json',
             'artifacts/zorde-generated/build-complete.json',
             'artifacts/zorde-generated/registry-plan.json',
-            'artifacts/zorde-generated/registry-specs.ores'];
+            'artifacts/zorde-generated/registry-specs.ores',
+            'artifacts/zorde-generated/registry-smoke.ores'];
           const receipt={schema:'oreslang.zorde.integrated-static-only/v1',
             sourceHead:process.env.SOURCE_SHA,
             sourceTree:readFileSync(process.env.RUNNER_TEMP+'/zorde-integrated-tree.txt','utf8').trim(),
