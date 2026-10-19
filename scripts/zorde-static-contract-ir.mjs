@@ -142,6 +142,7 @@ export function deriveStaticRegistry(ir, report) {
   const summary=report.differential.summary;
   assert(report.configuration.differential?.enabled === true
     && sha(report.configuration.differential.instanceCorpusDigest)
+    && report.differential.corpusDigest === report.configuration.differential.instanceCorpusDigest
     && Array.isArray(report.differential.declarations)
     && Number.isSafeInteger(summary.corpusInstances)
     && summary.corpusInstances > 0
