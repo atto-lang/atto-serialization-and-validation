@@ -3,7 +3,8 @@
 // validate payloads, or prove either schema authority: the CI trust boundary
 // must independently pin the actual TJSV action and source revision.
 import { createHash } from 'node:crypto';
-import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { openSync, closeSync, readSync, fstatSync, lstatSync, existsSync, mkdirSync,
+  writeFileSync, constants as fsConstants } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -329,17 +330,38 @@ export function rejectDuplicateJsonKeys(source) {
   JSON.parse(source); // syntax check independent from the collision scan
 }
 
-function file(path, expected) {
+// Open the reviewed input without following a symbolic link. Check type and
+// size *before* allocating/reading, then allow at most max+1 bytes even if a
+// concurrent writer grows the file after fstat. Hash the actual read bytes.
+export function readEvidenceFile(path, expected) {
   assert(sha(expected), 'explicit expected SHA-256 is required');
-  const bytes = readFileSync(path);
-  assert(bytes.length > 0 && bytes.length <= 2097152, 'input size outside budget');
-  assert(digest(bytes) === expected, 'input byte digest differs from trusted expectation');
-  // Node Buffer.toString silently replaces malformed byte sequences; forbid
-  // ambiguity against the producer's JSON parser and UTF-8 semantics.
-  const source=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
-  rejectDuplicateJsonKeys(source);
-  return JSON.parse(source);
+  let fd=-1;
+  try {
+    fd=openSync(path,fsConstants.O_RDONLY|fsConstants.O_NOFOLLOW|fsConstants.O_NONBLOCK);
+    const st=fstatSync(fd);
+    assert(st.isFile() && st.nlink===1, 'source must be a unique regular file');
+    assert(st.size>0 && st.size<=2097152, 'input size outside budget');
+    const bytes=Buffer.alloc(st.size+1);
+    let count=0;
+    while(count<bytes.length){
+      const n=readSync(fd,bytes,count,bytes.length-count,null);
+      if(n===0)break;
+      count+=n;
+    }
+    assert(count===st.size, 'source changed or expanded while reading');
+    const current=fstatSync(fd);
+    assert(current.size===st.size && current.ino===st.ino && current.dev===st.dev,
+      'source file changed while reading');
+    const input=bytes.subarray(0,count);
+    assert(digest(input)===expected, 'input byte digest differs from trusted expectation');
+    const source=new TextDecoder('utf-8',{fatal:true}).decode(input);
+    rejectDuplicateJsonKeys(source);
+    return JSON.parse(source);
+  } finally {
+    if(fd!==-1)closeSync(fd);
+  }
 }
+
 export function main(args) {
   const flags = new Map();
   for (const arg of args) {
@@ -352,17 +374,39 @@ export function main(args) {
   }
   assert(flags.size === 5 && [...flags.values()].every(Boolean),
     'all five CLI arguments are mandatory');
-  const ir = file(flags.get('ir'), flags.get('ir-sha256'));
-  const report = file(flags.get('report'), flags.get('report-sha256'));
+  const ir = readEvidenceFile(flags.get('ir'), flags.get('ir-sha256'));
+  const report = readEvidenceFile(flags.get('report'), flags.get('report-sha256'));
   const plan = deriveStaticRegistry(ir,report);
   const dir = resolve(flags.get('out-dir'));
   // Imports in emitted Oreslang file assume artifacts/zorde-generated/; refuse
   // ambiguous location rather than quietly generating broken guest imports.
   assert(relative(resolve('artifacts/zorde-generated'),dir) === '',
     'output must be the repository artifacts/zorde-generated directory');
-  mkdirSync(dir,{recursive:true});
-  writeFileSync(resolve(dir,'registry-plan.json'),JSON.stringify(plan,null,2)+'\n',{flag:'wx',mode:0o600});
-  writeFileSync(resolve(dir,'registry-specs.ores'),emitOreslangSpecs(plan),{flag:'wx',mode:0o600});
+  // Prepare every output before creating a directory. Reject an existing
+  // target instead of trusting old/stale receipts or following a symlink.
+  const guest=emitOreslangSpecs(plan);
+  const planBytes=JSON.stringify(plan,null,2)+'\n';
+  const artifacts=resolve('artifacts');
+  if(!existsSync(artifacts))mkdirSync(artifacts,{mode:0o700});
+  const dirStat=lstatSync(artifacts);
+  assert(dirStat.isDirectory() && !dirStat.isSymbolicLink(),
+    'artifacts parent must be a real directory');
+  assert(!existsSync(dir),'output directory already exists');
+  mkdirSync(dir,{mode:0o700});
+  const createdDir=lstatSync(dir);
+  assert(createdDir.isDirectory() && !createdDir.isSymbolicLink(),
+    'output directory is not safe');
+  // A partial failure leaves no completed marker. Consumers must require
+  // this final marker as well as separately reviewed source provenance.
+  writeFileSync(resolve(dir,'registry-plan.json'),planBytes,{flag:'wx',mode:0o600});
+  writeFileSync(resolve(dir,'registry-specs.ores'),guest,{flag:'wx',mode:0o600});
+  writeFileSync(resolve(dir,'build-complete.json'),JSON.stringify({
+    schema:'oreslang.zorde.static-registry-build-complete/v1',
+    irId:plan.irId, tjsvRunId:plan.tjsvRunId,
+    planSha256:digest(Buffer.from(planBytes,'utf8')),
+    guestSha256:digest(Buffer.from(guest,'utf8')),
+    nativeGuestExecuted:false, releaseReady:false,
+  },null,2)+'\n',{flag:'wx',mode:0o600});
   process.stdout.write('ZORDE_STATIC_PLAN_CREATED (not runtime/proof evidence)\n');
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
