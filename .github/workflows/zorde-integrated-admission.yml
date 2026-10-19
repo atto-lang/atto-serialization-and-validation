@@ -1,0 +1,142 @@
+name: Zorde exact-tree contract to static guest-source integration (not native proof)
+on:
+  push:
+    paths:
+      - 'contracts/zorde/**'
+      - 'scripts/zorde-static-contract-ir.mjs'
+      - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - '.github/workflows/zorde-integrated-admission.yml'
+  pull_request:
+    paths:
+      - 'contracts/zorde/**'
+      - 'scripts/zorde-static-contract-ir.mjs'
+      - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - '.github/workflows/zorde-integrated-admission.yml'
+permissions:
+  contents: read
+jobs:
+  integrated:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Bind to the exact integrated private repository head and root tree
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          git rev-parse HEAD^{tree} | tee "$RUNNER_TEMP/zorde-integrated-tree.txt"
+          test -s "$RUNNER_TEMP/zorde-integrated-tree.txt"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      - name: Execute original Node crypto/filesystem regression suite (not V8 shim)
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --test tests/source_free/test_zorde_contract_ir.mjs
+      - name: Create independently compiled TypeSpec witness and source-bound Contract IR
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/zorde/scalars.tsp
+          schema: contracts/zorde/scalars.schema.json
+          instances: contracts/zorde/scalar-instances
+          report: artifacts/zorde-scalars-parity.json
+          contract_ir: artifacts/zorde-scalars-contract-ir.json
+          sarif: ''
+          output_dir: artifacts/zorde-scalars-witness
+      - name: Independently verify IR against current peer authorities and generated witness
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          contract_ir: artifacts/zorde-scalars-contract-ir.json
+          report: artifacts/zorde-scalars-parity.json
+          typespec: contracts/zorde/scalars.tsp
+          schema: contracts/zorde/scalars.schema.json
+          generated_schema: artifacts/zorde-scalars-witness
+          expected_declarations: '["Zorde.Validation.Port","Zorde.Validation.ShortLabel"]'
+          verification: artifacts/zorde-scalars-consumer-verification.json
+      - name: Verify actual consumer result and generate bounded Zorde source
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const v=JSON.parse(readFileSync('artifacts/zorde-scalars-consumer-verification.json','utf8'));
+          if(v.status!=='passed'||v.admissible!==true
+            ||v.computedIrId!==v.expectedIrId||v.suppliedIrId!==v.expectedIrId)
+            throw Error('source-bound consumer verification missing');
+          JS
+          ir_sha="$(sha256sum artifacts/zorde-scalars-contract-ir.json | cut -d' ' -f1)"
+          report_sha="$(sha256sum artifacts/zorde-scalars-parity.json | cut -d' ' -f1)"
+          # SHA values are calculated *after* the pinned source-bound verifier
+          # has checked current source and evidence. This only binds outputs
+          # inside the trusted workflow, not an independently signed publisher.
+          node scripts/zorde-static-contract-ir.mjs \
+            --ir=artifacts/zorde-scalars-contract-ir.json \
+            --report=artifacts/zorde-scalars-parity.json \
+            --ir-sha256="$ir_sha" \
+            --report-sha256="$report_sha" \
+            --out-dir=artifacts/zorde-generated
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const dir='artifacts/zorde-generated/';
+          const receipt=JSON.parse(readFileSync(dir+'build-complete.json','utf8'));
+          const sha=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          if(receipt.planSha256!==sha(dir+'registry-plan.json')
+            ||receipt.guestSha256!==sha(dir+'registry-specs.ores')
+            ||receipt.releaseReady!==false||receipt.nativeGuestExecuted!==false)
+            throw Error('incomplete or misrepresented static build');
+          const plan=JSON.parse(readFileSync(dir+'registry-plan.json','utf8'));
+          const names=plan.entries.map(x=>x.schemaId);
+          if(JSON.stringify(names)!==JSON.stringify([
+            'Zorde.Validation.Port','Zorde.Validation.ShortLabel']))
+            throw Error('unexpected schema registry identities');
+          JS
+      - name: Preserve provenance without certifying native guest execution
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
+          const hash=p=>createHash('sha256').update(readFileSync(p)).digest('hex');
+          const paths=[
+            'contracts/zorde/scalars.tsp','contracts/zorde/scalars.schema.json',
+            'artifacts/zorde-scalars-parity.json','artifacts/zorde-scalars-contract-ir.json',
+            'artifacts/zorde-scalars-consumer-verification.json',
+            'artifacts/zorde-generated/build-complete.json',
+            'artifacts/zorde-generated/registry-plan.json',
+            'artifacts/zorde-generated/registry-specs.ores'];
+          const receipt={schema:'oreslang.zorde.integrated-static-only/v1',
+            sourceHead:process.env.SOURCE_SHA,
+            sourceTree:readFileSync(process.env.RUNNER_TEMP+'/zorde-integrated-tree.txt','utf8').trim(),
+            files:Object.fromEntries(paths.map(p=>[p,hash(p)])),
+            typespecJsonParityExecuted:true,
+            consumerIrVerificationExecuted:true,
+            nodeFilesystemRegressionExecuted:true,
+            nativeOreslangCompilerExecuted:false,
+            wasmComponentAbiCertified:false,
+            dafnyModelVerifiedInThisJob:false,
+            releaseReady:false};
+          writeFileSync('artifacts/zorde-integrated-static-receipt.json',
+            JSON.stringify(receipt,null,2)+'\n',{flag:'wx',mode:0o600});
+          JS
+      - name: Upload bounded static-only evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: zorde-integrated-static-only
+          path: |
+            artifacts/zorde-scalars-parity.json
+            artifacts/zorde-scalars-consumer-verification.json
+            artifacts/zorde-generated/build-complete.json
+            artifacts/zorde-integrated-static-receipt.json
+          if-no-files-found: error
+          retention-days: 7
