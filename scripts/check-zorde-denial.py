@@ -13,7 +13,8 @@ def denial_matcher(symbol: str) -> re.Pattern:
 
     Finding a name and unrelated denial on the same diagnostic line is not proof.
     """
-    target = r"(?<!\w)[`'\\"]?" + re.escape(symbol) + r"[`'\\"]?(?!\w)"
+    # Quote delimiters must be escaped once inside this raw Python string.
+    target = r"(?<!\w)[`'\"]?" + re.escape(symbol) + r"[`'\"]?(?!\w)"
     suffix = (r"(?:is[ \t]+private|has[ \t]+private[ \t]+access"
               r"|(?:is[ \t]+)?not[ \t]+(?:exported|public|visible|accessible)"
               r"|is[ \t]+inaccessible|cannot[ \t]+be[ \t]+accessed)")
