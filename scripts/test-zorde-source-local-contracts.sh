@@ -22,6 +22,9 @@ exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
 TEST
 printf 'not an Oreslang guest program\n' > "$src/tests/main.ores"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
+# This ignore rule exists solely to prove that Git's 'clean' status is not
+# adequate for source-byte evidence qualification.
+printf '*.generated-ignored\n' > "$src/.gitignore"
 mkdir -p "$src/nested"
 printf 'tracked child bytes\n' > "$src/nested/child.ores"
 git -C "$src" init -q
@@ -95,6 +98,14 @@ printf 'hidden source mutation\n' > "$src/fixture.txt"
 expect_refusal hidden-skip-worktree 'source bytes differ from reviewed Git tree'
 git -C "$src" update-index --no-skip-worktree fixture.txt
 git -C "$src" restore -- fixture.txt
+
+# Regression: ignored untracked input is invisible to git status but can
+# influence compiler import discovery or tooling during an attested run.
+printf 'synthetic ignored material\n' > "$src/injected.generated-ignored"
+[[ -z "$(git -C "$src" status --porcelain --untracked-files=all)" ]] ||
+  { echo 'synthetic ignored test did not hide injected file' >&2; exit 1; }
+expect_refusal ignored-untracked 'source bytes differ from reviewed Git tree'
+rm "$src/injected.generated-ignored"
 
 # An untracked directory symlink can redirect a tracked child to external
 # storage containing identical bytes. Test the physical attester directly:
