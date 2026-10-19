@@ -5,7 +5,8 @@ import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDup
   '../../scripts/zorde-static-contract-ir.mjs';
 
 import {createHash} from 'node:crypto';
-import {mkdtempSync,writeFileSync,readFileSync,symlinkSync,linkSync,rmSync,mkdirSync} from 'node:fs';
+import {mkdtempSync,writeFileSync,readFileSync,symlinkSync,linkSync,rmSync,mkdirSync,
+  constants as fsConstants} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
@@ -312,6 +313,12 @@ test('input evidence reads are bounded, no-follow and cryptographically verified
   try {
     const p=join(tmp,'good.json'),bytes=Buffer.from('{"a":1}','utf8');
     writeFileSync(p,bytes);
+    if(!Number.isInteger(fsConstants.O_NOFOLLOW)||fsConstants.O_NOFOLLOW===0
+      ||!Number.isInteger(fsConstants.O_NONBLOCK)) {
+      assert.throws(()=>readEvidenceFile(p,hash(bytes)),
+        /ZORDE_STATIC_REFUSED: platform cannot guarantee/);
+      return;
+    }
     assert.deepEqual(readEvidenceFile(p,hash(bytes)),{a:1});
     assert.throws(()=>readEvidenceFile(p,'0'.repeat(64)),/ZORDE_STATIC_REFUSED/);
     const sym=join(tmp,'link.json');
