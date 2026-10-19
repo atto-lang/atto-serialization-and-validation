@@ -63,8 +63,12 @@ node scripts/zorde-static-contract-ir.mjs \
   --out-dir=artifacts/zorde-generated
 ```
 
-The output is write-once `artifacts/zorde-generated/registry-plan.json`
-plus `registry-specs.ores`; preexisting outputs are **not overwritten**.
+The output is write-once `artifacts/zorde-generated/registry-plan.json`,
+`registry-specs.ores` and a restricted pilot `registry-smoke.ores`.
+Only after all three files exist is `build-complete.json` issued with
+individual SHA-256 hashes and `guestSmokeCompiled:false`,
+`guestSmokeExecuted:false`, `releaseReady:false`. Existing output
+directories are refused rather than overwritten.
 The generated Oreslang function returns a list of
 `ZordeScalarRegistrySpec` using the existing
 `ZordeScalarDescriptor` and the current `compiled_registry.ores`
@@ -92,8 +96,10 @@ node --test tests/source_free/test_zorde_contract_ir.mjs
 
 The source-org workflow `zorde-static-ir-bridge.yml` is currently
 unable to allocate a runner. An isolated V8 test execution of the actual
-pure JavaScript functions passed **53/53** isolated pure-function cases (using simulated digest behavior), including 10,000 deterministic scalar projection property probes; this was **not** the
-Node CLI, TJSV compiler or Oreslang native compiler. The additional three Node-only regression cases check real SHA-256 vectors,
+pure JavaScript functions passed **60/60** isolated pure-function cases
+(including 10,000 deterministic scalar projection probes) with simulated
+noncryptographic hashing. These runs do **not** execute the Node CLI, genuine
+SHA-256/file I/O, TJSV compiler or native Oreslang guest. The additional three Node-only regression cases check real SHA-256 vectors,
 bounded no-follow file reads, symlink/hardlink rejection, CLI output completeness
 and output-parent symlink refusal. Those tests have **not** executed yet on a
 GitHub runner and cannot be counted as passed. The build bridge also recomputes
@@ -111,3 +117,7 @@ corpus; memory/ownership proof; WIT component/ABI adapter; hostile
 fuzzing; explicit trust-root for the hash-bound receipt. The open source
 export incidents forbid private code mirroring to an unapproved public
 funded Actions carrier.
+
+## October 19 additional fail-closed gates
+
+Actual admission now requires `configuration.mode=check`, `coverage.sourceMutationCheck=true`, zero structural/differential/emitted findings, and an untruncated finding inventory. Generated plans must bind exactly three well-formed SHA-256 source-authority digests; file ingestion stops when the host cannot supply a nonzero `O_NOFOLLOW` flag rather than silently following a symlink. These logic checks passed in the isolated V8 suite; the real Node crypto/filesystem suite is still pending a source-local runner.
