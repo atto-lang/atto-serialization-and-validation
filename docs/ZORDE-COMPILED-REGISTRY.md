@@ -134,16 +134,16 @@ refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
 executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
 caps the positive execution at 300 seconds. It first requires a separately
-executed public-import control under `fixtures/zorde-compile-positive/`, then
-requires two compiler-negative privacy fixtures under
+executed public-import control and a separate public-API execution control
+under `fixtures/zorde-compile-positive/`, then requires two compiler-negative privacy fixtures under
 `fixtures/zorde-compile-negative/` to fail with specific access-control
 diagnostics rather than an arbitrary parser error. The same approved compiler
-must execute all three fixtures. It creates
+must execute all four fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Eighteen source-free harness refusal
-cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden source edits, a redirected tracked directory, and an unchanged-tree but different-HEAD attack, are exercised
+logs or receipts are never overwritten. Nineteen source-free harness refusal
+cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden edits, a redirected tracked directory, a deliberately failing public import, and an unchanged-tree but different-HEAD attack, are exercised
 by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
