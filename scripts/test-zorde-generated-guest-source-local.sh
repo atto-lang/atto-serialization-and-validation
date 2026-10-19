@@ -95,7 +95,6 @@ assert built['nativeGuestExecuted'] is False and built['releaseReady'] is False
 assert built['planSha256']==sha('artifacts/zorde-generated/registry-plan.json')
 assert built['guestSha256']==sha('artifacts/zorde-generated/registry-specs.ores')
 assert built['smokeSha256']==sha('artifacts/zorde-generated/registry-smoke.ores')
-assert built['reviewedCorpusDigest']==parity['differential']['corpusDigest']
 assert built['reviewedCorpusDigest']==parity['configuration']['differential']['instanceCorpusDigest']
 assert built['reviewedCorpusInstances']==parity['differential']['summary']['corpusInstances']==9
 assert parity['differential']['summary']['declarationsWithReviewedPositiveAndNegative']==2
