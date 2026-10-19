@@ -498,6 +498,10 @@ export function rejectDuplicateJsonKeys(source) {
 // concurrent writer grows the file after fstat. Hash the actual read bytes.
 function readSafeJson(path, expected=null) {
   if(expected!==null)assert(sha(expected), 'explicit expected SHA-256 is required');
+  // O_NOFOLLOW protects only the final component. Reject symbolic-link
+  // ancestors for independently verified IR/report JSON and every corpus
+  // fixture as well, including absolute paths passed by a build caller.
+  assertRealDirectoryChain(dirname(resolve(path)));
   // O_NOFOLLOW is unsupported on some Node/OS combinations. Silent
   // undefined-to-zero bitwise coercion would follow an attacker-controlled
   // symlink, so stop before open() rather than weakening the boundary.
