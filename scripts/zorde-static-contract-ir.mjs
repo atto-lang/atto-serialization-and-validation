@@ -287,6 +287,72 @@ export function emitOreslangSpecs(plan) {
   lines.push('}');
   return lines.join('\n') + '\n';
 }
+// Pilot ONLY: a real Oreslang guest program that imports the emitted registry
+// specs and exercises positive/negative bounds using the existing native
+// registry. The guest must actually compile/execute before anyone may claim
+// native validation, Java/LLVM parity or schema-to-runtime correspondence.
+// Future generic guest generators must derive witnesses for every refinement.
+export function emitZordePilotGuestSmoke(plan) {
+  assertSafePlan(plan);
+  const port=plan.entries.find(x=>x.schemaId==='Zorde.Validation.Port');
+  const label=plan.entries.find(x=>x.schemaId==='Zorde.Validation.ShortLabel');
+  assert(plan.entries.length===2 && port && label,
+    'pilot guest requires exactly the reviewed Port and ShortLabel declarations');
+  assert(port.descriptor.kind===2 && port.descriptor.property===1
+    && port.descriptor.minimum===1 && port.descriptor.maximum===65535,
+    'pilot Port descriptor changed: re-review the actual guest assertions');
+  assert(label.descriptor.kind===3 && label.descriptor.property===2
+    && label.descriptor.minimum===1 && label.descriptor.maximum===64,
+    'pilot ShortLabel descriptor changed: re-review the actual guest assertions');
+  const bytes=x=>[...Buffer.from(x,'ascii')].join(',');
+  const lines=[
+    '// GENERATED pilot guest: not a proof until the approved Oreslang compiler',
+    '// executes this file at the exact IR/source-bound revision.',
+    "import fnc require_true from '../../tests/assert';",
+    "import fnc zorde_contract_registry_specs from './registry-specs';",
+    "import class ZordeScalarRegistry, ZordeScalarRegistrySpec from '../../src/zorde/compiled_registry';",
+    "import fnc zorde_compile_scalar_registry, zorde_registry_parse_scalar from '../../src/zorde/compiled_registry';",
+    "import class Utf8Text from '../../src/core/value';",
+    "import fnc value_int, value_string from '../../src/core/value';",
+    "import class ValidationReport from '../../src/validation/validation';",
+    'pub fnc main(): void {',
+    '  val List<ZordeScalarRegistrySpec> specs = zorde_contract_registry_specs();',
+    '  val Result<ZordeScalarRegistry,ValidationReport> result =',
+    '    zorde_compile_scalar_registry(rt borrow specs);',
+    '  require_true(!result.is_err(), "generated registry specs must compile");',
+    '  val ZordeScalarRegistry registry = result.unwrap();',
+    '  val Utf8Text port = new Utf8Text(new List<int>('+bytes(port.schemaId)+'));',
+    '  val Utf8Text label = new Utf8Text(new List<int>('+bytes(label.schemaId)+'));',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(1)).is_err(), "Port lower boundary accepts");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(65535)).is_err(), "Port upper boundary accepts");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(0)).is_err(), "Port below minimum rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(65536)).is_err(), "Port above maximum rejected");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>(97)))).is_err(),',
+    '    "ShortLabel one character accepted");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>('+Array(64).fill(97).join(',')+')))).is_err(),',
+    '    "ShortLabel 64 characters accepted");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>()))).is_err(),',
+    '    "ShortLabel empty rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>('+Array(65).fill(97).join(',')+')))).is_err(),',
+    '    "ShortLabel 65 characters rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>(192,175)))).is_err(),',
+    '    "malformed UTF-8 rejected");',
+    '  stdio.stdout.println("zorde generated registry guest smoke passed");',
+    '  return;',
+    '}',
+  ];
+  return lines.join('\n')+'\n';
+}
+
 // Duplicate JSON keys are ambiguous across tooling; even "\u0072ole"
 // duplicates "role". Detect decoded object-key collisions before JSON.parse.
 // The built-in parser still performs full JSON syntax/number validation.
@@ -405,6 +471,7 @@ export function main(args) {
   // Prepare every output before creating a directory. Reject an existing
   // target instead of trusting old/stale receipts or following a symlink.
   const guest=emitOreslangSpecs(plan);
+  const guestSmoke=emitZordePilotGuestSmoke(plan);
   const planBytes=JSON.stringify(plan,null,2)+'\n';
   const artifacts=resolve('artifacts');
   if(!existsSync(artifacts))mkdirSync(artifacts,{mode:0o700});
@@ -420,11 +487,14 @@ export function main(args) {
   // this final marker as well as separately reviewed source provenance.
   writeFileSync(resolve(dir,'registry-plan.json'),planBytes,{flag:'wx',mode:0o600});
   writeFileSync(resolve(dir,'registry-specs.ores'),guest,{flag:'wx',mode:0o600});
+  writeFileSync(resolve(dir,'registry-smoke.ores'),guestSmoke,{flag:'wx',mode:0o600});
   writeFileSync(resolve(dir,'build-complete.json'),JSON.stringify({
     schema:'oreslang.zorde.static-registry-build-complete/v1',
     irId:plan.irId, tjsvRunId:plan.tjsvRunId,
     planSha256:digest(Buffer.from(planBytes,'utf8')),
     guestSha256:digest(Buffer.from(guest,'utf8')),
+    smokeSha256:digest(Buffer.from(guestSmoke,'utf8')),
+    guestSmokeCompiled:false, guestSmokeExecuted:false,
     nativeGuestExecuted:false, releaseReady:false,
   },null,2)+'\n',{flag:'wx',mode:0o600});
   process.stdout.write('ZORDE_STATIC_PLAN_CREATED (not runtime/proof evidence)\n');
