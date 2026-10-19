@@ -171,14 +171,27 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     assert.equal(proc.status,0,proc.stderr);
     return proc.stdout.trim();
   }
-  function runCase(todo){
-    // Node considers TODO tests non-failing, so a gate MUST compare the
-    // actual pass count and refuse even when the process exit status is 0.
+  function runCase(mode){
+    // The same known-good suite must fail admission for TODO markers,
+    // symlink-substituted logs, and oversized log bytes without producing
+    // a receipt. Run the literal Bash script in a synthetic source checkout.
+    const prelude=mode==='symlink-log' ? [
+      "import {writeFileSync,unlinkSync,symlinkSync} from 'node:fs';",
+      "import {join} from 'node:path';",
+      "const d=process.env.ZORDE_EVIDENCE_DIR;",
+      "const fake=join(d,'forged.tap');",
+      "writeFileSync(fake,'# tests 90\\n# pass 90\\n# fail 0\\n# skipped 0\\n# todo 0\\n# cancelled 0\\n');",
+      "unlinkSync(join(d,'zorde-node-real-suite.log'));",
+      "symlinkSync(fake,join(d,'zorde-node-real-suite.log'));",
+    ] : mode==='oversized-log'
+      ? ["console.log('x'.repeat(17*1024*1024));"]
+      : [];
     writeFileSync(checkoutFile,[
       "import test from 'node:test';",
       "import assert from 'node:assert/strict';",
+      ...prelude,
       "for(let i=0;i<80;i++) test('synthetic-'+i,",
-      todo
+      mode==='todo'
         ? "  i===0 ? {todo:'intentionally incomplete'} : {},"
         : "  {},",
       "  ()=>assert.equal(i,i));",
@@ -193,8 +206,8 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     git(['add','.']);
     git(['-c','user.name=Synthetic Check',
       '-c','user.email=synthetic@example.invalid',
-      'commit','-qm',todo?'todo-fixture':'passed-fixture']);
-    const evidence=join(root,todo?'todo-evidence':'passed-evidence');
+      'commit','-qm',mode+'-fixture']);
+    const evidence=join(root,mode+'-evidence');
     mkdirSync(evidence,{mode:0o700});
     const env={
       ...process.env,
@@ -211,13 +224,13 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
   }
   try{
     git(['init','-q']);
-    const accepted=runCase(false);
+    const accepted=runCase('pass');
     assert.equal(accepted.run.status,0,accepted.run.stderr);
     const passed=JSON.parse(readFileSync(
       join(accepted.evidence,'zorde-node-real-suite-receipt.json'),'utf8'));
     assert.equal(passed.source_free_test_cases_passed,90);
     assert.equal(passed.release_ready,false);
-    const denied=runCase(true);
+    const denied=runCase('todo');
     assert.equal(denied.run.status,2,denied.run.stderr);
     assert.match(denied.run.stderr,/ZORDE_NODE_QUALIFICATION_REFUSED:/);
     assert.equal(denied.run.stdout,'');
@@ -227,6 +240,15 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     assert.match(log,/^# tests 90$/m);
     assert.match(log,/^# pass 89$/m);
     assert.match(log,/^# todo 1$/m);
+    for(const mode of ['symlink-log','oversized-log']){
+      const rejected=runCase(mode);
+      assert.equal(rejected.run.status,2,mode+': '+rejected.run.stderr);
+      assert.match(rejected.run.stderr,/ZORDE_NODE_QUALIFICATION_REFUSED:/,mode);
+      assert.equal(rejected.run.stdout,'',mode);
+      assert.throws(()=>readFileSync(join(
+        rejected.evidence,'zorde-node-real-suite-receipt.json')),
+        undefined,mode+' must not issue a receipt');
+    }
   } finally {
     rmSync(root,{recursive:true,force:true});
   }
