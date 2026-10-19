@@ -24,7 +24,13 @@ exhaustion from this symptom without administrator evidence.
   without protection**; merely naming the environment in YAML does NOT create
   approval. Verify the actual protection settings before provisioning the
   runner label. Admin-controlled environment variables are provenance inputs,
-  not an independently verifiable authorization by themselves.
+  not an independently verifiable authorization by themselves. **GitHub plan
+  eligibility matters:** required-reviewer rules may be unavailable for a
+  private repository. If the source org cannot actually enforce independent
+  environment approvals, do NOT enable the self-hosted runner label or dispatch
+  this Actions job. An independently approved, source-local offline runner
+  using the same pinned `scripts/test-zorde-registry-source-local.sh` is the
+  safer fallback; the operator must not self-certify approvals.
 - Ensure the source-org Actions policy permits pinned checkout; check billing,
   disabled jobs, repository policy and runner assignment. Checkout uses only
   the repository-local read-only `GITHUB_TOKEN` with persisted credentials
