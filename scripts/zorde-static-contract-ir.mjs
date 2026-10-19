@@ -120,11 +120,18 @@ export function deriveStaticRegistry(ir, report) {
   assert(object(report) && report.schema === REPORT_KIND
     && report.status === 'passed' && report.zeroUnexplainedFindings === true
     && sha(report.runId) && emptyArray(report.findings), 'unpassed TJSV report');
-  assert(object(report.counts) && report.counts.findings===0,
-    'TJSV report contains nonzero or missing finding count');
-  assert(report.coverage?.directDeclarationInventory === true
+  assert(object(report.counts) && report.counts.findings===0
+    && report.counts.structuralFindings===0
+    && report.counts.differentialFindings===0
+    && report.counts.emittedFindings===0
+    && report.counts.findingsTruncated===false,
+    'TJSV report contains missing/truncated or nonzero findings');
+  assert(report.configuration?.mode==='check'
+    && report.coverage?.sourceMutationCheck===true
+    && report.coverage?.directDeclarationInventory === true
     && report.coverage?.typespecGeneratedJsonSchemaComparison === true
-    && report.coverage?.differentialInstanceValidation === true, 'TJSV coverage missing');
+    && report.coverage?.differentialInstanceValidation === true,
+    'TJSV full source-backed check coverage missing');
   assert(report.differential?.summary?.probesEvaluated > 0
     && report.differential?.summary?.divergences === 0
     && report.differential?.summary?.refusals === 0, 'differential evidence missing/refused');
