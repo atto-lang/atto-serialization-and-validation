@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys,
-  canonicalDigest,semanticReportProjection,readEvidenceFile,emitZordePilotGuestSmoke} from
+  canonicalDigest,semanticReportProjection,readEvidenceFile,emitZordePilotGuestSmoke,
+  reviewedCorpusIdentity} from
   '../../scripts/zorde-static-contract-ir.mjs';
 
 import {createHash} from 'node:crypto';
@@ -38,6 +39,7 @@ function fixture() {
         reviewedCorpus:{accepted:2,rejected:1,unasserted:0,total:3},
         reviewedFixtureCoverage:'positive-and-negative',
       }],
+      corpusDigest:h('9'),
     },
     inputs:{typespec:{digest:h('b')},authoredJsonSchema:{digest:h('c')},
       generatedJsonSchema:{digest:h('d')}},
@@ -352,17 +354,69 @@ test('input evidence reads are bounded, no-follow and cryptographically verified
     assert.throws(()=>readEvidenceFile(dup,hash(dupBytes)),/ZORDE_STATIC_REFUSED/);
   } finally {rmSync(tmp,{recursive:true,force:true});}
 });
+function attachReviewedCorpus(ir,report,root){
+  const corpus=reviewedCorpusIdentity(root);
+  report.configuration.differential.instanceCorpusDigest=corpus.digest;
+  report.differential.corpusDigest=corpus.digest;
+  const projection=semanticReportProjection(report);
+  report.runId=canonicalDigest({
+    schema:report.schema,status:report.status,
+    configuration:projection.configuration,
+    inputDigests:{
+      typespec:report.inputs.typespec.digest,
+      authored:report.inputs.authoredJsonSchema.digest,
+      generated:report.inputs.generatedJsonSchema.digest},
+    toolchain:projection.toolchain,findings:[],
+  });
+  ir.admission.receipt.runId=report.runId;
+  ir.admission.receipt.digest=canonicalDigest(semanticReportProjection(report));
+  const {irId:ignored,...body}=ir;ir.irId=canonicalDigest(body);
+  return corpus;
+}
+function writePilotCorpus(root){
+  const base=join(root,'reviewed-corpus');
+  mkdirSync(base,{mode:0o700});
+  mkdirSync(join(base,'Port'),{mode:0o700});
+  for(const lane of ['valid','invalid'])mkdirSync(join(base,'Port',lane),{mode:0o700});
+  writeFileSync(join(base,'Port','valid','lower.json'),'1\n');
+  writeFileSync(join(base,'Port','valid','upper.json'),'65535\n');
+  writeFileSync(join(base,'Port','invalid','below.json'),'0\n');
+  return base;
+}
+test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and symlinks',()=>{
+  const tmp=mkdtempSync(join(tmpdir(),'zorde-corpus-'));
+  try{
+    const root=writePilotCorpus(tmp);
+    const baseline=reviewedCorpusIdentity(root);
+    assert.equal(baseline.corpus.length,3);
+    assert.deepEqual(baseline.corpus.map(x=>x.expectation),[
+      'rejected','accepted','accepted']);
+    assert.equal(baseline.digest,canonicalDigest(baseline.corpus));
+    writeFileSync(join(root,'Port','invalid','below.json'),'65536\n');
+    assert.notEqual(reviewedCorpusIdentity(root).digest,baseline.digest);
+    symlinkSync(join(root,'Port','valid','lower.json'),
+      join(root,'Port','valid','linked.json'));
+    assert.throws(()=>reviewedCorpusIdentity(root),/ZORDE_STATIC_REFUSED/);
+    const alt=join(tmp,'linked-root');
+    symlinkSync(root,alt,'dir');
+    assert.throws(()=>reviewedCorpusIdentity(alt),/ZORDE_STATIC_REFUSED/);
+  } finally{rmSync(tmp,{recursive:true,force:true});}
+});
+
 test('Node CLI emits complete write-once artifact and refuses output symlink',()=>{
   const tmp=mkdtempSync(join(tmpdir(),'zorde-plan-'));
   try {
     const {ir,report}=fixture();
+    const corpusRoot=writePilotCorpus(tmp);
+    const reviewed=attachReviewedCorpus(ir,report,corpusRoot);
+    assert.equal(reviewed.corpus.length,3);
     const irFile=join(tmp,'contract-ir.json'),reportFile=join(tmp,'report.json');
     const ib=Buffer.from(JSON.stringify(ir)),rb=Buffer.from(JSON.stringify(report));
     writeFileSync(irFile,ib);writeFileSync(reportFile,rb);
     const script=resolve('scripts/zorde-static-contract-ir.mjs');
     const args=[script,'--ir='+irFile,'--report='+reportFile,
       '--ir-sha256='+hash(ib),'--report-sha256='+hash(rb),
-      '--out-dir=artifacts/zorde-generated'];
+      '--out-dir=artifacts/zorde-generated','--instances='+corpusRoot];
     const r=spawnSync(process.execPath,args,{cwd:tmp,encoding:'utf8',timeout:15000});
     assert.equal(r.status,0,r.stderr);
     const dir=join(tmp,'artifacts','zorde-generated');
@@ -373,6 +427,8 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
     assert.equal(marker.planSha256,hash(plan));
     assert.equal(marker.guestSha256,hash(guest));
     assert.equal(marker.smokeSha256,hash(smoke));
+    assert.equal(marker.reviewedCorpusDigest,reviewed.digest);
+    assert.equal(marker.reviewedCorpusInstances,3);
     assert.equal(marker.guestSmokeCompiled,false);
     assert.equal(marker.guestSmokeExecuted,false);
     assert.equal(marker.nativeGuestExecuted,false);
