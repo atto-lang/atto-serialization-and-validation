@@ -236,6 +236,13 @@ function assertSafePlan(plan) {
     'plan cannot claim release/implementation verification');
   assert(sha(plan.irId) && sha(plan.tjsvRunId),
     'plan must bind a reviewed IR and TJSV receipt identity');
+  assert(object(plan.sourceDigests)
+    && Object.keys(plan.sourceDigests).sort().join(',') ===
+      ['authoredJsonSchema','generatedJsonSchema','typespec'].join(',')
+    && sha(plan.sourceDigests.typespec)
+    && sha(plan.sourceDigests.authoredJsonSchema)
+    && sha(plan.sourceDigests.generatedJsonSchema),
+    'plan must bind exactly three valid peer-authority SHA-256 digests');
   assert(Array.isArray(plan.entries) && plan.entries.length >= 1
     && plan.entries.length <= 64, 'invalid plan entry count');
   const ids = new Set();
@@ -430,6 +437,13 @@ export function rejectDuplicateJsonKeys(source) {
 // concurrent writer grows the file after fstat. Hash the actual read bytes.
 export function readEvidenceFile(path, expected) {
   assert(sha(expected), 'explicit expected SHA-256 is required');
+  // O_NOFOLLOW is unsupported on some Node/OS combinations. Silent
+  // undefined-to-zero bitwise coercion would follow an attacker-controlled
+  // symlink, so stop before open() rather than weakening the boundary.
+  assert(Number.isInteger(fsConstants.O_NOFOLLOW) && fsConstants.O_NOFOLLOW !== 0,
+    'platform cannot guarantee O_NOFOLLOW evidence reads');
+  assert(Number.isInteger(fsConstants.O_NONBLOCK),
+    'platform cannot guarantee bounded nonblocking evidence opens');
   let fd=-1;
   try {
     fd=openSync(path,fsConstants.O_RDONLY|fsConstants.O_NOFOLLOW|fsConstants.O_NONBLOCK);
