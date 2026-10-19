@@ -18,14 +18,27 @@ function fixture() {
     schema:'ores.typespec-json-schema-validator.report/v1',
     runId:h('a'),status:'passed',zeroUnexplainedFindings:true,findings:[],
     configuration:{mode:'check',emitterOptions:null,executionMode:null,
-      differential:{enabled:true,instanceCorpus:null}},
+      differential:{enabled:true,instanceCorpus:null,instanceCorpusDigest:h('9')}},
     toolchain:{validator:{name:'@oresoftware/typespec-json-schema-validator',version:'0.1.1'},
       typespecCompiler:{version:'1.16.0'},jsonSchemaEmitter:'@typespec/json-schema'},
     counts:{findings:0,structuralFindings:0,differentialFindings:0,
       emittedFindings:0,findingsTruncated:false},
     coverage:{sourceMutationCheck:true,directDeclarationInventory:true,
       typespecGeneratedJsonSchemaComparison:true,differentialInstanceValidation:true},
-    differential:{summary:{probesEvaluated:22,divergences:0,refusals:0}},
+    differential:{
+      summary:{probesEvaluated:22,divergences:0,refusals:0,
+        comparedDeclarations:1,corpusInstances:3,matchedReviewedCorpusInstances:3,
+        reviewedAcceptedInstances:2,reviewedRejectedInstances:1,
+        reviewedUnassertedInstances:0,
+        declarationsWithReviewedPositiveAndNegative:1,
+        declarationsWithoutReviewedFixtures:0},
+      declarations:[{
+        typespec:'Zorde.Validation.Port',generated:'Port',authored:'Port',
+        probes:22,divergences:0,refusals:0,behaviorallyIndistinguishable:true,
+        reviewedCorpus:{accepted:2,rejected:1,unasserted:0,total:3},
+        reviewedFixtureCoverage:'positive-and-negative',
+      }],
+    },
     inputs:{typespec:{digest:h('b')},authoredJsonSchema:{digest:h('c')},
       generatedJsonSchema:{digest:h('d')}},
     declarationMap:[{typespec:'Zorde.Validation.Port',kind:'scalar',generated:'Port',authored:'Port'}],
@@ -378,6 +391,27 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
 
 const corruption=[
   ['status',ir=>{ir.admissible=false;}],
+  ['missing fixture digest',(_,r)=>{delete r.configuration.differential.instanceCorpusDigest;}],
+  ['probe-only corpus',(_,r)=>{r.differential.summary.corpusInstances=0;}],
+  ['unmatched reviewed corpus',(_,r)=>{r.differential.summary.corpusInstances=4;}],
+  ['summary falsely claims partial fixture coverage',(_,r)=>{
+    r.differential.summary.declarationsWithReviewedPositiveAndNegative=0;}],
+  ['declaration lacks negative fixtures',(_,r)=>{
+    r.differential.declarations[0].reviewedCorpus.rejected=0;}],
+  ['positive-only incorrectly claimed as reviewed',(_,r)=>{
+    r.differential.declarations[0].reviewedFixtureCoverage='positive-only';}],
+  ['per-declaration counts forged',(_,r)=>{
+    r.differential.declarations[0].reviewedCorpus.total=4;}],
+  ['duplicate reviewed declaration',(_,r)=>{
+    r.differential.declarations.push(structuredClone(r.differential.declarations[0]));}],
+  ['reviewed corpus nominal declaration swapped',(_,r)=>{
+    r.differential.declarations[0].typespec='Zorde.Validation.Evil';}],
+  ['per-declaration authored name spoofed',(_,r)=>{
+    r.differential.declarations[0].authored='Different';}],
+  ['unreviewed corpus instance tolerated',(_,r)=>{
+    r.differential.summary.reviewedUnassertedInstances=1;}],
+  ['reviewed instance mismatch with aggregated summary',(_,r)=>{
+    r.differential.summary.reviewedRejectedInstances=7;}],
   ['nonzero counts findings',(_,r)=>{r.counts.findings=1;}],
   ['truncated finding evidence',(_,r)=>{r.counts.findingsTruncated=true;}],
   ['nonzero structural finding inventory',(_,r)=>{r.counts.structuralFindings=1;}],
