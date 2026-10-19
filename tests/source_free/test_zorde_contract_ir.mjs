@@ -187,6 +187,8 @@ test('static pilot guest has real native assertions and refuses unexpected schem
   assert.match(source,/value_int\(65536\)/);
   assert.match(source,/ShortLabel 65 characters rejected/);
   assert.match(source,/malformed UTF-8 rejected/);
+  assert.match(source,/UTF-8 byte length cannot replace Unicode scalar count/);
+  assert.match(source,/UTF-8 surrogate encoding rejected/);
   assert.match(source,/zorde generated registry guest smoke passed/);
   assert.equal(emitZordePilotGuestSmoke(pilot),source);
   const narrowed=structuredClone(pilot);
