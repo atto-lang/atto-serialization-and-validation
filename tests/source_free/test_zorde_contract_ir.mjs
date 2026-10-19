@@ -9,6 +9,7 @@ import {createHash} from 'node:crypto';
 import {mkdtempSync,writeFileSync,readFileSync,symlinkSync,linkSync,rmSync,mkdirSync,
   existsSync,constants as fsConstants} from 'node:fs';
 import {join,resolve} from 'node:path';
+import {realpathSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
 
@@ -324,7 +325,7 @@ test('canonical SHA-256 matches external fixture and rejects inconsistent schema
   assert.throws(()=>deriveStaticRegistry(ir,report),/schema lane digest/);
 });
 test('input evidence reads are bounded, no-follow and cryptographically verified',()=>{
-  const tmp=mkdtempSync(join(tmpdir(),'zorde-input-'));
+  const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-input-'));
   try {
     const p=join(tmp,'good.json'),bytes=Buffer.from('{"a":1}','utf8');
     writeFileSync(p,bytes);
@@ -339,6 +340,11 @@ test('input evidence reads are bounded, no-follow and cryptographically verified
     const sym=join(tmp,'link.json');
     symlinkSync(p,sym);
     assert.throws(()=>readEvidenceFile(sym,hash(bytes)));
+    const parentSymlink=join(tmp,'symlinked-evidence-parent');
+    symlinkSync(tmp,parentSymlink,'dir');
+    assert.throws(()=>readEvidenceFile(join(parentSymlink,'good.json'),hash(bytes)),
+      /ZORDE_STATIC_REFUSED/,
+      'a real input file must not bypass its symlinked parent directory');
     const other=join(tmp,'hardlink.json');
     linkSync(p,other);
     assert.throws(()=>readEvidenceFile(p,hash(bytes)),/ZORDE_STATIC_REFUSED/);
@@ -383,7 +389,7 @@ function writePilotCorpus(root){
   return base;
 }
 test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and symlinks',()=>{
-  const tmp=mkdtempSync(join(tmpdir(),'zorde-corpus-'));
+  const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-corpus-'));
   try{
     const root=writePilotCorpus(tmp);
     const baseline=reviewedCorpusIdentity(root);
@@ -407,7 +413,7 @@ test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and sy
 });
 
 test('Node CLI emits complete write-once artifact and refuses output symlink',()=>{
-  const tmp=mkdtempSync(join(tmpdir(),'zorde-plan-'));
+  const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-plan-'));
   try {
     const {ir,report}=fixture();
     const corpusRoot=writePilotCorpus(tmp);
@@ -450,7 +456,7 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
     assert.equal(existsSync(dir),false,
       'no generated output may precede the corpus identity check');
 
-    const tmp2=mkdtempSync(join(tmpdir(),'zorde-plan-link-'));
+    const tmp2=mkdtempSync(join(realpathSync(tmpdir()),'zorde-plan-link-'));
     try{
       mkdirSync(join(tmp2,'elsewhere'));
       symlinkSync(join(tmp2,'elsewhere'),join(tmp2,'artifacts'),'dir');
