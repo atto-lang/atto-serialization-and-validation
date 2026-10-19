@@ -1,9 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys,
-  canonicalDigest,semanticReportProjection} from
+  canonicalDigest,semanticReportProjection,readEvidenceFile} from
   '../../scripts/zorde-static-contract-ir.mjs';
 
+import {createHash} from 'node:crypto';
+import {mkdtempSync,writeFileSync,readFileSync,symlinkSync,linkSync,rmSync,mkdirSync} from 'node:fs';
+import {join,resolve} from 'node:path';
+import {tmpdir} from 'node:os';
+import {spawnSync} from 'node:child_process';
+
+const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const h = (c) => c.repeat(64);
 function fixture() {
   const report = {
@@ -211,6 +218,76 @@ test('nonsemantic host paths are intentionally excluded from semantic receipt di
 test('unrecognized JSON Schema dialect is refused even with valid scalar bounds',()=>{
   assert.throws(()=>descriptorFromSchema({type:'integer',minimum:1,maximum:2,
     $schema:'https://json-schema.org/draft-07/schema#'}),/ZORDE_STATIC_REFUSED/);
+});
+
+test('canonical SHA-256 matches external fixture and rejects inconsistent schema digests',()=>{
+  assert.equal(canonicalDigest({b:2,a:1}),
+    '43258cff783fe7036d8a43033f830adfc60ec037382473548ac742b888292777');
+  const {ir,report}=fixture();
+  const d=ir.declarations[0];
+  d.lanes.authoredJsonSchema.normalizedSchema.minimum=2;
+  // A separately recomputed IR self digest must not replace the unchanged
+  // independently authored schema lane digest.
+  const {irId:_,...body}=ir;
+  ir.irId=canonicalDigest(body);
+  assert.throws(()=>deriveStaticRegistry(ir,report),/schema lane digest/);
+});
+test('input evidence reads are bounded, no-follow and cryptographically verified',()=>{
+  const tmp=mkdtempSync(join(tmpdir(),'zorde-input-'));
+  try {
+    const p=join(tmp,'good.json'),bytes=Buffer.from('{"a":1}','utf8');
+    writeFileSync(p,bytes);
+    assert.deepEqual(readEvidenceFile(p,hash(bytes)),{a:1});
+    assert.throws(()=>readEvidenceFile(p,'0'.repeat(64)),/ZORDE_STATIC_REFUSED/);
+    const sym=join(tmp,'link.json');
+    symlinkSync(p,sym);
+    assert.throws(()=>readEvidenceFile(sym,hash(bytes)));
+    const other=join(tmp,'hardlink.json');
+    linkSync(p,other);
+    assert.throws(()=>readEvidenceFile(p,hash(bytes)),/ZORDE_STATIC_REFUSED/);
+    const wide=join(tmp,'large.json');
+    writeFileSync(wide,Buffer.alloc(2097153,32));
+    assert.throws(()=>readEvidenceFile(wide,hash(readFileSync(wide))),/ZORDE_STATIC_REFUSED/);
+    const invalid=join(tmp,'invalid.json');
+    const badUtf8=Buffer.from([123,34,97,34,58,34,0xff,34,125]);
+    writeFileSync(invalid,badUtf8);
+    assert.throws(()=>readEvidenceFile(invalid,hash(badUtf8)));
+    const dup=join(tmp,'duplicate.json'),dupBytes=Buffer.from('{"a":1,"\\u0061":2}');
+    writeFileSync(dup,dupBytes);
+    assert.throws(()=>readEvidenceFile(dup,hash(dupBytes)),/ZORDE_STATIC_REFUSED/);
+  } finally {rmSync(tmp,{recursive:true,force:true});}
+});
+test('Node CLI emits complete write-once artifact and refuses output symlink',()=>{
+  const tmp=mkdtempSync(join(tmpdir(),'zorde-plan-'));
+  try {
+    const {ir,report}=fixture();
+    const irFile=join(tmp,'contract-ir.json'),reportFile=join(tmp,'report.json');
+    const ib=Buffer.from(JSON.stringify(ir)),rb=Buffer.from(JSON.stringify(report));
+    writeFileSync(irFile,ib);writeFileSync(reportFile,rb);
+    const script=resolve('scripts/zorde-static-contract-ir.mjs');
+    const args=[script,'--ir='+irFile,'--report='+reportFile,
+      '--ir-sha256='+hash(ib),'--report-sha256='+hash(rb),
+      '--out-dir=artifacts/zorde-generated'];
+    const r=spawnSync(process.execPath,args,{cwd:tmp,encoding:'utf8',timeout:15000});
+    assert.equal(r.status,0,r.stderr);
+    const dir=join(tmp,'artifacts','zorde-generated');
+    const marker=JSON.parse(readFileSync(join(dir,'build-complete.json'),'utf8'));
+    const plan=readFileSync(join(dir,'registry-plan.json'));
+    const guest=readFileSync(join(dir,'registry-specs.ores'));
+    assert.equal(marker.planSha256,hash(plan));
+    assert.equal(marker.guestSha256,hash(guest));
+    assert.equal(marker.nativeGuestExecuted,false);
+    assert.equal(marker.releaseReady,false);
+    assert.equal(spawnSync(process.execPath,args,{cwd:tmp,encoding:'utf8'}).status,2,
+      'existing outputs must not be silently overwritten');
+    const tmp2=mkdtempSync(join(tmpdir(),'zorde-plan-link-'));
+    try{
+      mkdirSync(join(tmp2,'elsewhere'));
+      symlinkSync(join(tmp2,'elsewhere'),join(tmp2,'artifacts'),'dir');
+      const denied=spawnSync(process.execPath,args,{cwd:tmp2,encoding:'utf8'});
+      assert.equal(denied.status,2);
+    } finally {rmSync(tmp2,{recursive:true,force:true});}
+  } finally {rmSync(tmp,{recursive:true,force:true});}
 });
 
 const corruption=[
