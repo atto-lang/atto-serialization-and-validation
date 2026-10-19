@@ -39,7 +39,7 @@ function fixture() {
         reviewedCorpus:{accepted:2,rejected:1,unasserted:0,total:3},
         reviewedFixtureCoverage:'positive-and-negative',
       }],
-      corpusDigest:h('9'),
+
     },
     inputs:{typespec:{digest:h('b')},authoredJsonSchema:{digest:h('c')},
       generatedJsonSchema:{digest:h('d')}},
