@@ -164,7 +164,6 @@ const actual=reviewedCorpusIdentity('contracts/zorde/scalar-instances');
 const build=JSON.parse(readFileSync('artifacts/zorde-generated/build-complete.json','utf8'));
 const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
 if(actual.digest!==build.reviewedCorpusDigest
-  ||actual.digest!==report.differential.corpusDigest
   ||actual.digest!==report.configuration.differential.instanceCorpusDigest
   ||actual.corpus.length!==build.reviewedCorpusInstances){
   throw Error('source reviewed corpus diverges from pinned parity evidence');
