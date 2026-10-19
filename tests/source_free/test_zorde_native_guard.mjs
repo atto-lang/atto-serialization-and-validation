@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {mkdtempSync,rmSync,mkdirSync,symlinkSync,writeFileSync,readFileSync,realpathSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {tmpdir} from 'node:os';
-import {join,resolve,dirname,normalize,relative,isAbsolute} from 'node:path';
+import {join,resolve,dirname,basename,normalize,relative,isAbsolute} from 'node:path';
 
 // Host-side fail-closed preflight only. This suite does NOT execute or
 // authenticate the Oreslang compiler, any private code export, or native
@@ -117,6 +117,10 @@ test('source-local Node gate refuses missing independent source snapshot and uns
     mkdirSync(safe,{mode:0o700});
     const link=join(tmp,'linked-evidence');
     symlinkSync(safe,link,'dir');
+    const linkedEvidenceParent=join(tmp,'linked-evidence-parent');
+    symlinkSync(tmp,linkedEvidenceParent,'dir');
+    const linkedNodeParent=join(tmp,'linked-node-parent');
+    symlinkSync(dirname(bin),linkedNodeParent,'dir');
     const good={
       ...process.env,
       NODE_BIN:bin,
@@ -129,7 +133,9 @@ test('source-local Node gate refuses missing independent source snapshot and uns
       ['missing source approval',{...good,EXPECTED_SOURCE_SHA:''},/required reviewed input missing/],
       ['short source root tree',{...good,EXPECTED_SOURCE_TREE:'bad'},/invalid immutable source root tree/],
       ['invalid Node binary digest',{...good,EXPECTED_NODE_SHA256:'invalid'},/invalid independently approved Node binary digest/],
-      ['symlink evidence',{...good,ZORDE_EVIDENCE_DIR:link},/evidence directory must preexist/],
+      ['symlink evidence',{...good,ZORDE_EVIDENCE_DIR:link},/evidence directory must be an absolute preexisting real directory/],
+      ['symlinked evidence ancestor',{...good,ZORDE_EVIDENCE_DIR:join(linkedEvidenceParent,'evidence')},/path traverses a symbolic link/],
+      ['symlinked Node executable ancestor',{...good,NODE_BIN:join(linkedNodeParent,basename(bin))},/path traverses a symbolic link/],
       ['unreviewed source SHA',good,/source commit does not match approval/],
     ];
     for(const [name,env,reason] of cases){
@@ -140,6 +146,9 @@ test('source-local Node gate refuses missing independent source snapshot and uns
       assert.match(proc.stderr,reason,name);
       assert.equal(proc.stdout,'',name+': must not issue a receipt');
     }
+    const gate=readFileSync(nodeGate,'utf8');
+    assert.match(gate,/O_NOFOLLOW/,'private test log must use no-follow opens');
+    assert.match(gate,/set -C/,'private test log must use noclobber');
   } finally {rmSync(tmp,{recursive:true,force:true});}
 });
 
