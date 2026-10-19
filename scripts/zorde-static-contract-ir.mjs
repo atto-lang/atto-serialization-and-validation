@@ -3,8 +3,8 @@
 // validate payloads, or prove either schema authority: the CI trust boundary
 // must independently pin the actual TJSV action and source revision.
 import { createHash } from 'node:crypto';
-import { openSync, closeSync, readSync, fstatSync, lstatSync, existsSync, mkdirSync,
-  writeFileSync, constants as fsConstants } from 'node:fs';
+import { openSync, closeSync, readSync, fstatSync, lstatSync, readdirSync,
+  existsSync, mkdirSync, writeFileSync, constants as fsConstants } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -495,8 +495,8 @@ export function rejectDuplicateJsonKeys(source) {
 // Open the reviewed input without following a symbolic link. Check type and
 // size *before* allocating/reading, then allow at most max+1 bytes even if a
 // concurrent writer grows the file after fstat. Hash the actual read bytes.
-export function readEvidenceFile(path, expected) {
-  assert(sha(expected), 'explicit expected SHA-256 is required');
+function readSafeJson(path, expected=null) {
+  if(expected!==null)assert(sha(expected), 'explicit expected SHA-256 is required');
   // O_NOFOLLOW is unsupported on some Node/OS combinations. Silent
   // undefined-to-zero bitwise coercion would follow an attacker-controlled
   // symlink, so stop before open() rather than weakening the boundary.
@@ -522,13 +522,74 @@ export function readEvidenceFile(path, expected) {
     assert(current.size===st.size && current.ino===st.ino && current.dev===st.dev,
       'source file changed while reading');
     const input=bytes.subarray(0,count);
-    assert(digest(input)===expected, 'input byte digest differs from trusted expectation');
+    const byteDigest=digest(input);
+    if(expected!==null)assert(byteDigest===expected,
+      'input byte digest differs from trusted expectation');
     const source=new TextDecoder('utf-8',{fatal:true}).decode(input);
     rejectDuplicateJsonKeys(source);
-    return JSON.parse(source);
+    return {value:JSON.parse(source),byteDigest,byteCount:count};
   } finally {
     if(fd!==-1)closeSync(fd);
   }
+}
+
+export function readEvidenceFile(path, expected) {
+  assert(sha(expected), 'explicit expected SHA-256 is required');
+  return readSafeJson(path,expected).value;
+}
+
+// Read the exact independently authored positive/negative corpus and
+// reproduce pinned TJSV src/run.mjs corpusIdentity(): SHA-256 of canonical
+// [{declaration,expectation,relativePath,instance}] in upstream directory
+// iteration order. Require an explicit, closed layout and no symlinks/hardlinks.
+// The source-bound CI must still pin the source tree and the TJSV action.
+export function reviewedCorpusIdentity(root) {
+  const corpusRoot=resolve(root);
+  const rootStat=lstatSync(corpusRoot);
+  assert(rootStat.isDirectory() && !rootStat.isSymbolicLink(),
+    'corpus root must be a real directory');
+  const alphabet=xs=>xs.sort((a,b)=>a.name.localeCompare(b.name));
+  const decls=alphabet(readdirSync(corpusRoot,{withFileTypes:true}));
+  assert(decls.length>0 && decls.length<=64,'unsupported corpus declaration count');
+  const corpus=[];
+  let totalBytes=0;
+  const ensureDirectory=(path)=>{
+    const stat=lstatSync(path);
+    assert(stat.isDirectory() && !stat.isSymbolicLink(),
+      'corpus path must be a real directory');
+  };
+  for(const decl of decls){
+    assert(decl.isDirectory() && !decl.isSymbolicLink()
+      && /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(decl.name),
+      'unsafe or unsupported corpus declaration');
+    const declPath=resolve(corpusRoot,decl.name);
+    ensureDirectory(declPath);
+    const directories=alphabet(readdirSync(declPath,{withFileTypes:true}));
+    assert(directories.length===2
+      && directories.some(x=>x.name==='valid' && x.isDirectory())
+      && directories.some(x=>x.name==='invalid' && x.isDirectory()),
+      'each corpus declaration requires valid and invalid directories only');
+    for(const expectation of ['valid','invalid']){
+      const folder=resolve(declPath,expectation);
+      ensureDirectory(folder);
+      const files=alphabet(readdirSync(folder,{withFileTypes:true}));
+      assert(files.length>0 && files.length<=64,'missing/excessive corpus fixtures');
+      for(const file of files){
+        assert(file.isFile() && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.json$/.test(file.name),
+          'corpus fixture must be a regular JSON file');
+        assert(corpus.length<128,'corpus fixture count exceeds budget');
+        const pathname=resolve(folder,file.name);
+        const read=readSafeJson(pathname);
+        totalBytes+=read.byteCount;
+        assert(totalBytes<=1048576,'corpus exceeds total byte budget');
+        corpus.push({declaration:decl.name,
+          expectation:expectation==='valid'?'accepted':'rejected',
+          relativePath:decl.name+'/'+expectation+'/'+file.name,
+          instance:read.value});
+      }
+    }
+  }
+  return {digest:canonicalDigest(corpus),corpus};
 }
 
 export function main(args) {
@@ -537,15 +598,24 @@ export function main(args) {
     const p = arg.indexOf('=');
     assert(p > 2 && arg.startsWith('--'), 'expected --name=value');
     const key = arg.slice(2,p);
-    assert(['ir','report','ir-sha256','report-sha256','out-dir'].includes(key)
+    assert(['ir','report','ir-sha256','report-sha256','out-dir','instances'].includes(key)
       && !flags.has(key), 'unknown/duplicate argument ' + key);
     flags.set(key,arg.slice(p+1));
   }
-  assert(flags.size === 5 && [...flags.values()].every(Boolean),
-    'all five CLI arguments are mandatory');
+  assert(flags.size === 6 && [...flags.values()].every(Boolean),
+    'all six CLI arguments including --instances are mandatory');
   const ir = readEvidenceFile(flags.get('ir'), flags.get('ir-sha256'));
   const report = readEvidenceFile(flags.get('report'), flags.get('report-sha256'));
   const plan = deriveStaticRegistry(ir,report);
+  const reviewed=reviewedCorpusIdentity(flags.get('instances'));
+  assert(reviewed.digest===report.configuration.differential.instanceCorpusDigest
+    && reviewed.digest===report.differential.corpusDigest
+    && reviewed.corpus.length===report.differential.summary.corpusInstances,
+    'current corpus does not match source-bound TJSV report');
+  const known=new Map(report.declarationMap.map(x=>[x.authored,x.typespec]));
+  assert(new Set(reviewed.corpus.map(x=>x.declaration)).size===known.size
+    && reviewed.corpus.every(x=>known.has(x.declaration)),
+    'corpus declaration scope differs from reviewed authorities');
   const dir = resolve(flags.get('out-dir'));
   // Imports in emitted Oreslang file assume artifacts/zorde-generated/; refuse
   // ambiguous location rather than quietly generating broken guest imports.
@@ -574,6 +644,8 @@ export function main(args) {
   writeFileSync(resolve(dir,'build-complete.json'),JSON.stringify({
     schema:'oreslang.zorde.static-registry-build-complete/v1',
     irId:plan.irId, tjsvRunId:plan.tjsvRunId,
+    reviewedCorpusDigest:reviewed.digest,
+    reviewedCorpusInstances:reviewed.corpus.length,
     planSha256:digest(Buffer.from(planBytes,'utf8')),
     guestSha256:digest(Buffer.from(guest,'utf8')),
     smokeSha256:digest(Buffer.from(guestSmoke,'utf8')),
