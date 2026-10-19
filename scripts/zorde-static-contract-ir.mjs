@@ -54,7 +54,7 @@ function sha(x) { return typeof x === 'string' && HEX.test(x); }
 function exactKeys(value, allowed, context) {
   assert(object(value), context + ' must be an object');
   for (const key of Object.keys(value)) {
-    assert(allowed.has(key), context + ' contains unsupported keyword ' + key);
+    assert(allowed.has(key), context + ' contains unsupported keyword');
   }
 }
 function boundedInteger(n, lo, hi) {
@@ -120,6 +120,8 @@ export function deriveStaticRegistry(ir, report) {
   assert(object(report) && report.schema === REPORT_KIND
     && report.status === 'passed' && report.zeroUnexplainedFindings === true
     && sha(report.runId) && emptyArray(report.findings), 'unpassed TJSV report');
+  assert(object(report.counts) && report.counts.findings===0,
+    'TJSV report contains nonzero or missing finding count');
   assert(report.coverage?.directDeclarationInventory === true
     && report.coverage?.typespecGeneratedJsonSchemaComparison === true
     && report.coverage?.differentialInstanceValidation === true, 'TJSV coverage missing');
@@ -182,6 +184,8 @@ export function deriveStaticRegistry(ir, report) {
     assert(object(decl.names) && decl.names.typespec === decl.id,
       'nominal schema identity mismatched');
     const pair = mapped.get(decl.id);
+    assert(pair && ['scalar','alias','scalar-like'].includes(pair.kind),
+      'mapped declaration is not a scalar kind');
     assert(pair && pair.generated === decl.names.generatedJsonSchema
       && pair.authored === decl.names.authoredJsonSchema,
       'report/IR declaration mapping mismatch');
@@ -313,7 +317,7 @@ export function rejectDuplicateJsonKeys(source) {
       if(source[i]==='}') {i++;return;}
       while(i<source.length) {
         const key=scanString();
-        assert(!keys.has(key), 'duplicate JSON object key: ' + key);
+        assert(!keys.has(key), 'duplicate JSON object key');
         keys.add(key);
         whitespace();
         assert(source[i]===':', 'JSON object colon missing');
