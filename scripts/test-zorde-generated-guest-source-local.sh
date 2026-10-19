@@ -142,12 +142,48 @@ for declaration in ("Port","ShortLabel"):
             assert path.is_file() and not path.is_symlink()
             paths.append(path.relative_to(root).as_posix())
 assert len(paths)==18,"expected nine fixed inputs plus nine reviewed corpus files"
+# Seal the full statically imported guest source closure, not just generated
+# files. Derive imports from actual .ores sources and stop on absolute,
+# unsupported, missing, symlinked or outside-checkout imports.
+import os,re
+guest_roots=(
+    "artifacts/zorde-generated/registry-smoke.ores",
+    "artifacts/zorde-generated/registry-specs.ores",
+)
+closure=set()
+def visit_imports(name,depth=0):
+    assert depth<=32 and len(closure)<=64,"guest import depth/size budget exceeded"
+    full=root/name
+    content=full.read_text(encoding="utf8")
+    for line in content.splitlines():
+        if not line.lstrip().startswith("import "):
+            continue
+        match=re.fullmatch(r'\s*import\s+.+\s+from\s+([\'"])(\.[^\'"]+)\1;\s*',line)
+        assert match is not None,"unsupported static import syntax"
+        target=os.path.normpath(os.path.join(os.path.dirname(name),
+                       match.group(2)+".ores"))
+        assert target.endswith(".ores") and not os.path.isabs(target)
+        assert not target.startswith(".."+os.sep) and target!=".."
+        assert (root/target).is_file(),"missing static guest dependency"
+        check=root
+        for segment in target.split(os.sep):
+            check=check/segment
+            assert not check.is_symlink(),"symlinked static guest dependency"
+        if target not in closure and target not in guest_roots:
+            closure.add(target)
+            visit_imports(target,depth+1)
+for guest in guest_roots:
+    visit_imports(guest)
+assert 8<=len(closure)<=64,"incomplete/excessive guest import closure"
+assert not set(paths)&closure
+paths.extend(sorted(closure))
 def attested(path):
     p=root/path
     st=p.lstat()
     assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,path
     return hashlib.sha256(p.read_bytes()).hexdigest()
 manifest={"schema":"oreslang.zorde.native-guest-inputs/v1",
+          "staticGuestImportClosure":sorted(closure),
           "files":{name:attested(name) for name in paths}}
 with Path(os.environ["INPUT_MANIFEST"]).open("x",encoding="utf8") as f:
     json.dump(manifest,f,sort_keys=True,indent=2)
@@ -190,7 +226,9 @@ from pathlib import Path
 root=Path(os.environ["ROOT"])
 manifest=json.loads(Path(os.environ["INPUT_MANIFEST"]).read_text(encoding="utf8"))
 assert manifest["schema"]=="oreslang.zorde.native-guest-inputs/v1"
-assert len(manifest["files"])==18
+assert 8<=len(manifest["staticGuestImportClosure"])<=64
+assert len(manifest["files"])==18+len(manifest["staticGuestImportClosure"])
+assert all(name in manifest["files"] for name in manifest["staticGuestImportClosure"])
 for name,expected in manifest["files"].items():
     p=root/name
     st=p.lstat()
@@ -224,7 +262,9 @@ manifest_bytes=Path(os.environ['INPUT_MANIFEST']).read_bytes()
 assert h(manifest_bytes)==os.environ['EXPECTED_MANIFEST_SHA256']
 manifest=json.loads(manifest_bytes)
 assert manifest['schema']=='oreslang.zorde.native-guest-inputs/v1'
-assert len(manifest['files'])==18
+assert 8<=len(manifest['staticGuestImportClosure'])<=64
+assert len(manifest['files'])==18+len(manifest['staticGuestImportClosure'])
+assert all(name in manifest['files'] for name in manifest['staticGuestImportClosure'])
 for name,want in manifest['files'].items():
     p=root/name
     st=p.lstat()
@@ -243,6 +283,8 @@ data={
  'native_log_sha256':h(log),
  'pre_execution_input_manifest_sha256':os.environ['EXPECTED_MANIFEST_SHA256'],
  'source_bound_guest_inputs_unchanged':True,
+ 'static_guest_import_closure_sealed':True,
+ 'static_guest_import_module_count':len(manifest['staticGuestImportClosure']),
  'native_guest_executed':True,'success_marker_observed':True,
  'process_exit_code':0,
  'compiler_dependency_closure_attested':False,
