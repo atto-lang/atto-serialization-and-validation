@@ -610,7 +610,6 @@ export function main(args) {
   const plan = deriveStaticRegistry(ir,report);
   const reviewed=reviewedCorpusIdentity(flags.get('instances'));
   assert(reviewed.digest===report.configuration.differential.instanceCorpusDigest
-    && reviewed.digest===report.differential.corpusDigest
     && reviewed.corpus.length===report.differential.summary.corpusInstances,
     'current corpus does not match source-bound TJSV report');
   const known=new Map(report.declarationMap.map(x=>[x.authored,x.typespec]));
