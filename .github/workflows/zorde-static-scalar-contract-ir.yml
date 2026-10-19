@@ -1,0 +1,119 @@
+name: Zorde scalar TypeSpec/JSON Schema to Contract IR (not native proof)
+on:
+  push:
+    paths:
+      - 'contracts/zorde/scalars.tsp'
+      - 'contracts/zorde/scalars.schema.json'
+      - 'contracts/zorde/scalar-instances/**'
+      - '.github/workflows/zorde-static-scalar-contract-ir.yml'
+  pull_request:
+    paths:
+      - 'contracts/zorde/scalars.tsp'
+      - 'contracts/zorde/scalars.schema.json'
+      - 'contracts/zorde/scalar-instances/**'
+      - '.github/workflows/zorde-static-scalar-contract-ir.yml'
+permissions:
+  contents: read
+jobs:
+  scalar-contract-ir:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact checked-out head
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      - name: Admit two independent scalar authorities using locked TJSV
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/zorde/scalars.tsp
+          schema: contracts/zorde/scalars.schema.json
+          instances: contracts/zorde/scalar-instances
+          report: artifacts/zorde-scalars-parity.json
+          contract_ir: artifacts/zorde-scalars-contract-ir.json
+          sarif: ''
+          output_dir: artifacts/zorde-scalars-witness
+      - name: Require real positive parity, differential probes and full derived IR scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
+          const ir=JSON.parse(readFileSync('artifacts/zorde-scalars-contract-ir.json','utf8'));
+          function ok(v,why){if(!v)throw Error('ZORDE_IR_REFUSED: '+why);}
+          ok(report.schema==='ores.typespec-json-schema-validator.report/v1'
+            && report.status==='passed' && report.zeroUnexplainedFindings===true
+            && Array.isArray(report.findings) && report.findings.length===0,
+            'unpassed TJSV report');
+          ok(report.coverage?.directDeclarationInventory===true
+            && report.coverage?.typespecGeneratedJsonSchemaComparison===true
+            && report.coverage?.differentialInstanceValidation===true
+            && report.differential?.summary?.probesEvaluated>0
+            && report.differential?.summary?.divergences===0
+            && report.differential?.summary?.refusals===0,'missing differential work');
+          ok(ir.schema==='ores.typespec-json-schema-validator.contract-ir/v1'
+            && ir.status==='passed' && ir.admissible===true
+            && ir.editableAuthority===false
+            && ir.admission?.receipt?.runId===report.runId,'wrong IR admission');
+          ok(ir.admission?.scope?.complete===true
+            && ir.admission.scope.admittedDeclarations===2
+            && ir.declarations?.length===2
+            && ir.excludedDeclarations?.length===0
+            && ir.outOfScopeDeclarations?.length===0,'IR inventory incomplete');
+          ok(ir.provenance?.typespec?.digest===report.inputs?.typespec?.digest
+            && ir.provenance?.authoredJsonSchema?.digest===report.inputs?.authoredJsonSchema?.digest
+            && ir.provenance?.generatedJsonSchema?.digest===report.inputs?.generatedJsonSchema?.digest,
+            'IR source digest mismatch');
+          ok(ir.declarations.every(d=>['Zorde.Validation.Port','Zorde.Validation.ShortLabel'].includes(d.id)),
+            'unexpected declaration IDs');
+          console.log('TJSV_SCALAR_IR_PARITY_AND_INVENTORY_CONFIRMED (not native runtime proof)');
+          JS
+      - name: Mutate only the independently authored JSON Schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          jq '."$defs".Port.minimum = 2' contracts/zorde/scalars.schema.json > artifacts/zorde-scalars-mutant.schema.json
+          test "$(jq -r '."$defs".Port.minimum' contracts/zorde/scalars.schema.json)" = 1
+          test "$(jq -r '."$defs".Port.minimum' artifacts/zorde-scalars-mutant.schema.json)" = 2
+      - name: Force semantic refusal and IR tombstone on mutated schema
+        id: drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/zorde/scalars.tsp
+          schema: artifacts/zorde-scalars-mutant.schema.json
+          instances: contracts/zorde/scalar-instances
+          report: artifacts/zorde-scalars-mutant-refused.json
+          contract_ir: artifacts/zorde-scalars-mutant-ir.json
+          sarif: ''
+          output_dir: artifacts/zorde-scalars-mutant-witness
+      - name: Check precise semantic drift and ensure no admissible mutated IR
+        shell: bash
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DRIFT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync,existsSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('artifacts/zorde-scalars-mutant-refused.json','utf8'));
+          if(r.status!=='stopped_for_evaluation'||r.zeroUnexplainedFindings!==false
+             ||!Array.isArray(r.findings)||!r.findings.some(f=>f.resolutionState==='unexplained')
+             ||r.error)throw Error('Expected SEMANTIC schema drift, not an infrastructure failure');
+          const f='artifacts/zorde-scalars-mutant-ir.json';
+          if(!existsSync(f))throw Error('Tombstone Contract IR not produced');
+          const ir=JSON.parse(readFileSync(f,'utf8'));
+          if(ir.admissible!==false||ir.declarations?.length!==0)
+            throw Error('TJSV incorrectly produced admissible IR from drift');
+          JS
