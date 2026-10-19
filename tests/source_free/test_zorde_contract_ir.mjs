@@ -107,6 +107,12 @@ test('digest-gated input reader refuses decoded duplicate JSON keys',()=>{
     /ZORDE_STATIC_REFUSED/);
 });
 
+test('inherited prototype constraints must not substitute for authored fields',()=>{
+  const forged=Object.create({minimum:1});
+  forged.type='integer';forged.maximum=3;
+  assert.throws(()=>descriptorFromSchema(forged),/ZORDE_STATIC_REFUSED/);
+});
+
 const badShapes=[
   {type:'integer',minimum:1.25,maximum:3},
   {type:'integer',minimum:1,maximum:3,exclusiveMinimum:1},
