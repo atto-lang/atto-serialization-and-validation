@@ -7,7 +7,9 @@ deny(){ printf 'ZORDE_GENERATED_GUEST_REFUSED: %s\n' "$*" >&2; exit 2; }
 for utility in git sha256sum timeout python3 grep; do
   command -v "$utility" >/dev/null 2>&1 || deny "utility unavailable"
 done
-for variable in EXPECTED_SOURCE_SHA EXPECTED_SOURCE_TREE EXPECTED_COMPILER_SHA256 ORESLANG_BIN ZORDE_EVIDENCE_DIR; do
+for variable in EXPECTED_SOURCE_SHA EXPECTED_SOURCE_TREE EXPECTED_COMPILER_SHA256 \
+  EXPECTED_CONTRACT_IR_SHA256 EXPECTED_PARITY_REPORT_SHA256 \
+  EXPECTED_VERIFICATION_SHA256 ORESLANG_BIN ZORDE_EVIDENCE_DIR; do
   [[ -n "$(printenv "$variable" || true)" ]] || deny "required reviewed environment input missing"
 done
 
@@ -16,6 +18,9 @@ cd "$root"
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected source SHA"
 [[ "$EXPECTED_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected root tree"
 [[ "$EXPECTED_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]] || deny "invalid expected compiler digest"
+for reviewed in "$EXPECTED_CONTRACT_IR_SHA256" "$EXPECTED_PARITY_REPORT_SHA256" "$EXPECTED_VERIFICATION_SHA256"; do
+  [[ "$reviewed" =~ ^[0-9a-f]{64}$ ]] || deny "invalid externally reviewed evidence digest"
+done
 [[ "$ORESLANG_BIN" = /* && -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" && ! -L "$ORESLANG_BIN" ]] ||
   deny "compiler must be an absolute real executable, not a symlink"
 [[ -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
@@ -28,6 +33,15 @@ while IFS= read -r -d '' name; do
   [[ "$name" == artifacts/* ]] || deny "untracked files outside generated artifacts"
 done < <(git ls-files --others --exclude-standard -z)
 
+# The three evidence hashes must be obtained from a separately reviewed
+# source-local parity/verification run. A SHA the untrusted artifact supplier
+# computed for its own forged files does NOT authenticate those artifacts.
+[[ "$(sha256sum artifacts/zorde-scalars-contract-ir.json | cut -d' ' -f1)" == "$EXPECTED_CONTRACT_IR_SHA256" ]] ||
+  deny "Contract IR differs from independently reviewed bytes"
+[[ "$(sha256sum artifacts/zorde-scalars-parity.json | cut -d' ' -f1)" == "$EXPECTED_PARITY_REPORT_SHA256" ]] ||
+  deny "parity receipt differs from independently reviewed bytes"
+[[ "$(sha256sum artifacts/zorde-scalars-consumer-verification.json | cut -d' ' -f1)" == "$EXPECTED_VERIFICATION_SHA256" ]] ||
+  deny "consumer verification differs from independently reviewed bytes"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)"
 [[ "$compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] || deny "compiler digest changed"
 out="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
@@ -49,6 +63,9 @@ python3 - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or 
 import hashlib,json,stat,sys
 from pathlib import Path
 root=Path(sys.argv[1])
+for directory in ('artifacts','artifacts/zorde-generated'):
+    s=(root/directory).lstat()
+    assert stat.S_ISDIR(s.st_mode),directory
 def safe(p):
     p=root/p
     s=p.lstat()
