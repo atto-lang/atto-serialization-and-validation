@@ -56,7 +56,9 @@ assert stat.S_IMODE(s.st_mode)&0o077==0
 PY
 log="$out/zorde-generated-smoke-native.log"
 receipt="$out/zorde-generated-smoke-native-receipt.json"
-[[ ! -e "$log" && ! -L "$log" && ! -e "$receipt" && ! -L "$receipt" ]] ||
+before="$out/zorde-generated-inputs-before.json"
+[[ ! -e "$log" && ! -L "$log" && ! -e "$receipt" && ! -L "$receipt" &&
+   ! -e "$before" && ! -L "$before" ]] ||
   deny "use a fresh private evidence directory"
 
 python3 - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or inconsistent"
@@ -94,6 +96,39 @@ assert built['guestSha256']==sha('artifacts/zorde-generated/registry-specs.ores'
 assert built['smokeSha256']==sha('artifacts/zorde-generated/registry-smoke.ores')
 PY
 
+# Capture an exclusive pre-execution manifest of all seven authority and
+# derived guest inputs; evidence emitted after execution must match precisely.
+# This closes the ordinary precheck-to-receipt mutation window. It cannot
+# attest a compromised runtime, so the compiler dependency closure stays
+# explicitly uncertified in the native result.
+ROOT="$root" INPUT_MANIFEST="$before" python3 - <<'PY' ||
+  deny "unable to create independently digest-bound guest input manifest"
+import hashlib,json,os,stat
+from pathlib import Path
+root=Path(os.environ["ROOT"])
+paths=[
+  "contracts/zorde/scalars.tsp",
+  "contracts/zorde/scalars.schema.json",
+  "artifacts/zorde-scalars-parity.json",
+  "artifacts/zorde-scalars-contract-ir.json",
+  "artifacts/zorde-scalars-consumer-verification.json",
+  "artifacts/zorde-generated/build-complete.json",
+  "artifacts/zorde-generated/registry-plan.json",
+  "artifacts/zorde-generated/registry-specs.ores",
+  "artifacts/zorde-generated/registry-smoke.ores",
+]
+def attested(path):
+    p=root/path
+    st=p.lstat()
+    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,path
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+manifest={"schema":"oreslang.zorde.native-guest-inputs/v1",
+          "files":{name:attested(name) for name in paths}}
+with Path(os.environ["INPUT_MANIFEST"]).open("x",encoding="utf8") as f:
+    json.dump(manifest,f,sort_keys=True,indent=2)
+    f.write("\n")
+PY
+
 set +e
 timeout --signal=TERM --kill-after=5s 180s "$ORESLANG_BIN" \
   "$root/artifacts/zorde-generated/registry-smoke.ores" >"$log" 2>&1
@@ -102,6 +137,22 @@ set -e
 [[ "$status" -eq 0 ]] || deny "guest compiler/execution failed, see native log"
 grep -Fqx 'zorde generated registry guest smoke passed' "$log" ||
   deny "actual guest success marker absent"
+
+ROOT="$root" INPUT_MANIFEST="$before" python3 - <<'PY' ||
+  deny "source authority or generated guest changed during execution"
+import hashlib,json,os,stat
+from pathlib import Path
+root=Path(os.environ["ROOT"])
+manifest=json.loads(Path(os.environ["INPUT_MANIFEST"]).read_text(encoding="utf8"))
+assert manifest["schema"]=="oreslang.zorde.native-guest-inputs/v1"
+assert len(manifest["files"])==9
+for name,expected in manifest["files"].items():
+    p=root/name
+    st=p.lstat()
+    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,name
+    assert hashlib.sha256(p.read_bytes()).hexdigest()==expected,name
+PY
+
 [[ "$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)" == "$EXPECTED_COMPILER_SHA256" ]] ||
   deny "compiler executable changed during test"
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" &&
@@ -113,7 +164,7 @@ while IFS= read -r -d '' name; do
 done < <(git ls-files --others --exclude-standard -z)
 
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
-ROOT="$root" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
+ROOT="$root" INPUT_MANIFEST="$before" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
 import hashlib,json,os
 from pathlib import Path
 h=lambda b:hashlib.sha256(b).hexdigest()
@@ -131,6 +182,8 @@ data={
  'specs_sha256':h((art/'registry-specs.ores').read_bytes()),
  'smoke_guest_sha256':h((art/'registry-smoke.ores').read_bytes()),
  'native_log_sha256':h(log),
+ 'pre_execution_input_manifest_sha256':h(Path(os.environ['INPUT_MANIFEST']).read_bytes()),
+ 'source_bound_guest_inputs_unchanged':True,
  'native_guest_executed':True,'success_marker_observed':True,
  'process_exit_code':0,
  'compiler_dependency_closure_attested':False,
