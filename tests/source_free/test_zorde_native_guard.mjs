@@ -32,7 +32,7 @@ try {
   const destination=join(tmp,'symlinked-evidence');
   symlinkSync(join(tmp,'private-evidence'),destination);
   const fakeExecutable=join(tmp,'inert-test-executable');
-  const fakeBytes=Buffer.from('#!/bin/sh\\nexit 99\\n');
+  const fakeBytes=Buffer.from('#!/bin/sh\nexit 99\n');
   writeFileSync(fakeExecutable,fakeBytes,{mode:0o700});
   const trustedTestDigest=createHash('sha256').update(fakeBytes).digest('hex');
   const base={...envBase,ZORDE_EVIDENCE_DIR:join(tmp,'private-evidence')};
