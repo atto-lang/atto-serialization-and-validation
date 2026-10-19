@@ -1,5 +1,6 @@
 name: Zorde exact-tree contract to static guest-source integration (not native proof)
 on:
+  workflow_dispatch:
   push:
     paths:
       - 'contracts/zorde/**'
