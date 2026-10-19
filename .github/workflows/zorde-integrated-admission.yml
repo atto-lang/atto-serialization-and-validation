@@ -5,12 +5,22 @@ on:
     paths:
       - 'contracts/zorde/**'
       - 'scripts/zorde-static-contract-ir.mjs'
+      - 'scripts/test-zorde-generated-guest-source-local.sh'
+      - 'docs/ZORDE-GENERATED-GUEST-QUALIFICATION.md'
+      - 'src/zorde/**'
+      - 'src/core/**'
+      - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
       - '.github/workflows/zorde-integrated-admission.yml'
   pull_request:
     paths:
       - 'contracts/zorde/**'
       - 'scripts/zorde-static-contract-ir.mjs'
+      - 'scripts/test-zorde-generated-guest-source-local.sh'
+      - 'docs/ZORDE-GENERATED-GUEST-QUALIFICATION.md'
+      - 'src/zorde/**'
+      - 'src/core/**'
+      - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
       - '.github/workflows/zorde-integrated-admission.yml'
 permissions:
