@@ -92,7 +92,7 @@ node --test tests/source_free/test_zorde_contract_ir.mjs
 
 The source-org workflow `zorde-static-ir-bridge.yml` is currently
 unable to allocate a runner. An isolated V8 test execution of the actual
-pure JavaScript functions passed **40/40** checks; this was **not** the
+pure JavaScript functions passed **44/44** checks, including 10,000 deterministic scalar projection property probes; this was **not** the
 Node CLI, TJSV compiler or Oreslang native compiler. Run all of those
 source-locally with pinned toolchains before changing this status.
 
