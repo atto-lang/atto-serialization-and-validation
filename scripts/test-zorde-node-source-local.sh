@@ -58,8 +58,9 @@ def metric(name):
     hits=re.findall(r'^# '+name+r' (\d+)\s*$',s,re.MULTILINE)
     assert len(hits)==1,(name,hits)
     return int(hits[0])
-n=metric('tests');fail=metric('fail');skip=metric('skipped')
-assert n>=80 and fail==0 and skip==0,(n,fail,skip)
+n=metric('tests');passed=metric('pass');fail=metric('fail')
+skip=metric('skipped');todo=metric('todo');cancelled=metric('cancelled')
+assert n>=80 and passed==n and fail==0 and skip==0 and todo==0 and cancelled==0, (n,passed,fail,skip,todo,cancelled)
 PY
 [[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] ||
   die 'Node binary changed during test execution'
@@ -77,7 +78,35 @@ import hashlib,json,os,re
 from pathlib import Path
 log=Path(os.environ['LOG']).read_bytes()
 text=log.decode('utf-8')
-tests=int(re.search(r'^# tests (\d+)\s*$',text,re.M).group(1))
+def metric(name):
+    matches=re.findall(r'^# '+name+r' (\d+)\s*
+receipt={
+ 'schema':'oreslang.zorde.source-local.node-security-suite/v1',
+ 'source_head_sha':os.environ['SOURCE_SHA'],
+ 'source_root_tree_sha':os.environ['SOURCE_TREE'],
+ 'node_executable_sha256':os.environ['NODE_SHA'],
+ 'node_version':os.environ['NODE_VERSION'],
+ 'source_free_test_cases_passed':passed,
+ 'source_free_test_cases_failed':0,
+ 'source_free_test_cases_skipped':0,
+ 'node_test_log_sha256':hashlib.sha256(log).hexdigest(),
+ 'real_node_crypto_filesystem_tests_executed':True,
+ 'generated_oreslang_guest_executed':False,
+ 'compiler_dependency_closure_attested':False,
+ 'cross_backend_parity_certified':False,
+ 'release_ready':False,
+}
+with Path(os.environ['RECEIPT']).open('x',encoding='utf-8') as f:
+    json.dump(receipt,f,sort_keys=True,indent=2)
+    f.write('\n')
+PY
+printf 'ZORDE_NODE_SOURCE_LOCAL_PASSED: %s\n' "$receipt"
+,text,re.M)
+    assert len(matches)==1,(name,matches)
+    return int(matches[0])
+tests=metric('tests');passed=metric('pass');failed=metric('fail')
+skipped=metric('skipped');todo=metric('todo');cancelled=metric('cancelled')
+assert tests>=80 and passed==tests and failed==0 and skipped==0 and todo==0 and cancelled==0
 receipt={
  'schema':'oreslang.zorde.source-local.node-security-suite/v1',
  'source_head_sha':os.environ['SOURCE_SHA'],
