@@ -448,6 +448,8 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
 const corruption=[
   ['status',ir=>{ir.admissible=false;}],
   ['missing fixture digest',(_,r)=>{delete r.configuration.differential.instanceCorpusDigest;}],
+  ['differential corpus identity differs from its configuration',(_,r)=>{
+    r.differential.corpusDigest=h('7');}],
   ['probe-only corpus',(_,r)=>{r.differential.summary.corpusInstances=0;}],
   ['unmatched reviewed corpus',(_,r)=>{r.differential.summary.corpusInstances=4;}],
   ['summary falsely claims partial fixture coverage',(_,r)=>{
