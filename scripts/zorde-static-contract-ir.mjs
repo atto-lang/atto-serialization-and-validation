@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { openSync, closeSync, readSync, fstatSync, lstatSync, readdirSync,
   existsSync, mkdirSync, writeFileSync, constants as fsConstants } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { dirname, parse, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -544,8 +544,25 @@ export function readEvidenceFile(path, expected) {
 // [{declaration,expectation,relativePath,instance}] in upstream directory
 // iteration order. Require an explicit, closed layout and no symlinks/hardlinks.
 // The source-bound CI must still pin the source tree and the TJSV action.
+// Reject a symlinked ancestor of a source fixture (not just its final file).
+// Otherwise a checked-out contracts/zorde path could redirect a supposedly
+// source-local corpus to bytes outside the reviewed source tree.
+function assertRealDirectoryChain(target) {
+  let current=resolve(target);
+  const pathRoot=parse(current).root;
+  while (true) {
+    const info=lstatSync(current);
+    assert(info.isDirectory() && !info.isSymbolicLink(),
+      'corpus source path must not traverse symlinked directories');
+    if(current===pathRoot)break;
+    const parent=dirname(current);
+    assert(parent!==current,'invalid ancestor chain');
+    current=parent;
+  }
+}
 export function reviewedCorpusIdentity(root) {
   const corpusRoot=resolve(root);
+  assertRealDirectoryChain(corpusRoot);
   const rootStat=lstatSync(corpusRoot);
   assert(rootStat.isDirectory() && !rootStat.isSymbolicLink(),
     'corpus root must be a real directory');
