@@ -15,8 +15,24 @@ done
 [[ "$EXPECTED_NODE_SHA256" =~ ^[0-9a-f]{64}$ ]] || die 'invalid independently approved Node binary digest'
 [[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" && ! -L "$NODE_BIN" ]] ||
   die 'Node must be an absolute real executable, not a symlink'
-[[ -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
-  die 'evidence directory must preexist, without a symlink'
+[[ "$ZORDE_EVIDENCE_DIR" = /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
+  die 'evidence directory must be an absolute preexisting real directory'
+# The final-component -L checks above are insufficient: lstat all ancestor
+# components of both independently trusted paths, including the filesystem root.
+python3 - "$NODE_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || die 'Node executable or private evidence path traverses a symbolic link'
+import os,stat,sys
+for source,expected_type in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISDIR)):
+    current=os.path.abspath(source)
+    first=True
+    while True:
+        st=os.lstat(current)
+        assert not stat.S_ISLNK(st.st_mode),current
+        assert expected_type(st.st_mode) if first else stat.S_ISDIR(st.st_mode),current
+        first=False
+        parent=os.path.dirname(current)
+        if parent==current: break
+        current=parent
+PY
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
 [[ "$(git rev-parse --show-toplevel)" == "$root" ]] || die 'source path is not the repository root'
@@ -42,6 +58,9 @@ log="$out/zorde-node-real-suite.log"
 receipt="$out/zorde-node-real-suite-receipt.json"
 [[ ! -e "$log" && ! -L "$log" && ! -e "$receipt" && ! -L "$receipt" ]] ||
   die 'node log and receipt must not already exist'
+# noclobber narrows the filesystem race between checking the fresh filename
+# and opening the private test log; never truncate a substituted log or symlink.
+set -C
 set +e
 timeout --signal=TERM --kill-after=5s 300s \
   env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE -u NODE_EXTRA_CA_CERTS \
@@ -74,9 +93,25 @@ done < <(git ls-files --others --exclude-standard -z)
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" \
 NODE_SHA="$EXPECTED_NODE_SHA256" NODE_VERSION="$node_version" \
 LOG="$log" RECEIPT="$receipt" python3 - <<'PY'
-import hashlib,json,os,re
+import hashlib,json,os,re,stat
 from pathlib import Path
-log=Path(os.environ['LOG']).read_bytes()
+# Open the exact output log without following symbolic links and prove it is
+# a unique, bounded, private file. Hash only the bytes read from this handle.
+assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+flags=os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK
+fd=os.open(os.environ['LOG'],flags)
+try:
+    before=os.fstat(fd)
+    assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+    assert before.st_uid==os.geteuid() and stat.S_IMODE(before.st_mode)&0o077==0
+    assert 0 < before.st_size <= 16*1024*1024
+    log=os.read(fd,before.st_size+1)
+    after=os.fstat(fd)
+    assert len(log)==before.st_size==after.st_size
+    assert before.st_ino==after.st_ino and before.st_dev==after.st_dev
+    assert before.st_mtime_ns==after.st_mtime_ns
+finally:
+    os.close(fd)
 text=log.decode('utf-8')
 def metric(name):
     matches=re.findall(r'^# '+name+r' (\d+)\s*$',text,re.M)
