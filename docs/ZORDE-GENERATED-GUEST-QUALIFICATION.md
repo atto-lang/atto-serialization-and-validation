@@ -107,3 +107,26 @@ The active source-export incidents in
 different organization merely because it has available GitHub Actions
 minutes. Privacy, exact Git-tree identity and green CI are three
 **separate** required properties.
+
+## Reviewed instance-corpus continuity
+
+Before source generation, `scripts/zorde-static-contract-ir.mjs` independently
+reconstructs the pinned TJSV corpus SHA-256 from checked-in
+`contracts/zorde/scalar-instances/{Port,ShortLabel}/{valid,invalid}/*.json`.
+The workflow requires `--instances=contracts/zorde/scalar-instances`,
+exactly matched source-bound positive and negative examples for every
+admitted declaration, and no unknown or unasserted corpus entries.
+
+The native harness rechecks the current corpus identity using the same
+read-only bridge before guest execution. Its immutable pre-execution
+manifest contains **18 exact file entries** (nine source/derived inputs and
+nine independent corpus fixtures), verifies every byte afterward, and
+checks the same manifest again at receipt issuance. A modified or renamed
+fixture cannot be silently substituted under a stale parity receipt.
+Actual Node filesystem and native execution remain unverified until an
+authorized runner executes the tests.
+
+The pinned TJSV v1 receipt stores the corpus digest at
+`configuration.differential.instanceCorpusDigest`; it **does not**
+duplicate that field inside `report.differential`. This distinction
+was confirmed by funded public synthetic TJSV compiler-backed CI.
