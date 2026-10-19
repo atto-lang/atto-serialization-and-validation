@@ -20,12 +20,13 @@ function fixture() {
       differential:{enabled:true,instanceCorpus:null}},
     toolchain:{validator:{name:'@oresoftware/typespec-json-schema-validator',version:'0.1.1'},
       typespecCompiler:{version:'1.16.0'},jsonSchemaEmitter:'@typespec/json-schema'},
+    counts:{findings:0},
     coverage:{directDeclarationInventory:true,
       typespecGeneratedJsonSchemaComparison:true,differentialInstanceValidation:true},
     differential:{summary:{probesEvaluated:22,divergences:0,refusals:0}},
     inputs:{typespec:{digest:h('b')},authoredJsonSchema:{digest:h('c')},
       generatedJsonSchema:{digest:h('d')}},
-    declarationMap:[{typespec:'Zorde.Validation.Port',generated:'Port',authored:'Port'}],
+    declarationMap:[{typespec:'Zorde.Validation.Port',kind:'scalar',generated:'Port',authored:'Port'}],
   };
   const port = {type:'integer',minimum:1,maximum:65535};
   const ir = {
@@ -319,6 +320,8 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
 
 const corruption=[
   ['status',ir=>{ir.admissible=false;}],
+  ['nonzero counts findings',(_,r)=>{r.counts.findings=1;}],
+  ['wrong mapped kind',(_,r)=>{r.declarationMap[0].kind='model';}],
   ['role',ir=>{ir.role='editable-contract';}],
   ['peer authority',ir=>{ir.authorities.precedence='typespec';}],
   ['excluded declaration',ir=>{ir.excludedDeclarations.push({id:'x'});}],
