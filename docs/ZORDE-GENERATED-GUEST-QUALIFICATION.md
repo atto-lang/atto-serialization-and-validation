@@ -183,3 +183,34 @@ The shell gate was smoke-tested in a **synthetic** local Git checkout with
 90 passing dummy Node tests, and an incorrect source SHA was refused. That
 is not private Oreslang source-test evidence. The actual tests on the exact
 private revision are still required before this gate can be marked qualified.
+
+
+## Node TAP false-success hardening (October 19, 2026)
+
+An adversarial synthetic Node run containing **89 passing tests and one TODO**
+previously exited with status 0, met the old `tests>=80` and `fail=0`
+checks, and caused the unqualified shell harness to issue a false-success
+receipt for 90 passes. The previous receipt parser was insufficient.
+
+The source-local Node harness now requires exactly one `# tests`, `# pass`,
+`# fail`, `# skipped`, `# todo`, and `# cancelled` TAP summary. It
+requires at least 80 tests, *every one passing*, and zero failures/skips/TODO/
+cancellations. The same conditions are checked again from the bytes used to
+create the final receipt; `source_free_test_cases_passed` is the true
+`# pass` count, not merely the registered test count.
+
+**Reproduced with real local Node 22 and Bash:** 90/90 synthetic passing
+tests produce a non-release receipt; 89 passing + one TODO and 89 passing +
+one skipped test both fail closed and create no receipt. Source SHA/tree
+mismatches, binary SHA mismatch and evidence-folder symlink also fail closed.
+A permanent synthetic-checkout regression exercises this shell gate through
+`test_zorde_native_guard.mjs`.
+
+The repaired script's exact reviewed Git blob SHA is
+`f753971a86cf3cb55db56986cec51f2a46bbb4d3`. A botched intermediate
+text-replacement commit was superseded before qualification; do not use
+any preceding script blob or synthetic receipt to assert private Zorde tests.
+
+This verifies the *test harness control logic* only. Real private Zorde
+Node/filesystem/cryptographic code has still not been exercised on its source
+tree, nor have the Graal/LLVM/WIT/Dafny gates passed.
