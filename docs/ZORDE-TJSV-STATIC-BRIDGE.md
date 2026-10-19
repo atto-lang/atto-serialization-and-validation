@@ -129,8 +129,10 @@ The compiler bridge now **requires** a nonempty, independently authored
 positive-and-negative JSON instance corpus for *every* admitted scalar. It
 reconciles per-declaration counts against the TJSV report, refuses anonymous
 or unasserted fixtures, and demands an identical 64-character SHA-256 corpus
-identity in `configuration.differential.instanceCorpusDigest` and
-`differential.corpusDigest`.
+identity in `configuration.differential.instanceCorpusDigest`. The
+pinned TJSV report deliberately does **not** duplicate the digest within
+`report.differential`; that object contains only the summary and the
+per-declaration details.
 
 The CLI uses `--instances=contracts/zorde/scalar-instances` to independently
 rebuild the pinned upstream `corpusIdentity`: canonical JSON SHA-256 of
