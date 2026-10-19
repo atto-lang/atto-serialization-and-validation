@@ -142,8 +142,8 @@ must execute all three fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Seventeen source-free harness refusal
-cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden source edits, and an unchanged-tree but different-HEAD attack, are exercised
+logs or receipts are never overwritten. Eighteen source-free harness refusal
+cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden source edits, a redirected tracked directory, and an unchanged-tree but different-HEAD attack, are exercised
 by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
@@ -192,18 +192,18 @@ are never Oreslang guest or compiler evidence.
 The source-local harness now runs `scripts/verify-zorde-checkout.py` **before
 and after** guest/negative-fixture execution. It walks the reviewed HEAD Git
 tree and recomputes actual Git blob IDs from every tracked working-tree file,
-including symlink contents and executable permissions. It does not trust the
+including symlink contents, executable permissions and any tracked-file parent-directory redirection. It does not trust the
 index's `assume-unchanged` or `skip-worktree` flags, and refuses submodules,
 unexpected file types, modified blobs, non-exact line-ending conversions,
 file-count and aggregate byte budgets. The attester intentionally supports the
 repository's Git SHA-1 object format only and fails closed on a different
 format; future SHA-256 repositories require a separately reviewed update.
 
-On October 18, 2026, the new attester's exact Git blob
-`76b93b84e441acf0bb39d0349cc946f38e66294b` was independently executed
-in a local **source-free** Git fixture. Seven targeted cases passed: unmodified
+On October 18, 2026, the hardened attester's exact Git blob
+`4036e281b4c216d040fb269939df874467133397` was independently executed
+in a local **source-free** Git fixture. Eight targeted cases passed: unmodified
 checkout accepted, ordinary mutation refused, assume-unchanged mutation
-refused, skip-worktree mutation refused, altered symlink refused, executable
+refused, skip-worktree mutation refused, altered symlink refused, redirected tracked directory refused, executable
 mode mismatch refused, and different HEAD/same tree refused. These tests did
 **not** execute the native Oreslang compiler and are not a substitute for the
 still-blocked source-org CI or actual guest conformance.
