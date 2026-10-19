@@ -11,6 +11,7 @@ on:
       - 'src/core/**'
       - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - 'tests/source_free/test_zorde_native_guard.mjs'
       - '.github/workflows/zorde-integrated-admission.yml'
   pull_request:
     paths:
@@ -22,6 +23,7 @@ on:
       - 'src/core/**'
       - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - 'tests/source_free/test_zorde_native_guard.mjs'
       - '.github/workflows/zorde-integrated-admission.yml'
 permissions:
   contents: read
@@ -50,7 +52,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node --test tests/source_free/test_zorde_contract_ir.mjs
+          node --test tests/source_free/test_zorde_contract_ir.mjs tests/source_free/test_zorde_native_guard.mjs
       - name: Create independently compiled TypeSpec witness and source-bound Contract IR
         uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
         with:
