@@ -13,7 +13,8 @@ cp "$root/scripts/test-zorde-registry-source-local.sh" "$src/scripts/"
 cp "$root/scripts/verify-zorde-checkout.py" "$src/scripts/"
 # Synthetic-only script: no production source, compiler, or backend is copied.
 # It is used solely to prove tampering cannot lead to a receipt.
-mkdir -p "$src/tests"
+mkdir -p "$src/tests" "$src/fixtures/zorde-compile-positive"
+printf 'synthetic public import source only\n' > "$src/fixtures/zorde-compile-positive/public-registry-import.ores"
 cat > "$src/scripts/test.sh" <<'TEST'
 #!/bin/sh
 set -eu
@@ -136,6 +137,29 @@ chmod 700 "$tmp/shadow-git/git"
 expect_refusal git-status-error 'unable to inspect source working tree' \
   REAL_GIT="$real_git" PATH="$tmp/shadow-git:$PATH"
 
+# Parent-regression reconciliation: a fake binary can echo native suite
+# success markers but cannot resolve a public import. Such a result must
+# fail before any privacy-denial fixture and before a native receipt.
+cat > "$tmp/synthetic-public-failure" <<'FAKE'
+#!/bin/sh
+case "$1" in
+  */tests/main.ores)
+    printf '%s\n' 'native Zorde compiled scalar registry tests passed' \
+      'serialization/validation native tests passed'
+    exit 0 ;;
+  */fixtures/zorde-compile-positive/public-registry-import.ores)
+    echo 'synthetic public import failure' >&2; exit 47 ;;
+  *) exit 48 ;;
+esac
+FAKE
+chmod 700 "$tmp/synthetic-public-failure"
+public_failure_sha="$(sha256sum "$tmp/synthetic-public-failure" | cut -d ' ' -f 1)"
+expect_refusal public-import-control 'public registry import positive control failed' \
+  ORESLANG_BIN="$tmp/synthetic-public-failure" EXPECTED_COMPILER_SHA256="$public_failure_sha"
+[[ -f "$out/zorde-public-import-positive.log" ]] ||
+  { echo 'public-import failure log absent' >&2; exit 1; }
+rm "$out/zorde-registry-native.log" "$out/zorde-public-import-positive.log"
+
 # Regression: a different HEAD with EXACTLY THE SAME Git tree is not the
 # reviewed commit. An intentionally fake compiler makes the workflow reach
 # the postrun identity gate, then mutates HEAD. This MUST refuse a receipt.
@@ -151,6 +175,8 @@ case "$1" in
     printf '%s\n' 'native Zorde compiled scalar registry tests passed' \
       'serialization/validation native tests passed'
     ;;
+  */fixtures/zorde-compile-positive/public-registry-import.ores)
+    exit 0 ;;
   */fixtures/zorde-compile-positive/public-export-control.ores)
     printf '%s\n' 'native Zorde public export control passed'
     ;;
