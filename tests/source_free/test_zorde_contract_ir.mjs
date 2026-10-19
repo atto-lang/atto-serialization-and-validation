@@ -390,7 +390,7 @@ test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and sy
     const baseline=reviewedCorpusIdentity(root);
     assert.equal(baseline.corpus.length,3);
     assert.deepEqual(baseline.corpus.map(x=>x.expectation),[
-      'rejected','accepted','accepted']);
+      'accepted','accepted','rejected']);
     assert.equal(baseline.digest,canonicalDigest(baseline.corpus));
     writeFileSync(join(root,'Port','invalid','below.json'),'65536\n');
     assert.notEqual(reviewedCorpusIdentity(root).digest,baseline.digest);
