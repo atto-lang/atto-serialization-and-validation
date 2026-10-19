@@ -126,12 +126,28 @@ export function deriveStaticRegistry(ir, report) {
   assert(report.differential?.summary?.probesEvaluated > 0
     && report.differential?.summary?.divergences === 0
     && report.differential?.summary?.refusals === 0, 'differential evidence missing/refused');
+  // Recompute the actual TJSV runId, not merely its SHA-256 syntax. Binding
+  // source digests into a rewritten receipt is necessary but not proof of a
+  // trusted producer or current checked-out source; those are CI obligations.
+  const normalizedReport=semanticReportProjection(report);
+  const expectedRunId=canonicalDigest({
+    schema:REPORT_KIND,status:report.status,
+    configuration:normalizedReport.configuration,
+    inputDigests:{
+      typespec:report.inputs.typespec.digest,
+      authored:report.inputs.authoredJsonSchema.digest,
+      generated:report.inputs.generatedJsonSchema.digest,
+    },
+    toolchain:normalizedReport.toolchain,
+    findings:report.findings.map(f=>f.fingerprint),
+  });
+  assert(expectedRunId===report.runId, 'TJSV runId content digest mismatch');
   assert(ir.admission?.receipt?.schema === REPORT_KIND
     && ir.admission.receipt.runId === report.runId
     && ir.admission.receipt.status === 'passed'
     && ir.admission.receipt.zeroUnexplainedFindings === true
     && sha(ir.admission.receipt.digest)
-    && canonicalDigest(semanticReportProjection(report))===ir.admission.receipt.digest,
+    && canonicalDigest(normalizedReport)===ir.admission.receipt.digest,
     'Contract IR/report binding mismatch');
   for (const key of REQUIREMENTS) assert(ir.admission?.requirements?.[key] === true,
     'missing IR requirement ' + key);
