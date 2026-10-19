@@ -96,8 +96,9 @@ assert built['guestSha256']==sha('artifacts/zorde-generated/registry-specs.ores'
 assert built['smokeSha256']==sha('artifacts/zorde-generated/registry-smoke.ores')
 PY
 
-# Capture an exclusive pre-execution manifest of all seven authority and
-# derived guest inputs; evidence emitted after execution must match precisely.
+# Capture an exclusive pre-execution manifest of nine authority/derived
+# inputs PLUS the nine independently reviewed scalar corpus JSON fixtures.
+# Evidence emitted after execution must match those exact 18 source files.
 # This closes the ordinary precheck-to-receipt mutation window. It cannot
 # attest a compromised runtime, so the compiler dependency closure stays
 # explicitly uncertified in the native result.
@@ -117,6 +118,25 @@ paths=[
   "artifacts/zorde-generated/registry-specs.ores",
   "artifacts/zorde-generated/registry-smoke.ores",
 ]
+# Exact closed reviewed corpus layout; reject a renamed/extra/missing fixture
+# or symbolic-link directory before computing a native execution receipt.
+corpus=root/"contracts/zorde/scalar-instances"
+assert corpus.is_dir() and not corpus.is_symlink()
+assert sorted(x.name for x in corpus.iterdir())==["Port","ShortLabel"]
+for declaration in ("Port","ShortLabel"):
+    part=corpus/declaration
+    assert part.is_dir() and not part.is_symlink()
+    assert sorted(x.name for x in part.iterdir())==["invalid","valid"]
+    for expectation in ("valid","invalid"):
+        lane=part/expectation
+        assert lane.is_dir() and not lane.is_symlink()
+        files=sorted(lane.iterdir(),key=lambda x:x.name)
+        assert files and len(files)<=64
+        for path in files:
+            assert path.name.endswith(".json") and path.name[0].isalnum()
+            assert path.is_file() and not path.is_symlink()
+            paths.append(path.relative_to(root).as_posix())
+assert len(paths)==18,"expected nine fixed inputs plus nine reviewed corpus files"
 def attested(path):
     p=root/path
     st=p.lstat()
@@ -149,7 +169,7 @@ from pathlib import Path
 root=Path(os.environ["ROOT"])
 manifest=json.loads(Path(os.environ["INPUT_MANIFEST"]).read_text(encoding="utf8"))
 assert manifest["schema"]=="oreslang.zorde.native-guest-inputs/v1"
-assert len(manifest["files"])==9
+assert len(manifest["files"])==18
 for name,expected in manifest["files"].items():
     p=root/name
     st=p.lstat()
@@ -183,7 +203,7 @@ manifest_bytes=Path(os.environ['INPUT_MANIFEST']).read_bytes()
 assert h(manifest_bytes)==os.environ['EXPECTED_MANIFEST_SHA256']
 manifest=json.loads(manifest_bytes)
 assert manifest['schema']=='oreslang.zorde.native-guest-inputs/v1'
-assert len(manifest['files'])==9
+assert len(manifest['files'])==18
 for name,want in manifest['files'].items():
     p=root/name
     st=p.lstat()
