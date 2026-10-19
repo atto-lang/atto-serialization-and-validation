@@ -79,6 +79,35 @@ jobs:
             'unexpected declaration IDs');
           console.log('TJSV_SCALAR_IR_PARITY_AND_INVENTORY_CONFIRMED (not native runtime proof)');
           JS
+      - name: Independently rebuild and verify current Contract IR from the exact sources
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          contract_ir: artifacts/zorde-scalars-contract-ir.json
+          report: artifacts/zorde-scalars-parity.json
+          typespec: contracts/zorde/scalars.tsp
+          schema: contracts/zorde/scalars.schema.json
+          generated_schema: artifacts/zorde-scalars-witness
+          expected_declarations: '["Zorde.Validation.Port","Zorde.Validation.ShortLabel"]'
+          verification: artifacts/zorde-scalars-consumer-verification.json
+      - name: Require actual independent source-bound consumer verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const v=JSON.parse(readFileSync(
+            'artifacts/zorde-scalars-consumer-verification.json','utf8'));
+          if(v.schema!=='ores.typespec-json-schema-validator.consumer-verification-receipt/v1'
+            ||v.status!=='passed'||v.admissible!==true
+            ||v.suppliedIrId!==v.expectedIrId
+            ||v.computedIrId!==v.expectedIrId
+            ||JSON.stringify(v.declarationIds)!==JSON.stringify([
+              'Zorde.Validation.Port','Zorde.Validation.ShortLabel'])) {
+            throw Error('consumer Contract IR verification is absent or incomplete');
+          }
+          console.log('SOURCE_BOUND_CONTRACT_IR_VERIFIED (not runtime/ABI proof)');
+          JS
+
       - name: Mutate only the independently authored JSON Schema
         shell: bash
         run: |
