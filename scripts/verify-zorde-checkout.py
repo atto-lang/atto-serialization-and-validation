@@ -98,6 +98,14 @@ def verify(expected_commit: str, expected_tree: str) -> None:
         if any(p in (b"", b".", b"..") for p in parts):
             fail("invalid Git tree path")
         path = root / os.fsdecode(name)
+        # An untracked directory symlink could redirect otherwise correct
+        # tracked leaf bytes outside the isolated checkout. Git cannot track
+        # children beneath a symlink directory in the approved tree.
+        parent = path.parent
+        while parent != root:
+            if not stat.S_ISDIR(parent.lstat().st_mode):
+                fail("tracked parent directory is not a real directory")
+            parent = parent.parent
         st = path.lstat()
         total += st.st_size
         if total > MAX_TOTAL_BYTES:
