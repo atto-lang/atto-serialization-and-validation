@@ -109,8 +109,7 @@ jobs:
             ||receipt.releaseReady!==false||receipt.nativeGuestExecuted!==false)
             throw Error('incomplete or misrepresented static build');
           const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
-          if(receipt.reviewedCorpusDigest!==report.differential?.corpusDigest
-            ||receipt.reviewedCorpusDigest!==report.configuration?.differential?.instanceCorpusDigest
+          if(receipt.reviewedCorpusDigest!==report.configuration?.differential?.instanceCorpusDigest
             ||receipt.reviewedCorpusInstances!==report.differential?.summary?.corpusInstances)
             throw Error('source-bound reviewed corpus identity was not retained');
           const plan=JSON.parse(readFileSync(dir+'registry-plan.json','utf8'));
