@@ -219,12 +219,77 @@ export function emitOreslangSpecs(plan) {
   lines.push('}');
   return lines.join('\n') + '\n';
 }
+// Duplicate JSON keys are ambiguous across tooling; even "\u0072ole"
+// duplicates "role". Detect decoded object-key collisions before JSON.parse.
+// The built-in parser still performs full JSON syntax/number validation.
+export function rejectDuplicateJsonKeys(source) {
+  assert(typeof source === 'string' && source.length <= 2097152,
+    'JSON source size outside bounds');
+  let i=0, nodes=0;
+  const whitespace=()=>{while(i<source.length && ' \t\r\n'.includes(source[i]))i++;};
+  function scanString() {
+    assert(source[i] === '"', 'expected JSON string');
+    const start=i++;
+    let closed=false;
+    while(i<source.length) {
+      const ch=source[i++];
+      if(ch==='\\') { i++; continue; }
+      if(ch==='"') { closed=true; break; }
+    }
+    assert(closed, 'unterminated JSON string');
+    return JSON.parse(source.slice(start,i));
+  }
+  function scanValue(depth) {
+    assert(depth<=64 && ++nodes<=100000, 'JSON structure exceeds work budget');
+    whitespace();
+    const next=source[i];
+    if(next==='{') {
+      i++;whitespace();
+      const keys=new Set();
+      if(source[i]==='}') {i++;return;}
+      while(i<source.length) {
+        const key=scanString();
+        assert(!keys.has(key), 'duplicate JSON object key: ' + key);
+        keys.add(key);
+        whitespace();
+        assert(source[i]===':', 'JSON object colon missing');
+        i++;
+        scanValue(depth+1);whitespace();
+        if(source[i]==='}') {i++;return;}
+        assert(source[i]===',','JSON object separator missing');
+        i++;whitespace();
+      }
+      assert(false,'unterminated JSON object');
+    }
+    if(next==='[') {
+      i++;whitespace();
+      if(source[i]===']') {i++;return;}
+      while(i<source.length) {
+        scanValue(depth+1);whitespace();
+        if(source[i]===']') {i++;return;}
+        assert(source[i]===',','JSON array separator missing');
+        i++;
+      }
+      assert(false,'unterminated JSON array');
+    }
+    if(next==='"') {scanString();return;}
+    const start=i;
+    while(i<source.length && !',]} \t\r\n'.includes(source[i]))i++;
+    assert(start!==i,'missing JSON primitive');
+  }
+  whitespace();scanValue(0);whitespace();
+  assert(i===source.length,'unexpected trailing JSON tokens');
+  JSON.parse(source); // syntax check independent from the collision scan
+}
+
 function file(path, expected) {
   assert(sha(expected), 'explicit expected SHA-256 is required');
   const bytes = readFileSync(path);
   assert(bytes.length > 0 && bytes.length <= 2097152, 'input size outside budget');
   assert(digest(bytes) === expected, 'input byte digest differs from trusted expectation');
-  return JSON.parse(bytes.toString('utf8'));
+  const source=bytes.toString('utf8');
+  rejectDuplicateJsonKeys(source);
+  return JSON.parse(source);
 }
 export function main(args) {
   const flags = new Map();
