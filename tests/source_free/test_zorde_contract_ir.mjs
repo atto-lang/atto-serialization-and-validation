@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs} from
+import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys} from
   '../../scripts/zorde-static-contract-ir.mjs';
 
 const h = (c) => c.repeat(64);
@@ -89,6 +89,22 @@ test('emitter rejects forged plans and source injection even when called directl
   const dishonest=structuredClone(valid);
   dishonest.releaseReady=true;
   assert.throws(()=>emitOreslangSpecs(dishonest),/ZORDE_STATIC_REFUSED/);
+});
+
+test('digest-gated input reader refuses decoded duplicate JSON keys',()=>{
+  rejectDuplicateJsonKeys('{"role":1,"nested":{"value":true},"list":[{"a":1},{"a":2}]}');
+  assert.throws(()=>rejectDuplicateJsonKeys('{"role":1,"role":2}'),
+    /ZORDE_STATIC_REFUSED/);
+  assert.throws(()=>rejectDuplicateJsonKeys(String.raw`{"role":1,"\u0072ole":2}`),
+    /ZORDE_STATIC_REFUSED/);
+  assert.throws(()=>rejectDuplicateJsonKeys('{"a":{"x":1,"x":2}}'),
+    /ZORDE_STATIC_REFUSED/);
+  assert.throws(()=>rejectDuplicateJsonKeys('{"a":1,"b":[{"x":1,"x":2}]}'),
+    /ZORDE_STATIC_REFUSED/);
+  assert.throws(()=>rejectDuplicateJsonKeys('['.repeat(70)+'0'+']'.repeat(70)),
+    /ZORDE_STATIC_REFUSED/);
+  assert.throws(()=>rejectDuplicateJsonKeys('{"a":1} {"b":2}'),
+    /ZORDE_STATIC_REFUSED/);
 });
 
 const badShapes=[
