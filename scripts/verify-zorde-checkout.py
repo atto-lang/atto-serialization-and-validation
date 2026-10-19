@@ -79,6 +79,14 @@ def verify(expected_commit: str, expected_tree: str) -> None:
     if git_bytes("rev-parse", "HEAD^{tree}").strip().decode() != expected_tree:
         fail("root tree does not equal reviewed tree")
     root = Path(os.fsdecode(git_bytes("rev-parse", "--show-toplevel").strip())).resolve()
+    # Git porcelain/status deliberately hides ignored files. In an evidence
+    # checkout, ignored files can change compiler import discovery, scripts,
+    # toolchain resolution or generated outputs without changing the Git tree.
+    # Reject them entirely rather than silently equating 'clean' with exact.
+    ignored = git_bytes("ls-files", "--others", "--ignored",
+                        "--exclude-standard", "-z")
+    if ignored:
+        fail("ignored untracked files exist in source checkout")
     entries = git_bytes("ls-tree", "-rz", "--full-tree", "HEAD").split(b"\0")
     total = 0
     count = 0
