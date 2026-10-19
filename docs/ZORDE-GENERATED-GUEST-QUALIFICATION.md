@@ -214,3 +214,33 @@ any preceding script blob or synthetic receipt to assert private Zorde tests.
 This verifies the *test harness control logic* only. Real private Zorde
 Node/filesystem/cryptographic code has still not been exercised on its source
 tree, nor have the Graal/LLVM/WIT/Dafny gates passed.
+
+## October 19 source-local Node ancestor and private-log hardening
+
+The source-local Node qualification harness previously checked that
+`NODE_BIN` and `ZORDE_EVIDENCE_DIR` were not direct symlinks, but it could
+still traverse a *symlinked ancestor directory*. A synthetic Git repository
+reproduced both bypasses using real Node 22: a symlinked Node binary parent
+and a symlinked evidence parent each exited 0 and issued a receipt.
+
+The harness now requires an absolute evidence directory and uses `os.lstat`
+over **every ancestor of both approved paths**, rejecting any symlink. The
+test-log redirection additionally uses Bash noclobber. Before receipt issuance,
+the log is opened with `O_NOFOLLOW | O_NONBLOCK` and must be a unique,
+owner-controlled private regular file of at most 16 MiB; the receipt hashes
+the bytes read from that verified descriptor. These guards reduce filesystem
+substitution risks but cannot certify a compromised same-UID executor.
+
+Actual local synthetic regression matrix against Git blob
+`8cb6c8470b6d99296071ff7be19dd3d909f55b2b`:
+- clean 90/90 Node tests: pass, conservative receipt issued;
+- 89 pass / 1 TODO; 89 pass / 1 skip; or a genuine failing test:
+  refused with no receipt;
+- symlinked evidence parent or symlinked Node binary parent:
+  refused with no receipt.
+
+The permanent Node guard suite also checks both ancestor substitutions and
+that no-follow/noclobber test-log protections remain. This matrix validates
+the harness against **synthetic fixtures only**. The actual private Zorde
+crypto, corpus, Contract IR, Graal/LLVM, WIT and Dafny execution gates
+remain unresolved pending approved source-local execution.
