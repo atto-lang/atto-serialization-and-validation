@@ -223,3 +223,17 @@ The physical verifier also rejects files hidden by Git ignore rules. Their
 presence can affect runtime import/tooling resolution despite a clean
 `git status`. This adds a source-free refusal case; native compiler behavior
 remains **NOT_EXECUTED** until authorized source-local Actions executes.
+
+## Targeted compiler-visibility evidence guard
+
+The latest compiled-registry parent adds
+`scripts/zorde_visibility_diagnostic.py`: access-control negatives are
+qualified only when the protected symbol and a denial occur on the same or
+adjacent diagnostic lines. The verifier rejects mixed parser, missing-module,
+internal-compiler errors, malformed UTF-8 and oversized diagnostics; it
+cannot infer true compiler correctness without the pinned actual compiler.
+Its 18 self-contained source-free Python tests are wired into the runner
+contracts. Corrected `tests/source_free/test_zorde_visibility_diagnostic.py`
+to resolve the imported verifier from the repository root (`parents[2]`,
+not `parents[1]`). This fix is staged in compiled registry parent PR #20 and
+reconciled here, but source-org Actions has not executed the suite.
