@@ -129,6 +129,8 @@ with Path(os.environ["INPUT_MANIFEST"]).open("x",encoding="utf8") as f:
     f.write("\n")
 PY
 
+before_sha="$(sha256sum "$before" | cut -d' ' -f1)"
+[[ "$before_sha" =~ ^[0-9a-f]{64}$ ]] || deny "invalid pre-execution manifest digest"
 set +e
 timeout --signal=TERM --kill-after=5s 180s "$ORESLANG_BIN" \
   "$root/artifacts/zorde-generated/registry-smoke.ores" >"$log" 2>&1
@@ -138,6 +140,8 @@ set -e
 grep -Fqx 'zorde generated registry guest smoke passed' "$log" ||
   deny "actual guest success marker absent"
 
+[[ "$(sha256sum "$before" | cut -d' ' -f1)" == "$before_sha" ]] ||
+  deny "pre-execution manifest was modified during guest execution"
 ROOT="$root" INPUT_MANIFEST="$before" python3 - <<'PY' ||
   deny "source authority or generated guest changed during execution"
 import hashlib,json,os,stat
@@ -164,7 +168,7 @@ while IFS= read -r -d '' name; do
 done < <(git ls-files --others --exclude-standard -z)
 
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
-ROOT="$root" INPUT_MANIFEST="$before" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
+ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
 import hashlib,json,os
 from pathlib import Path
 h=lambda b:hashlib.sha256(b).hexdigest()
@@ -182,7 +186,7 @@ data={
  'specs_sha256':h((art/'registry-specs.ores').read_bytes()),
  'smoke_guest_sha256':h((art/'registry-smoke.ores').read_bytes()),
  'native_log_sha256':h(log),
- 'pre_execution_input_manifest_sha256':h(Path(os.environ['INPUT_MANIFEST']).read_bytes()),
+ 'pre_execution_input_manifest_sha256':os.environ['EXPECTED_MANIFEST_SHA256'],
  'source_bound_guest_inputs_unchanged':True,
  'native_guest_executed':True,'success_marker_observed':True,
  'process_exit_code':0,
