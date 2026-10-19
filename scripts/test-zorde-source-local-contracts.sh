@@ -21,6 +21,8 @@ exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
 TEST
 printf 'not an Oreslang guest program\n' > "$src/tests/main.ores"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
+mkdir -p "$src/nested"
+printf 'tracked child bytes\n' > "$src/nested/child.ores"
 git -C "$src" init -q
 git -C "$src" config user.name 'Zorde harness contract test'
 git -C "$src" config user.email 'zorde-contract@example.invalid'
@@ -92,6 +94,23 @@ printf 'hidden source mutation\n' > "$src/fixture.txt"
 expect_refusal hidden-skip-worktree 'source bytes differ from reviewed Git tree'
 git -C "$src" update-index --no-skip-worktree fixture.txt
 git -C "$src" restore -- fixture.txt
+
+# An untracked directory symlink can redirect a tracked child to external
+# storage containing identical bytes. Test the physical attester directly:
+# git status may reject the symlink first, but the attester must also refuse.
+mv "$src/nested" "$tmp/external-identical-child"
+ln -s "$tmp/external-identical-child" "$src/nested"
+if (cd "$src" && python3 scripts/verify-zorde-checkout.py "$head" "$tree") >"$tmp/check-output" 2>&1; then
+  echo 'redirected tracked parent directory was accepted' >&2
+  exit 1
+fi
+grep -Fq 'tracked parent directory is not a real directory' "$tmp/check-output" ||
+  { cat "$tmp/check-output" >&2; exit 1; }
+[[ ! -e "$out/zorde-registry-native-receipt.json" ]] ||
+  { echo 'redirected parent test emitted a native receipt' >&2; exit 1; }
+count=$((count + 1))
+rm "$src/nested"
+mv "$tmp/external-identical-child" "$src/nested"
 
 touch "$out/zorde-registry-native.log"
 expect_refusal existing-evidence 'evidence output already exists'
