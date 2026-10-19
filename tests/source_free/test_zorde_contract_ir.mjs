@@ -124,6 +124,24 @@ test('emitter rejects forged plans and source injection even when called directl
   assert.throws(()=>emitOreslangSpecs(dishonest),/ZORDE_STATIC_REFUSED/);
 });
 
+test('generated scalar plans refuse missing, forged or extra authority digests',()=>{
+  const {ir,report}=fixture();
+  const plan=deriveStaticRegistry(ir,report);
+  const missing=structuredClone(plan);
+  delete missing.sourceDigests.typespec;
+  assert.throws(()=>emitOreslangSpecs(missing),/ZORDE_STATIC_REFUSED/);
+  const malformed=structuredClone(plan);
+  malformed.sourceDigests.authoredJsonSchema='0'.repeat(63);
+  assert.throws(()=>emitOreslangSpecs(malformed),/ZORDE_STATIC_REFUSED/);
+  const injected=structuredClone(plan);
+  injected.sourceDigests.unreviewed='f'.repeat(64);
+  assert.throws(()=>emitOreslangSpecs(injected),/ZORDE_STATIC_REFUSED/);
+  const blank=structuredClone(plan);
+  blank.sourceDigests=null;
+  assert.throws(()=>emitOreslangSpecs(blank),/ZORDE_STATIC_REFUSED/);
+  assert.equal(emitOreslangSpecs(plan),emitOreslangSpecs(deriveStaticRegistry(ir,report)));
+});
+
 test('digest-gated input reader refuses decoded duplicate JSON keys',()=>{
   rejectDuplicateJsonKeys('{"role":1,"nested":{"value":true},"list":[{"a":1},{"a":2}]}');
   assert.throws(()=>rejectDuplicateJsonKeys('{"role":1,"role":2}'),
