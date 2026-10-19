@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys,
-  canonicalDigest,semanticReportProjection,readEvidenceFile} from
+  canonicalDigest,semanticReportProjection,readEvidenceFile,emitZordePilotGuestSmoke} from
   '../../scripts/zorde-static-contract-ir.mjs';
 
 import {createHash} from 'node:crypto';
@@ -175,6 +175,32 @@ test('5,000 randomized string intervals preserve codepoint bounds and refuse reg
   }
 });
 
+test('static pilot guest has real native assertions and refuses unexpected schema ranges',()=>{
+  const {ir,report}=fixture();
+  const pilot=deriveStaticRegistry(ir,report);
+  const label={schemaId:'Zorde.Validation.ShortLabel',
+    descriptor:{version:1,kind:3,property:2,minimum:1,maximum:64,excluded:[]}};
+  pilot.entries.push(label);
+  const source=emitZordePilotGuestSmoke(pilot);
+  assert.match(source,/zorde_compile_scalar_registry\(rt borrow specs\)/);
+  assert.match(source,/value_int\(65535\)/);
+  assert.match(source,/value_int\(65536\)/);
+  assert.match(source,/ShortLabel 65 characters rejected/);
+  assert.match(source,/malformed UTF-8 rejected/);
+  assert.match(source,/zorde generated registry guest smoke passed/);
+  assert.equal(emitZordePilotGuestSmoke(pilot),source);
+  const narrowed=structuredClone(pilot);
+  narrowed.entries[0].descriptor.maximum=5;
+  assert.throws(()=>emitZordePilotGuestSmoke(narrowed),/ZORDE_STATIC_REFUSED/);
+  const widened=structuredClone(pilot);
+  widened.entries[1].descriptor.maximum=65;
+  assert.throws(()=>emitZordePilotGuestSmoke(widened),/ZORDE_STATIC_REFUSED/);
+  const extra=structuredClone(pilot);
+  extra.entries.push({schemaId:'Zorde.Other',
+    descriptor:{version:1,kind:2,property:1,minimum:1,maximum:2,excluded:[]}});
+  assert.throws(()=>emitZordePilotGuestSmoke(extra),/ZORDE_STATIC_REFUSED/);
+});
+
 const badShapes=[
   {type:'integer',minimum:1.25,maximum:3},
   {type:'integer',minimum:1,maximum:3,exclusiveMinimum:1},
@@ -302,8 +328,12 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
     const marker=JSON.parse(readFileSync(join(dir,'build-complete.json'),'utf8'));
     const plan=readFileSync(join(dir,'registry-plan.json'));
     const guest=readFileSync(join(dir,'registry-specs.ores'));
+    const smoke=readFileSync(join(dir,'registry-smoke.ores'));
     assert.equal(marker.planSha256,hash(plan));
     assert.equal(marker.guestSha256,hash(guest));
+    assert.equal(marker.smokeSha256,hash(smoke));
+    assert.equal(marker.guestSmokeCompiled,false);
+    assert.equal(marker.guestSmokeExecuted,false);
     assert.equal(marker.nativeGuestExecuted,false);
     assert.equal(marker.releaseReady,false);
     assert.equal(spawnSync(process.execPath,args,{cwd:tmp,encoding:'utf8'}).status,2,
