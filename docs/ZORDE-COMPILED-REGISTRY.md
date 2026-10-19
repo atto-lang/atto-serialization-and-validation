@@ -142,8 +142,8 @@ must execute all three fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Thirteen source-free preflight refusal
-cases, including symlinks in compiler/evidence **parent paths**, are exercised
+logs or receipts are never overwritten. Fifteen source-free harness refusal
+cases, including parent-path symlinks, silent Git-status failures and an unchanged-tree but different-HEAD attack, are exercised
 by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
@@ -171,3 +171,18 @@ self-hosted runners, malicious approved binaries or mutable transitive JVM
 dependencies. A trusted isolated runner and independently pinned full compiler
 provenance are still required; no source-org native result is claimed by
 this script change alone.
+
+### Git source identity at issuance
+
+The preflight harness treats `git status` command failure as a hard refusal,
+not as an empty clean-tree report. After synthetic guest/visibility checks it
+re-reads the exact Git HEAD **and** root-tree SHA, and refuses a receipt even
+when a different HEAD points to an identical tree. This complements (but does
+not replace) an isolated runner and source-file integrity controls against
+working-tree mutations that a hostile process may conceal from ordinary Git
+status.
+
+The source-free regression harness deliberately invokes a **noncompiler fake**
+that prints synthetic success markers, moves a disposable fixture repository
+HEAD, and must be refused before any native receipt is created. Its outcomes
+are never Oreslang guest or compiler evidence.
