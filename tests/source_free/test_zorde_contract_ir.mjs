@@ -7,7 +7,7 @@ import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDup
 
 import {createHash} from 'node:crypto';
 import {mkdtempSync,writeFileSync,readFileSync,symlinkSync,linkSync,rmSync,mkdirSync,
-  constants as fsConstants} from 'node:fs';
+  existsSync,constants as fsConstants} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync} from 'node:child_process';
@@ -434,6 +434,18 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
     assert.equal(marker.releaseReady,false);
     assert.equal(spawnSync(process.execPath,args,{cwd:tmp,encoding:'utf8'}).status,2,
       'existing outputs must not be silently overwritten');
+    // An unchanged report/IR plus mutated reviewed instance bytes cannot
+    // create a new plan, even if all scalar declaration bodies still agree.
+    rmSync(dir,{recursive:true,force:true});
+    writeFileSync(join(corpusRoot,'Port','valid','lower.json'),'0\n');
+    const changedCorpus=spawnSync(process.execPath,args,{
+      cwd:tmp,encoding:'utf8',timeout:15000});
+    assert.equal(changedCorpus.status,2,
+      'stale source-bound corpus receipt must refuse changed fixtures');
+    assert.match(changedCorpus.stderr,/current corpus does not match/);
+    assert.equal(existsSync(dir),false,
+      'no generated output may precede the corpus identity check');
+
     const tmp2=mkdtempSync(join(tmpdir(),'zorde-plan-link-'));
     try{
       mkdirSync(join(tmp2,'elsewhere'));
