@@ -142,8 +142,8 @@ must execute all four fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Nineteen source-free harness refusal
-cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden edits, a redirected tracked directory, a deliberately failing public import, and an unchanged-tree but different-HEAD attack, are exercised
+logs or receipts are never overwritten. Twenty source-free harness refusal
+cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden edits, a redirected tracked directory, a deliberately failing public import, an ignored untracked injection, and an unchanged-tree but different-HEAD attack, are exercised
 by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
@@ -207,3 +207,19 @@ refused, skip-worktree mutation refused, altered symlink refused, redirected tra
 mode mismatch refused, and different HEAD/same tree refused. These tests did
 **not** execute the native Oreslang compiler and are not a substitute for the
 still-blocked source-org CI or actual guest conformance.
+
+## Manually approved source-local Actions execution
+
+An opt-in `workflow_dispatch` path has been added to the preexisting
+`.github/workflows/runner.yml`. It requires environment-bound review values
+for exact source HEAD/tree, compiler executable SHA-256 and absolute executable
+and evidence paths; it targets only a dedicated source-org ephemeral runner.
+This does **not** restore GitHub-hosted minutes, enroll a runner or create an
+independent reviewer. Administrator security/environment configuration and a
+trusted isolated runner are required before triggering it. See
+[`docs/ZORDE-SOURCE-LOCAL-RUNNER-BOOTSTRAP.md`](./ZORDE-SOURCE-LOCAL-RUNNER-BOOTSTRAP.md).
+
+The physical verifier also rejects files hidden by Git ignore rules. Their
+presence can affect runtime import/tooling resolution despite a clean
+`git status`. This adds a source-free refusal case; native compiler behavior
+remains **NOT_EXECUTED** until authorized source-local Actions executes.
