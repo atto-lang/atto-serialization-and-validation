@@ -357,7 +357,6 @@ test('input evidence reads are bounded, no-follow and cryptographically verified
 function attachReviewedCorpus(ir,report,root){
   const corpus=reviewedCorpusIdentity(root);
   report.configuration.differential.instanceCorpusDigest=corpus.digest;
-  report.differential.corpusDigest=corpus.digest;
   const projection=semanticReportProjection(report);
   report.runId=canonicalDigest({
     schema:report.schema,status:report.status,
