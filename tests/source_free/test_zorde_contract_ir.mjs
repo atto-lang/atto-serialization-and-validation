@@ -113,6 +113,89 @@ test('inherited prototype constraints must not substitute for authored fields',(
   assert.throws(()=>descriptorFromSchema(forged),/ZORDE_STATIC_REFUSED/);
 });
 
+// Deterministic property probes exercise the lowering decision, not native
+// Oreslang validator execution or cross-schema equivalence.
+test('5,000 randomized int32 intervals preserve exact bounds or refuse narrowing',()=>{
+  let seed=0x5eed1234;
+  const next=()=>{seed=(Math.imul(seed,1664525)+1013904223)>>>0;return seed;};
+  for(let i=0;i<5000;i++){
+    const x=(next()%65536)-32768;
+    const y=(next()%65536)-32768;
+    const min=Math.min(x,y),max=Math.max(x,y);
+    const d=descriptorFromSchema({type:'integer',minimum:min,maximum:max});
+    assert.equal(d.minimum,min);assert.equal(d.maximum,max);
+    assert.equal(d.kind,2);assert.deepEqual(d.excluded,[]);
+    assert.throws(()=>descriptorFromSchema({type:'integer',minimum:min,
+      maximum:max,exclusiveMaximum:max}),/ZORDE_STATIC_REFUSED/);
+  }
+});
+test('5,000 randomized string intervals preserve codepoint bounds and refuse regex',()=>{
+  let seed=0x7f12bead;
+  const next=()=>{seed=(Math.imul(seed,1103515245)+12345)>>>0;return seed;};
+  for(let i=0;i<5000;i++){
+    const x=next()%65537,y=next()%65537;
+    const min=Math.min(x,y),max=Math.max(x,y);
+    const d=descriptorFromSchema({type:'string',minLength:min,maxLength:max});
+    assert.equal(d.minimum,min);assert.equal(d.maximum,max);
+    assert.equal(d.kind,3);assert.deepEqual(d.excluded,[]);
+    assert.throws(()=>descriptorFromSchema({type:'string',minLength:min,
+      maxLength:max,pattern:'^a
+  {type:'integer',minimum:1.25,maximum:3},
+  {type:'integer',minimum:1,maximum:3,exclusiveMinimum:1},
+  {type:'integer',minimum:1,maximum:3,multipleOf:2},
+  {type:'integer',minimum:1,maximum:3,default:2},
+  {type:'integer',minimum:1,maximum:3,$ref:'#/foo'},
+  {type:'integer',minimum:-2147483649,maximum:3},
+  {type:'integer',minimum:3,maximum:2},
+  {type:'integer',minimum:1,maximum:3,format:'int64'},
+  {type:'integer',minimum:1,maximum:3,anyOf:[]},
+  {type:'string',minLength:0,maxLength:64,pattern:'^[a-z]+$'},
+  {type:'string',minLength:0,maxLength:64,format:'email'},
+  {type:'string',minLength:0,maxLength:64,const:'ok'},
+  {type:'string',minLength:10,maxLength:1},
+  {type:'string',minLength:0,maxLength:65537},
+  {type:'string',minLength:0},
+  {type:'string',maxLength:64},
+  {type:'number',minimum:1,maximum:2},
+];
+for (const [idx,scalar] of badShapes.entries()) {
+  test('unsupported scalar semantics refuse #' + (idx+1),()=>{
+    assert.throws(()=>descriptorFromSchema(scalar),/ZORDE_STATIC_REFUSED/);
+  });
+}
+const corruption=[
+  ['status',ir=>{ir.admissible=false;}],
+  ['role',ir=>{ir.role='editable-contract';}],
+  ['peer authority',ir=>{ir.authorities.precedence='typespec';}],
+  ['excluded declaration',ir=>{ir.excludedDeclarations.push({id:'x'});}],
+  ['excluded scope',ir=>{ir.admission.scope.complete=false;}],
+  ['unknown kind',ir=>{ir.declarations[0].kind='model';}],
+  ['duplicate declaration',ir=>{ir.declarations.push(structuredClone(ir.declarations[0]));}],
+  ['invalid ID',ir=>{ir.declarations[0].id='Bad"); panic();';}],
+  ['attacker-added narrowing keyword',ir=>{
+    ir.declarations[0].lanes.authoredJsonSchema.normalizedSchema.const=5;}],
+  ['different interval in authored schema',ir=>{
+    ir.declarations[0].lanes.authoredJsonSchema.normalizedSchema.minimum=2;}],
+  ['different interval in generated schema',ir=>{
+    ir.declarations[0].lanes.typespecGeneratedJsonSchema.normalizedSchema.maximum=9;}],
+  ['claim of no generated authority',ir=>{
+    ir.declarations[0].lanes.typespecGeneratedJsonSchema.role='independently-authored-authority';}],
+  ['changed input digest',ir=>{ir.provenance.typespec.digest=h('f');}],
+  ['disabled differential',(_,r)=>{r.coverage.differentialInstanceValidation=false;}],
+  ['refused differential',(_,r)=>{r.differential.summary.refusals=1;}],
+  ['no probes',(_,r)=>{r.differential.summary.probesEvaluated=0;}],
+  ['nonempty findings',(_,r)=>{r.findings.push({ruleId:'drift'});}],
+  ['changed report run identity',(_,r)=>{r.runId=h('0');}],
+  ['unbound declaration mapping',(_,r)=>{r.declarationMap[0].generated='Renamed';}],
+  ['not reviewed coverage',ir=>{ir.admission.requirements.exactInputDigests=false;}],
+];
+for(const [name,change] of corruption) {
+  test('refuses ' + name,()=>refuse(change));
+}
+}),/ZORDE_STATIC_REFUSED/);
+  }
+});
+
 const badShapes=[
   {type:'integer',minimum:1.25,maximum:3},
   {type:'integer',minimum:1,maximum:3,exclusiveMinimum:1},
