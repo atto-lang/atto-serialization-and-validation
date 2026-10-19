@@ -244,3 +244,33 @@ that no-follow/noclobber test-log protections remain. This matrix validates
 the harness against **synthetic fixtures only**. The actual private Zorde
 crypto, corpus, Contract IR, Graal/LLVM, WIT and Dafny execution gates
 remain unresolved pending approved source-local execution.
+
+## Bounded TAP receipt single-read verification (October 19, 2026)
+
+A later audit found the source-local Node runner still performed a **preliminary
+unbounded `open(...).read()`** of its private TAP log *before* its correctly
+bounded, no-follow receipt verification. Although the final receipt opener
+checked symlinks and size, the initial read could follow a replacement link or
+allocate excessive memory. The first parser also duplicated policy logic.
+
+The runner now performs one final validated log read only, after checking the
+source and approved Node binary for drift. It uses `O_NOFOLLOW | O_NONBLOCK`,
+requires a single-link, owner-controlled private regular file of at most
+16 MiB, checks the descriptor metadata before and after reading, and parses
+**those exact bytes** before issuing a receipt. Failure in the final receipt
+issuer now returns the harness's stable exit code 2; it never silently turns
+an incomplete file into a passing execution claim.
+
+The exact tested shell source Git blob is
+`f8d40152f2dcefbf7bce1b02e1d6be6c888e651a`.
+`bash -n` passed. On a **synthetic checkout with real Node 22**, the harness
+accepted 90/90 passing tests and refused each of these with no receipt:
+89 pass plus one TODO; one skipped; a failed test; a symlinked evidence
+ancestor; a symlinked Node executable ancestor; a TAP log replaced by a
+symlink; and an oversized (>16 MiB) TAP log. Regression coverage for
+substituted and oversized log files is checked into
+`tests/source_free/test_zorde_native_guard.mjs`.
+
+This verifies the runner control plane only. The private Zorde Node
+crypto/filesystem tests and Graal/LLVM, WIT and Dafny release gates **remain
+unexecuted** pending an approved source-local run.
