@@ -30,6 +30,24 @@ and `Zorde.Validation.ShortLabel` (length 1–64). Changes to schemas
 require the test witnesses and contract/version review to change together.
 **No compiler verification is inferred from emitting guest source.**
 
+## Scalar format parity finding (October 19, 2026)
+
+An independently authored **public synthetic scalar canary** in
+[ORESoftware TypeSpec validator PR #238](https://github.com/ORESoftware/typespec-json-schema-validator/pull/238)
+showed that the official TypeSpec JSON Schema emitter does **not**
+write `format: "int32"` on a bounded `int32` scalar. Adding that
+annotation to the peer-authored schema produces a genuine TJSV
+`generated-authored-semantic-mismatch` at `#/format` even when the
+instance differential validators happen to agree. The pilot `Port`
+peer authority therefore retains `type: "integer"`, `minimum: 1` and
+`maximum: 65535` **without** an independently invented `format`.
+Those explicit bounds remain within the signed int32 domain.
+
+This is not permission to discard all `format` constraints generally:
+the two authorities must strictly agree on any present annotation.
+The source-org's pinned TJSV compiler still needs its own exact-head
+verification before treating this private contract as admitted.
+
 ## Execute on an independently approved source-local runner
 
 The source repository's hosted Actions are currently failing with no
