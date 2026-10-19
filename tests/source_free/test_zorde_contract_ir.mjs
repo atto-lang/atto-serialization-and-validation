@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys} from
+import {deriveStaticRegistry, descriptorFromSchema, emitOreslangSpecs, rejectDuplicateJsonKeys,
+  canonicalDigest,semanticReportProjection} from
   '../../scripts/zorde-static-contract-ir.mjs';
 
 const h = (c) => c.repeat(64);
@@ -8,6 +9,10 @@ function fixture() {
   const report = {
     schema:'ores.typespec-json-schema-validator.report/v1',
     runId:h('a'),status:'passed',zeroUnexplainedFindings:true,findings:[],
+    configuration:{mode:'check',emitterOptions:null,executionMode:null,
+      differential:{enabled:true,instanceCorpus:null}},
+    toolchain:{validator:{name:'@oresoftware/typespec-json-schema-validator',version:'0.1.1'},
+      typespecCompiler:{version:'1.16.0'},jsonSchemaEmitter:'@typespec/json-schema'},
     coverage:{directDeclarationInventory:true,
       typespecGeneratedJsonSchemaComparison:true,differentialInstanceValidation:true},
     differential:{summary:{probesEvaluated:22,divergences:0,refusals:0}},
@@ -50,6 +55,15 @@ function fixture() {
       },
     }],
   };
+  const d=ir.declarations[0];
+  d.assertionDigest=canonicalDigest(d.assertionSchema);
+  d.lanes.typespecGeneratedJsonSchema.schemaDigest=
+    canonicalDigest(d.lanes.typespecGeneratedJsonSchema.normalizedSchema);
+  d.lanes.authoredJsonSchema.schemaDigest=
+    canonicalDigest(d.lanes.authoredJsonSchema.normalizedSchema);
+  ir.admission.receipt.digest=canonicalDigest(semanticReportProjection(report));
+  const {irId:_,...body}=ir;
+  ir.irId=canonicalDigest(body);
   return {ir,report};
 }
 function refuse(change) {
@@ -166,6 +180,39 @@ for (const [idx,scalar] of badShapes.entries()) {
     assert.throws(()=>descriptorFromSchema(scalar),/ZORDE_STATIC_REFUSED/);
   });
 }
+test('schema-body substitution is rejected despite forged matching IR self digest',()=>{
+  const {ir,report}=fixture();
+  const d=ir.declarations[0];
+  d.assertionSchema.minimum=2;
+  d.lanes.typespecGeneratedJsonSchema.normalizedSchema.minimum=2;
+  d.lanes.authoredJsonSchema.normalizedSchema.minimum=2;
+  const {irId:_,...body}=ir;
+  ir.irId=canonicalDigest(body);
+  assert.throws(()=>deriveStaticRegistry(ir,report),/ZORDE_STATIC_REFUSED/);
+});
+test('forged schema digest without recomputing IR digest fails',()=>{
+  const {ir,report}=fixture();
+  ir.declarations[0].lanes.authoredJsonSchema.schemaDigest=h('f');
+  assert.throws(()=>deriveStaticRegistry(ir,report),/ZORDE_STATIC_REFUSED/);
+});
+test('receipt semantic-projection mutation cannot survive unchanged receipt digest',()=>{
+  const {ir,report}=fixture();
+  report.configuration.differential.maxProbesPerDeclarationPerLane=0;
+  assert.throws(()=>deriveStaticRegistry(ir,report),/ZORDE_STATIC_REFUSED/);
+});
+test('nonsemantic host paths are intentionally excluded from semantic receipt digest',()=>{
+  const {ir,report}=fixture();
+  report.inputs.typespec.input='/host-dependent/src/contract.tsp';
+  report.inputs.authoredJsonSchema.input='/tmp/runtime/path/schema.json';
+  report.configuration.emitterOptions={'emitter-output-dir':'/tmp/generated'};
+  // Different semantic configuration (emitterOptions null => {}) is significant.
+  assert.throws(()=>deriveStaticRegistry(ir,report),/ZORDE_STATIC_REFUSED/);
+});
+test('unrecognized JSON Schema dialect is refused even with valid scalar bounds',()=>{
+  assert.throws(()=>descriptorFromSchema({type:'integer',minimum:1,maximum:2,
+    $schema:'https://json-schema.org/draft-07/schema#'}),/ZORDE_STATIC_REFUSED/);
+});
+
 const corruption=[
   ['status',ir=>{ir.admissible=false;}],
   ['role',ir=>{ir.role='editable-contract';}],
