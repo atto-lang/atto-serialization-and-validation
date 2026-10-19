@@ -4,7 +4,7 @@
 // must independently pin the actual TJSV action and source revision.
 import { createHash } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -36,22 +36,27 @@ function boundedInteger(n, lo, hi) {
 // unions and defaults) is a hard error, not an ignored constraint.
 export function descriptorFromSchema(schema) {
   assert(object(schema), 'scalar schema must be an object');
-  assert(schema.type === 'integer' || schema.type === 'string', 'unsupported scalar type');
+  assert(Object.hasOwn(schema,'type')
+    && (schema.type === 'integer' || schema.type === 'string'), 'unsupported scalar type');
   const allowed = new Set(ANNOTATIONS);
   if (schema.type === 'integer') {
     for (const k of ['type', 'format', 'minimum', 'maximum']) allowed.add(k);
     exactKeys(schema, allowed, 'integer schema');
     assert(schema.format === undefined || schema.format === 'int32', 'unsupported integer format');
-    assert(boundedInteger(schema.minimum, -2147483648, 2147483647), 'missing/unsafe integer minimum');
-    assert(boundedInteger(schema.maximum, -2147483648, 2147483647), 'missing/unsafe integer maximum');
+    assert(Object.hasOwn(schema,'minimum')
+      && boundedInteger(schema.minimum, -2147483648, 2147483647), 'missing/unsafe integer minimum');
+    assert(Object.hasOwn(schema,'maximum')
+      && boundedInteger(schema.maximum, -2147483648, 2147483647), 'missing/unsafe integer maximum');
     assert(schema.minimum <= schema.maximum, 'empty integer interval');
     return {version:1, kind:2, property:1, minimum:schema.minimum,
       maximum:schema.maximum, excluded:[]};
   }
   for (const k of ['type', 'minLength', 'maxLength']) allowed.add(k);
   exactKeys(schema, allowed, 'string schema');
-  assert(boundedInteger(schema.minLength, 0, 65536), 'missing/unsafe minLength');
-  assert(boundedInteger(schema.maxLength, 0, 65536), 'missing/unsafe maxLength');
+  assert(Object.hasOwn(schema,'minLength')
+    && boundedInteger(schema.minLength, 0, 65536), 'missing/unsafe minLength');
+  assert(Object.hasOwn(schema,'maxLength')
+    && boundedInteger(schema.maxLength, 0, 65536), 'missing/unsafe maxLength');
   assert(schema.minLength <= schema.maxLength, 'empty string length interval');
   return {version:1, kind:3, property:2, minimum:schema.minLength,
     maximum:schema.maxLength, excluded:[]};
@@ -287,7 +292,9 @@ function file(path, expected) {
   const bytes = readFileSync(path);
   assert(bytes.length > 0 && bytes.length <= 2097152, 'input size outside budget');
   assert(digest(bytes) === expected, 'input byte digest differs from trusted expectation');
-  const source=bytes.toString('utf8');
+  // Node Buffer.toString silently replaces malformed byte sequences; forbid
+  // ambiguity against the producer's JSON parser and UTF-8 semantics.
+  const source=new TextDecoder('utf-8',{fatal:true}).decode(bytes);
   rejectDuplicateJsonKeys(source);
   return JSON.parse(source);
 }
