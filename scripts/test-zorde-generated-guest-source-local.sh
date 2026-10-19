@@ -108,6 +108,9 @@ grep -Fqx 'zorde generated registry guest smoke passed' "$log" ||
    "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] ||
   deny "source revision changed during test"
 git diff --quiet && git diff --cached --quiet || deny "tracked checkout changed after test"
+while IFS= read -r -d '' name; do
+  [[ "$name" == artifacts/* ]] || deny "guest execution created unexpected untracked source files"
+done < <(git ls-files --others --exclude-standard -z)
 
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
 ROOT="$root" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
