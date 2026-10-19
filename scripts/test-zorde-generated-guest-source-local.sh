@@ -76,6 +76,7 @@ def safe(p):
 def obj(p): return json.loads(safe(p))
 def sha(p): return hashlib.sha256(safe(p)).hexdigest()
 v=obj('artifacts/zorde-scalars-consumer-verification.json')
+parity=obj('artifacts/zorde-scalars-parity.json')
 ir=obj('artifacts/zorde-scalars-contract-ir.json')
 plan=obj('artifacts/zorde-generated/registry-plan.json')
 built=obj('artifacts/zorde-generated/build-complete.json')
@@ -94,6 +95,11 @@ assert built['nativeGuestExecuted'] is False and built['releaseReady'] is False
 assert built['planSha256']==sha('artifacts/zorde-generated/registry-plan.json')
 assert built['guestSha256']==sha('artifacts/zorde-generated/registry-specs.ores')
 assert built['smokeSha256']==sha('artifacts/zorde-generated/registry-smoke.ores')
+assert built['reviewedCorpusDigest']==parity['differential']['corpusDigest']
+assert built['reviewedCorpusDigest']==parity['configuration']['differential']['instanceCorpusDigest']
+assert built['reviewedCorpusInstances']==parity['differential']['summary']['corpusInstances']==9
+assert parity['differential']['summary']['declarationsWithReviewedPositiveAndNegative']==2
+assert parity['differential']['summary']['reviewedUnassertedInstances']==0
 PY
 
 # Capture an exclusive pre-execution manifest of nine authority/derived
