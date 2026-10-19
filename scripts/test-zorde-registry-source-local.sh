@@ -60,6 +60,9 @@ source_tree="$(git rev-parse 'HEAD^{tree}')"
 source_root="$(git rev-parse --show-toplevel)"
 [[ "$(cd "$source_root" && pwd -P)" == "$root" ]] ||
   die "source checkout root mismatch"
+# Physical byte verification intentionally bypasses Git's index/status cache.
+python3 "$root/scripts/verify-zorde-checkout.py" "$source_sha" "$source_tree" ||
+  die "source bytes differ from reviewed Git tree"
 
 case "$ORESLANG_BIN" in
   /*) ;;
@@ -181,6 +184,8 @@ post_source_tree="$(git rev-parse 'HEAD^{tree}')" ||
   die "unable to inspect source root tree after native validation"
 [[ "$post_source_tree" == "$source_tree" ]] ||
   die "source root Git tree changed during native validation"
+python3 "$root/scripts/verify-zorde-checkout.py" "$source_sha" "$source_tree" ||
+  die "source bytes differ from reviewed Git tree after native validation"
 
 # The compiler file must remain the reviewed executable throughout the run.
 # This catches persistent mutation between entry checks and evidence issuance;
