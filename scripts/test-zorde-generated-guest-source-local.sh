@@ -176,6 +176,20 @@ root=Path(os.environ['ROOT'])
 log=Path(os.environ['NATIVE_LOG']).read_bytes()
 art=root/'artifacts/zorde-generated'
 plan=json.loads((art/'registry-plan.json').read_text())
+# Re-verify the pre-execution manifest and every input immediately before
+# signing the final execution receipt. This avoids a second check-to-receipt
+# gap after the earlier post-execution comparison.
+manifest_bytes=Path(os.environ['INPUT_MANIFEST']).read_bytes()
+assert h(manifest_bytes)==os.environ['EXPECTED_MANIFEST_SHA256']
+manifest=json.loads(manifest_bytes)
+assert manifest['schema']=='oreslang.zorde.native-guest-inputs/v1'
+assert len(manifest['files'])==9
+for name,want in manifest['files'].items():
+    p=root/name
+    st=p.lstat()
+    import stat
+    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,name
+    assert h(p.read_bytes())==want,name
 data={
  'schema':'oreslang.zorde.source-local.generated-guest/v1',
  'source_head_sha':os.environ['SOURCE_SHA'],
