@@ -149,3 +149,19 @@ native guest execution, and rechecks the full manifest afterward and
 immediately before issuing a non-release-qualified native receipt. These
 measures depend on a trusted ephemeral build host; a SHA of an
 attacker-controlled file does not independently attest who produced it.
+
+## Native guest import-closure sealing (October 19, 2026)
+
+The source-local harness now discovers and seals the **recursive static Oreslang
+import closure** of the generated registry smoke and registry specifications,
+not only the generated files and independently reviewed JSON fixtures. The
+current pilot adds ten implementation/test support modules to the existing
+18 source-authority, receipt, guest and fixture inputs (28 total).
+
+Unknown import grammar, missing modules, traversal outside the private source
+checkout, symbolic links, excess recursion and duplicate/altered source bytes
+must stop execution or the final receipt. The manifest records
+`staticGuestImportClosure`; its hash-bound contents are checked after the
+guest and before the receipt is issued. The source-free host test checks the
+exact expected import graph. This **does not attest the compiler binary's
+transitive dependency closure** and cannot replace real native guest tests.
