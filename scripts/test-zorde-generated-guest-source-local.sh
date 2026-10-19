@@ -4,7 +4,7 @@
 set -euo pipefail
 umask 077
 deny(){ printf 'ZORDE_GENERATED_GUEST_REFUSED: %s\n' "$*" >&2; exit 2; }
-for utility in git sha256sum timeout python3 grep; do
+for utility in git sha256sum timeout python3 grep node; do
   command -v "$utility" >/dev/null 2>&1 || deny "utility unavailable"
 done
 for variable in EXPECTED_SOURCE_SHA EXPECTED_SOURCE_TREE EXPECTED_COMPILER_SHA256 \
@@ -154,6 +154,23 @@ with Path(os.environ["INPUT_MANIFEST"]).open("x",encoding="utf8") as f:
     json.dump(manifest,f,sort_keys=True,indent=2)
     f.write("\n")
 PY
+
+# Recompute the real TJSV-compatible corpus identity against the source tree,
+# rather than trusting a stored digest and a newly sealed forged corpus.
+node --input-type=module - <<'JS' ||
+  deny "reviewed corpus no longer matches independently verified TJSV receipt"
+import {readFileSync} from 'node:fs';
+import {reviewedCorpusIdentity} from './scripts/zorde-static-contract-ir.mjs';
+const actual=reviewedCorpusIdentity('contracts/zorde/scalar-instances');
+const build=JSON.parse(readFileSync('artifacts/zorde-generated/build-complete.json','utf8'));
+const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
+if(actual.digest!==build.reviewedCorpusDigest
+  ||actual.digest!==report.differential.corpusDigest
+  ||actual.digest!==report.configuration.differential.instanceCorpusDigest
+  ||actual.corpus.length!==build.reviewedCorpusInstances){
+  throw Error('source reviewed corpus diverges from pinned parity evidence');
+}
+JS
 
 before_sha="$(sha256sum "$before" | cut -d' ' -f1)"
 [[ "$before_sha" =~ ^[0-9a-f]{64}$ ]] || deny "invalid pre-execution manifest digest"
