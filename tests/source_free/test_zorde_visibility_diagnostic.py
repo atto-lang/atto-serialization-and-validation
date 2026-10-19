@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'zorde_visibility_diagnostic.py'
+SCRIPT = Path(__file__).resolve().parents[2] / 'scripts' / 'zorde_visibility_diagnostic.py'
 spec = importlib.util.spec_from_file_location('zorde_visibility_diagnostic', SCRIPT)
 verifier = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(verifier)
