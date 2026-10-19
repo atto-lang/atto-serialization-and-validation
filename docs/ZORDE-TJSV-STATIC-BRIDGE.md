@@ -92,8 +92,16 @@ node --test tests/source_free/test_zorde_contract_ir.mjs
 
 The source-org workflow `zorde-static-ir-bridge.yml` is currently
 unable to allocate a runner. An isolated V8 test execution of the actual
-pure JavaScript functions passed **44/44** checks, including 10,000 deterministic scalar projection property probes; this was **not** the
-Node CLI, TJSV compiler or Oreslang native compiler. Run all of those
+pure JavaScript functions passed **53/53** isolated pure-function cases (using simulated digest behavior), including 10,000 deterministic scalar projection property probes; this was **not** the
+Node CLI, TJSV compiler or Oreslang native compiler. The additional three Node-only regression cases check real SHA-256 vectors,
+bounded no-follow file reads, symlink/hardlink rejection, CLI output completeness
+and output-parent symlink refusal. Those tests have **not** executed yet on a
+GitHub runner and cannot be counted as passed. The build bridge also recomputes
+TJSV runId, IR/receipt digest and declaration body digests; self-consistent
+forged files still need the upstream pinned `verify-ir` proof against the
+actual independent source authorities.
+
+Run all of those
 source-locally with pinned toolchains before changing this status.
 
 Further required release gates: actual private Zorde TypeSpec-to-JSON
