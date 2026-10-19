@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oreslang.dev/schemas/zorde-static-scalars-v1.schema.json",
+  "$defs": {
+    "Port": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "Port",
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "ShortLabel": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "ShortLabel",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  }
+}
