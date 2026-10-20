@@ -473,6 +473,49 @@ diagnostics first; no private-source carrier to another org is authorized.
 Do not classify a failed zero-step job as a failing TypeSpec, IR, WIT,
 Dafny or Oreslang test.
 
+## BASH_ENV fixture self-test and launcher source-path hardening (October 19, 2026)
+
+**Critical false-positive finding:** The original nine-scenario containment
+test built its hostile `BASH_ENV` script using a literal backslash-n
+(`"\\\\n"` in Python source) rather than a line terminator. In a
+noninteractive Bash shell this can append the letter `n` to the marker
+filename, making `not marker.exists()` true **even if the hostile
+startup script already ran**. An independent local shell reproduction
+proved both behaviors.
+
+The nine-scenario private test now writes a real newline and, for **every**
+scenario, performs a direct-Bash *positive control*: it demands the exact
+marker bytes `injected`, then deletes the marker before launching through
+`python3 -I -S`. A missing positive-control marker is a failed test,
+never an isolation pass. No private Node/TypeSpec source was exported.
+
+The actual Python launcher additionally refuses explicit `-O`, symlinked
+launcher/gate leaves, hardlinked launcher/gate files and symlinked ancestor
+directories **before** `execve('/usr/bin/bash', ...)`. The synthetic
+bootstrap regression grew from four to eight scenarios. The launcher
+does not promise immunity to compromise of the parent Python/native
+runtime or to adversarial concurrent mutation of the checkout: use a
+trusted, exclusive source-local environment.
+
+### Funded CI evidence, public-only
+
+[ORESoftware/typespec-json-schema-validator draft PR #241](https://github.com/ORESoftware/typespec-json-schema-validator/pull/241)
+contains a **separately authored** source-free Bash/Python behavior canary
+with no copied private Zorde code, source Git tree, compiler, fixtures,
+artifacts or credentials. Its [Ubuntu 24.04 run #39370257534](https://github.com/ORESoftware/typespec-json-schema-validator/actions/runs/39370257534)
+completed **11/11 executed synthetic checks** at public commit
+`7fdd007e189cc3c507aab32a21bc5685e08c769b`. The run proves
+that hosted Bash/Python behave as expected for these independent
+preconditions; it does **not** certify that the exact private launcher,
+path containment suite, real Node/Contract IR or native guests passed.
+
+The private [Zorde integrated run #39369819476](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39369819476)
+still reports `runner_id:0`, `steps:[]`, and `failure`.
+This is **NOT EXECUTED**, not a test failure. Independently restore an
+approved source-org runner or provision an authorized same-trust-boundary
+ephemeral runner. P0 export incidents #22/#77 remain open; the source
+must not be mirrored to a different organization to obtain its minutes.
+
 ## Isolated containment regression (October 19, 2026)
 
 The nine scenario path-containment suite now copies both the source-local
