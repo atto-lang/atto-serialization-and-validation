@@ -18,9 +18,9 @@ TARGETS = {
 }
 STORAGE_REFERENCE = re.compile(
     r"(?<![A-Za-z0-9_])(?:"
-    r"ZordeScalarRegistry[ \\t]*(?:(?:\\.|::)[ \\t]*|(?:member|field)[ \\t]+)entries"
-    r"|(?:member|field)[ \\t]+entries[ \\t]+(?:of|in|on)[ \\t]+ZordeScalarRegistry"
-    r"|entries[ \\t]+(?:of|in|on)[ \\t]+ZordeScalarRegistry"
+    r"ZordeScalarRegistry[ \t]*(?:(?:\.|::)[ \t]*|(?:member|field)[ \t]+)entries"
+    r"|(?:member|field)[ \t]+entries[ \t]+(?:of|in|on)[ \t]+ZordeScalarRegistry"
+    r"|entries[ \t]+(?:of|in|on)[ \t]+ZordeScalarRegistry"
     r")(?![A-Za-z0-9_])"
 )
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
