@@ -392,3 +392,35 @@ fails before executing job steps. Synthetic preflight tests do not
 substitute for production qualification. On successful static execution,
 the next step remains an authorized Oreslang native guest run with a
 separately approved compiler binary and formal/ABI evidence.
+
+
+## Independent child Node evidence reconciliation in the static Contract IR receipt
+
+The source-local Contract IR signer no longer admits a child Node receipt solely
+because its attached log has the expected SHA-256. It independently reopens the
+private TAP log using bounded `O_NOFOLLOW` reads (up to the child gate's
+16 MiB limit), requires exactly one `# tests`, `# pass`, `# fail`,
+`# skipped`, `# todo`, and `# cancelled` total, and requires
+`pass === tests >= 80` with all excluded outcomes equal to zero.
+
+The child receipt's schema, source SHA/tree, approved Node executable digest,
+and actual passing-test count must agree with the log. Its exact
+`test_source_sha256` keys and `source_module_sha256` compiler-bridge
+fingerprint must also match the presently checked-out private source bytes.
+No mismatched, missing, substituted or additional source-fingerprint keys
+can be accepted. This check is independent of the tests within the child.
+
+`tests/source_free/test_zorde_static_receipt_signer.py` executes the
+*actual Python receipt signer block* with completely synthetic input files.
+Six real local synthetic cases passed: legitimate evidence admitted; forged
+passing count refused; TODO masked by a self-consistent log SHA refused;
+modified source compiler-bridge bytes refused; omitted module fingerprints
+refused; substituted test-source fingerprint keys refused. It asserts that
+no static receipt appears on any denied case, and that accepted receipts
+remain `native_guest_executed:false` and `release_ready:false`.
+
+This is signer/control-plane qualification, **not** a successful Zorde
+private TypeSpec/Contract IR execution or Graal/LLVM/WIT/Dafny evidence.
+The exact private checkout must still execute on an approved source-local
+runner; a funded foreign GitHub Actions carrier does not waive the P0
+source-export authorization incidents.
