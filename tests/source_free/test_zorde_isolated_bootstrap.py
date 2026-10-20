@@ -6,6 +6,23 @@ import sys
 import tempfile
 from pathlib import Path
 
+# This test and all admission/receipt heredocs must keep Python assertions
+# enabled; -I ignores PYTHONOPTIMIZE and -S disables site customization.
+if not (sys.flags.isolated and sys.flags.no_site and sys.flags.optimize == 0):
+    raise SystemExit('ZORDE_BOOTSTRAP_TEST_REFUSED: require python3 -I -S without -O')
+
+for relative in (
+    'scripts/test-zorde-contract-source-local.sh',
+    'scripts/test-zorde-node-source-local.sh',
+    'scripts/test-zorde-generated-guest-source-local.sh',
+):
+    checked=Path(__file__).resolve().parents[2]/relative
+    heredocs=[line for line in checked.read_text().splitlines()
+              if "python3" in line and "<<'PY'" in line]
+    if not heredocs or any("python3 -I -S - " not in line for line in heredocs):
+        raise SystemExit('ZORDE_BOOTSTRAP_TEST_REFUSED: unisolated Python heredoc in '+relative)
+print('PASS all source-local Python admission/receipt heredocs enforce -I -S')
+
 HERE = Path(__file__).resolve().parent
 LAUNCHER = HERE.parents[1] / 'scripts/launch-zorde-contract-source-local.py'
 GATE = HERE.parents[1] / 'scripts/test-zorde-contract-source-local.sh'
