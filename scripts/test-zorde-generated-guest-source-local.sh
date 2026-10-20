@@ -2,7 +2,20 @@
 # Run the real generated guest exclusively on an approved source-local machine.
 # Never export/mirror a private source tree to obtain an alternate runner.
 set -euo pipefail
+# A hostile BASH_ENV starts executing before any Bash script can inspect it.
+# Required entrypoint: python3 -I -S scripts/launch-zorde-generated-guest-source-local.py
+if [[ -n "${BASH_ENV:-}" || -n "${ENV:-}" ]]; then
+  printf 'ZORDE_GENERATED_GUEST_REFUSED: use isolated Python launcher (unsafe Bash startup environment)\n' >&2
+  exit 2
+fi
+unset BASH_ENV ENV CDPATH
 umask 077
+export PATH=/usr/bin:/bin
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT \
+  PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONINSPECT \
+  NODE_OPTIONS NODE_PATH NODE_V8_COVERAGE NODE_EXTRA_CA_CERTS
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 deny(){ printf 'ZORDE_GENERATED_GUEST_REFUSED: %s\n' "$*" >&2; exit 2; }
 for utility in git sha256sum timeout python3 grep node; do
   command -v "$utility" >/dev/null 2>&1 || deny "utility unavailable"
@@ -23,8 +36,25 @@ for reviewed in "$EXPECTED_CONTRACT_IR_SHA256" "$EXPECTED_PARITY_REPORT_SHA256" 
 done
 [[ "$ORESLANG_BIN" = /* && -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" && ! -L "$ORESLANG_BIN" ]] ||
   deny "compiler must be an absolute real executable, not a symlink"
-[[ -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
-  deny "evidence directory must preexist and must not be a symlink"
+[[ "$ZORDE_EVIDENCE_DIR" = /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
+  deny "evidence directory must be an absolute preexisting real directory"
+# Ancestor components must also be real directories, not symbolic links.
+python3 -I -S - "$ORESLANG_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || deny 'compiler/evidence path traverses a symlink'
+import os,stat,sys
+for original,kind in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISDIR)):
+    current=os.path.abspath(original)
+    first=True
+    while True:
+        s=os.lstat(current)
+        assert kind(s.st_mode) if first else stat.S_ISDIR(s.st_mode),current
+        assert not stat.S_ISLNK(s.st_mode),current
+        if first and kind==stat.S_ISREG:
+            assert s.st_nlink==1,current
+        first=False
+        parent=os.path.dirname(current)
+        if parent==current: break
+        current=parent
+PY
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]] || deny "source SHA changed"
 [[ "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] || deny "source tree changed"
 [[ "$(git rev-parse --show-toplevel)" == "$root" ]] || deny "unexpected repository root"
@@ -208,6 +238,9 @@ JS
 
 before_sha="$(sha256sum "$before" | cut -d' ' -f1)"
 [[ "$before_sha" =~ ^[0-9a-f]{64}$ ]] || deny "invalid pre-execution manifest digest"
+# Noclobber makes the native log creation exclusive even if a stale symlink
+# appears after the initial freshness check.
+set -C
 set +e
 timeout --signal=TERM --kill-after=5s 180s "$ORESLANG_BIN" \
   "$root/artifacts/zorde-generated/registry-smoke.ores" >"$log" 2>&1
