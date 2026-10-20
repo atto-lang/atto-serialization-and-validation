@@ -449,6 +449,44 @@ They are **committed but not counted as executed** on the private runner.
 No Node/TypeSpec, compiler, WIT or Dafny qualification is inferred.
 The export authorization hold in conformance #22 and #77 still applies.
 
+## Source-org no-checkout runner triage (October 19, 2026)
+
+A minimal original-organization workflow was committed at
+`.github/workflows/zorde-source-org-runner-diagnostic.yml`. It requests
+Ubuntu 24.04, has **no permissions**, performs **no checkout**, uses no
+secrets, and does not upload source or evidence. Its single step emits
+`ZORDE_SOURCE_ORG_RUNNER_ALLOCATED_NO_CHECKOUT` **only if a runner really
+executes it**.
+
+[Run #39361411525](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39361411525)
+at source head `e55cf98f964639df0c7830c84acc1e1a0e7af196`
+failed on **both attempts** with GitHub reporting `runner_id:0`,
+`steps:[]`, and no artifacts. The job log request returned 404
+(`BlobNotFound`). This independently demonstrates failure to allocate a
+runner for a no-checkout job; it does **not** prove an exhausted budget or
+establish any code/test outcome.
+
+Restore source-org Actions eligibility/billing/policy, or provision an
+administrator-approved ephemeral runner inside the source organization.
+Inspect GitHub's Actions UI scheduling annotations and billing/policy
+diagnostics first; no private-source carrier to another org is authorized.
+Do not classify a failed zero-step job as a failing TypeSpec, IR, WIT,
+Dafny or Oreslang test.
+
+## Isolated containment regression (October 19, 2026)
+
+The nine scenario path-containment suite now copies both the source-local
+Bash gate and its Python launcher into an ephemeral **synthetic local Git
+checkout**. Every scenario invokes the entrypoint with `python3 -I -S`
+and injects hostile inherited `BASH_ENV`/`ENV` startup hooks; any
+startup marker is a test failure. The test process itself refuses to run
+without isolated, no-site, unoptimized Python, preventing an inherited
+`PYTHONOPTIMIZE` from disabling fail-closed `assert` checks.
+
+These tests remain **committed, not executed** on a private source runner.
+Their success cannot be inferred from the no-checkout diagnostic, which
+did not start a job step.
+
 ## Private/public/evidence path isolation (October 19, 2026)
 
 The source-local Contract IR runner now refuses three-way filesystem
