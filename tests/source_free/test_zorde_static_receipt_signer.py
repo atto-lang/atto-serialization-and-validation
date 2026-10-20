@@ -1,6 +1,9 @@
 # Synthetic receipt-signer regression: no private compiler/source or network needed.
 from pathlib import Path
-import hashlib, json, os, subprocess, tempfile, shutil
+import hashlib, json, os, subprocess, tempfile, shutil, sys
+
+if not (sys.flags.isolated and sys.flags.no_site and sys.flags.optimize == 0):
+    raise SystemExit('ZORDE_SIGNER_TEST_REFUSED: require python3 -I -S without -O')
 
 script=(Path(__file__).resolve().parents[2]/'scripts/test-zorde-contract-source-local.sh').read_text()
 block=script.rsplit("python3 -I -S - <<'PY'",1)[1].split('\nPY\n',1)[0].split('\n',1)[1]
