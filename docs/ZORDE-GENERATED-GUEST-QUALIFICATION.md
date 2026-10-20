@@ -117,8 +117,8 @@ verification uses the same bounded descriptor strategy instead of
 `lstat` followed by fresh `read_bytes`. A checked manifest must now
 contain **19 + import-closure count** file hashes, not 18 + count.
 
-Private regression coverage was extended from 11 to **16** synthetic
-guest-bootstrap cases for missing/invalid Node approval, nonexistent
+Private regression coverage was extended from 11 to **17** synthetic
+guest-bootstrap cases (including an executable positive control) for missing/invalid Node approval, nonexistent
 or linked Node executables, and linked binary ancestors. The new
 `tests/source_free/test_zorde_native_input_manifest.py` extracts the
 exact committed pre-execution Python signer and runs **eight** synthetic
@@ -126,6 +126,14 @@ positive/negative manifest scenarios: accepted closure, linked module,
 hardlinked bridge, FIFO fixture, oversized module, symlinked directory,
 escaping import, and substituted manifest output. These test files are
 **committed but not yet executed on an approved source-bound runner**.
+An independently authored public-only [source-free canary #39443649912](https://github.com/ORESoftware/typespec-json-schema-validator/actions/runs/39443649912)
+at public SHA `4cca47bbd4916ba23a35f4b4f0023f35f7cbbe36`
+passed **22/22 hosted checks** on Bash startup isolation and native log
+safety including FIFO handling. It does not execute this native input
+manifest signer or prove the current private source tree. The source-org
+[exact-head workflow #39444270066](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39444270066)
+at `de88f7819ca964dbdabe7fb76d17d4234c63129b` reports
+`runner_id:0` and no executed steps.
 They are required in `.github/workflows/zorde-integrated-admission.yml`.
 
 These checks strengthen honest source-local verification but are not a
