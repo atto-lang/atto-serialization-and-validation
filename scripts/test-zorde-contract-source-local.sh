@@ -47,13 +47,6 @@ git diff --quiet && git diff --cached --quiet || refuse 'source checkout has mod
 while IFS= read -r -d '' file; do
   [[ "$file" == artifacts/* ]] || refuse "unexpected untracked source file"
 done < <(git ls-files --others --exclude-standard -z)
-tjsv_root="$(cd "$TJSV_ROOT" && pwd -P)"
-[[ "$tjsv_root" != "$root" && "$tjsv_root" != "$root/"* ]] || refuse 'TJSV must be outside private source tree'
-[[ "$(git -C "$tjsv_root" rev-parse --show-toplevel)" == "$tjsv_root" ]] || refuse 'TJSV checkout root mismatch'
-[[ "$(git -C "$tjsv_root" rev-parse HEAD)" == "$tjsv_sha" && "$(git -C "$tjsv_root" rev-parse 'HEAD^{tree}')" == "$tjsv_tree" ]] || refuse 'public TJSV source revision mismatch'
-git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'public TJSV tracked source modified'
-[[ -f "$tjsv_root/bin/typespec-json-schema-validator.mjs" && -f "$tjsv_root/scripts/verify-consumer.mjs" ]] || refuse 'approved TJSV entrypoints missing'
-[[ -f "$tjsv_root/node_modules/@typespec/compiler/package.json" && -f "$tjsv_root/node_modules/@typespec/json-schema/package.json" ]] || refuse 'TJSV preinstalled dependencies missing (run independently approved npm ci on trusted machine)'
 [[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] || refuse 'Node executable digest differs from reviewed input'
 version="$(env -u NODE_OPTIONS -u NODE_PATH "$NODE_BIN" --version)"
 if [[ "$version" =~ ^v22\.([0-9]+)\.([0-9]+)$ ]]; then
@@ -61,6 +54,13 @@ if [[ "$version" =~ ^v22\.([0-9]+)\.([0-9]+)$ ]]; then
 else
   refuse 'Node 22.18+ is required by the pinned TJSV toolchain'
 fi
+tjsv_root="$(cd "$TJSV_ROOT" && pwd -P)"
+[[ "$tjsv_root" != "$root" && "$tjsv_root" != "$root/"* ]] || refuse 'TJSV must be outside private source tree'
+[[ "$(git -C "$tjsv_root" rev-parse --show-toplevel)" == "$tjsv_root" ]] || refuse 'TJSV checkout root mismatch'
+[[ "$(git -C "$tjsv_root" rev-parse HEAD)" == "$tjsv_sha" && "$(git -C "$tjsv_root" rev-parse 'HEAD^{tree}')" == "$tjsv_tree" ]] || refuse 'public TJSV source revision mismatch'
+git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'public TJSV tracked source modified'
+[[ -f "$tjsv_root/bin/typespec-json-schema-validator.mjs" && -f "$tjsv_root/scripts/verify-consumer.mjs" ]] || refuse 'approved TJSV entrypoints missing'
+[[ -f "$tjsv_root/node_modules/@typespec/compiler/package.json" && -f "$tjsv_root/node_modules/@typespec/json-schema/package.json" ]] || refuse 'TJSV preinstalled dependencies missing (run independently approved npm ci on trusted machine)'
 evidence="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 [[ "$evidence" != "$root" && "$evidence" != "$root/"* ]] || refuse 'evidence directory cannot reside in private source'
 python3 - "$evidence" <<'PY' || refuse 'evidence directory ownership and privacy invalid'
