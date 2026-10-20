@@ -164,6 +164,7 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
   writeFileSync(join(repo,'scripts','test-zorde-node-source-local.sh'),scriptBytes);
   const checkoutFile=join(repo,'tests','source_free','test_zorde_contract_ir.mjs');
   const guardFile=join(repo,'tests','source_free','test_zorde_native_guard.mjs');
+  const bridgeFile=join(repo,'scripts','zorde-static-contract-ir.mjs');
   const bin=realpathSync(process.execPath);
   const binaryDigest=createHash('sha256').update(readFileSync(bin)).digest('hex');
   function git(args){
@@ -187,7 +188,9 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
       ? ["console.log('x'.repeat(17*1024*1024));"]
       : mode==='mutate-source'
         ? ["import {appendFileSync} from 'node:fs';","appendFileSync(new URL(import.meta.url),'\\n// changed in worker');"]
-        : [];
+        : mode==='mutate-module'
+          ? ["import {appendFileSync} from 'node:fs';","appendFileSync('scripts/zorde-static-contract-ir.mjs','\\n// changed imported module during run');"]
+          : [];
     writeFileSync(checkoutFile,[
       "import test from 'node:test';",
       "import assert from 'node:assert/strict';",
@@ -205,6 +208,13 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
       "for(let i=0;i<10;i++) test('synthetic-guard-'+i,()=>assert.ok(true));",
       "",
     ].join('\n'));
+    writeFileSync(bridgeFile,'// synthetic local module for source-bound receipt verification\n');
+    if(mode==='symlink-module'){
+      const outside=join(root,'external-synthetic-module.mjs');
+      writeFileSync(outside,readFileSync(bridgeFile));
+      unlinkSync(bridgeFile);
+      symlinkSync(outside,bridgeFile,'file');
+    }
     if(mode==='symlink-test-input'){
       const moved=join(root,'external-synthetic-test.mjs');
       writeFileSync(moved,readFileSync(checkoutFile));
@@ -251,6 +261,10 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
       'tests/source_free/test_zorde_native_guard.mjs':
         createHash('sha256').update(readFileSync(guardFile)).digest('hex'),
     },'receipt must bind hashes of actual executed test files');
+    assert.deepEqual(passed.source_module_sha256,{
+      'scripts/zorde-static-contract-ir.mjs':
+        createHash('sha256').update(readFileSync(bridgeFile)).digest('hex'),
+    },'receipt must bind the contract bridge module imported by the test');
     const denied=runCase('todo');
     assert.equal(denied.run.status,2,denied.run.stderr);
     assert.match(denied.run.stderr,/ZORDE_NODE_QUALIFICATION_REFUSED:/);
@@ -267,7 +281,7 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     const poisonReceipt=JSON.parse(readFileSync(
       join(poisoned.evidence,'zorde-node-real-suite-receipt.json'),'utf8'));
     assert.equal(poisonReceipt.source_free_test_cases_passed,90);
-    for(const mode of ['symlink-log','oversized-log','mutate-source','symlink-test-input']){
+    for(const mode of ['symlink-log','oversized-log','mutate-source','symlink-test-input','mutate-module','symlink-module']){
       const rejected=runCase(mode);
       assert.equal(rejected.run.status,2,mode+': '+rejected.run.stderr);
       assert.match(rejected.run.stderr,/ZORDE_NODE_QUALIFICATION_REFUSED:/,mode);
