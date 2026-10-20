@@ -209,13 +209,34 @@ parity=json.loads(file(root/files['reviewedParity']))
 verification=json.loads(file(root/files['consumerVerification']))
 plan=json.loads(file(root/files['guestPlan']))
 build=json.loads(file(root/files['buildComplete']))
+# All authority, IR, generated-plan and guest evidence must be reconciled
+# independently of the build-complete file's self-reported success flags.
+ir=json.loads(file(root/files['contractIr']))
 assert parity['status']=='passed' and parity['zeroUnexplainedFindings'] is True
+assert parity['configuration']['mode']=='check'
+assert parity['coverage']['sourceMutationCheck'] is True
+summary=parity['differential']['summary']
+assert summary['corpusInstances']==summary['matchedReviewedCorpusInstances']==9
+assert summary['reviewedUnassertedInstances']==0
+assert summary['declarationsWithReviewedPositiveAndNegative']==2
+assert summary['divergences']==summary['refusals']==0
+assert ir['status']=='passed' and ir['admissible'] is True
+assert ir['irId']==verification['computedIrId']==verification['expectedIrId']==verification['suppliedIrId']
 assert verification['status']=='passed' and verification['admissible'] is True
-assert verification['computedIrId']==verification['expectedIrId']==verification['suppliedIrId']
+assert plan['schema']=='oreslang.zorde.static-scalar-registry-plan/v1'
+assert plan['role']=='non-authoritative-generated-build-artifact'
 assert plan['irId']==verification['expectedIrId']==build['irId']
+assert plan['tjsvRunId']==parity['runId']==build['tjsvRunId']
+assert plan['runtimeImplementationVerified'] is False and plan['actorSafeSharingVerified'] is False
+assert plan['releaseReady'] is False
+assert build['schema']=='oreslang.zorde.static-registry-build-complete/v1'
 assert build['reviewedCorpusDigest']==parity['configuration']['differential']['instanceCorpusDigest']
-assert build['reviewedCorpusInstances']==9
-assert plan['releaseReady'] is False and build['releaseReady'] is False
+assert build['reviewedCorpusInstances']==summary['corpusInstances']==9
+assert build['planSha256']==digests['guestPlan']
+assert build['guestSha256']==digests['guestSpecs']
+assert build['smokeSha256']==digests['guestSmoke']
+assert build['releaseReady'] is False
+assert build['nativeGuestExecuted'] is False
 assert build['guestSmokeCompiled'] is False and build['guestSmokeExecuted'] is False
 receipt={
  'schema':'oreslang.zorde.source-local.static-contract-ir/v1',
