@@ -372,7 +372,7 @@ export EXPECTED_NODE_SHA256='<independently reviewed Node binary SHA-256>'
 export TJSV_ROOT='/approved/absolute/path/to/pinned-public-TJSV-checkout'
 mkdir -m 700 /approved/private/zorde-static-evidence-fresh
 export ZORDE_EVIDENCE_DIR=/approved/private/zorde-static-evidence-fresh
-bash scripts/test-zorde-contract-source-local.sh
+python3 -I -S scripts/launch-zorde-contract-source-local.py
 ```
 
 After success, independently review the private
@@ -460,3 +460,31 @@ regression now tests these path combinations on any future authorized
 source-org runner. `releaseReady:false` remains mandatory until the
 actual private Node / TypeSpec Contract IR and native/runtime proof suites
 have executed successfully.
+
+## Mandatory isolated launcher for source-local Contract IR qualification
+
+Run the private Contract IR gate using
+`python3 -I -S scripts/launch-zorde-contract-source-local.py`, **not**
+`bash scripts/test-zorde-contract-source-local.sh`. Noninteractive Bash
+processes execute the file named by an inherited `BASH_ENV` variable
+**before the shell script's first statement**, so the shell cannot defend
+itself against poisoned startup state. A direct shell invocation with
+`BASH_ENV` or `ENV` now rejects admission, but this rejection is too late
+to prevent an already-executed startup hook.
+
+The isolated Python launcher requires both `-I` and `-S` and passes
+only the six independently reviewed source/tree/Node/validator/evidence
+parameters into a fresh `/usr/bin/bash --noprofile --norc` process. It
+discards `BASH_ENV`, exported shell functions, Bash option overrides,
+and inherited Git/Python/Node dynamic startup settings before Bash begins.
+Use an approved Linux/Python runtime and a trusted operator/session; even
+the isolated launcher cannot undo native dynamic-loader injection that
+may have already occurred in its parent process.
+
+The new source-free
+`tests/source_free/test_zorde_isolated_bootstrap.py` regression includes
+a harmless injected `BASH_ENV` marker. **4/4 real local synthetic
+cases passed**, distinguishing a protected launch from an unsafe direct
+Bash invocation. The exact committed bootstrap and shell were exercised
+locally; these synthetic tests do not certify the private TypeSpec pipeline
+or native Graal/LLVM execution. Retain `releaseReady:false`.
