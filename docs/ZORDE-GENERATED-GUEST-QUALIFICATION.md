@@ -274,3 +274,40 @@ substituted and oversized log files is checked into
 This verifies the runner control plane only. The private Zorde Node
 crypto/filesystem tests and Graal/LLVM, WIT and Dafny release gates **remain
 unexecuted** pending an approved source-local run.
+
+## Exact Node test-source receipt binding and verifier environment isolation
+
+The source-local Node harness now independently fingerprints both actual
+test entrypoint files with SHA-256 before execution and rechecks the same
+bytes afterward. It refuses symbolic-link directories/files, hard-linked test
+files, unexpected file types or sizes, and modified test sources. Before
+issuing the final non-release receipt it opens each test input using
+`O_NOFOLLOW | O_NONBLOCK`, verifies its unique regular-file descriptor and
+hash, and records `test_source_sha256` with the two explicit test paths.
+This supplementary per-file binding does **not** replace independent
+authorization of the complete Git head/root tree or establish that the
+compiler's transitive dependency closure is authenticated.
+
+The harness constrains `PATH` to system verifier utilities, suppresses
+external Git directory/index/config overrides and inherited Python startup/
+path injection. This assumes an approved machine and approved executable
+images; it does not claim resistance to a compromised same-user runtime.
+
+Actual local execution used a **synthetic** clean Git repository with Node 22
+and the exact committed shell blob `a507db9b5eef71ea2945c1cc3434e32a97736c14`:
+
+- Existing eight-case synthetic matrix: clean 90/90 success; TODO,
+  skipped/failed test, symlinked Node/evidence ancestor, substituted TAP log,
+  and oversized TAP log all failed closed with no receipt.
+- Additional four-case matrix: clean receipt included verified test-file
+  digests; a test mutating its own source during execution was refused;
+  a symlinked test input was refused; inherited malicious `GIT_DIR`,
+  `GIT_CONFIG_*`, and `PYTHONPATH` overrides did not redirect the
+  verifier and the clean run still succeeded.
+- Permanent negative and receipt-fingerprint scenarios are included in
+  `tests/source_free/test_zorde_native_guard.mjs`. Their source parsed,
+  but those actual private-repo tests still await a source-local runtime.
+
+These results validate the qualification *control plane only*. Actual
+private Zorde crypto/filesystem/Contract IR, native Graal/LLVM, WIT and
+Dafny qualification remain unexecuted pending approved source-local CI.
