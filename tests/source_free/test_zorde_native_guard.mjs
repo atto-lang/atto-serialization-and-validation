@@ -303,6 +303,7 @@ test('source-local TJSV/Contract IR driver refuses unapproved inputs before comp
   assert.match(source,/414047074b9358b81e79b5995a1dc4c1c5596a48/);
   assert.match(source,/source_bound_contract_ir_consumer_verification_executed/);
   assert.match(source,/native_guest_executed':False/);
+  assert.match(source,/python3 -I -S - <<'PY'/,'receipt signer must run with assertions enabled despite hostile Python env');
   assert.match(source,/--polymorphic-models-strategy=oneOf \|\| refuse/);
   assert.match(source,/verify-consumer\.mjs" \|\| refuse/);
   assert.match(source,/--out-dir=artifacts\/zorde-generated \|\| refuse/);
@@ -353,5 +354,5 @@ test('static receipt signer independently rejects forged child Node evidence',()
     '-I','-S','tests/source_free/test_zorde_static_receipt_signer.py',
   ],{cwd:resolve('.'),encoding:'utf8',timeout:20000,maxBuffer:16384});
   assert.equal(result.status,0,'static receipt security test: '+result.stderr);
-  assert.match(result.stdout,/ZORDE_STATIC_SIGNER_SYNTHETIC_11_OF_11_PASSED/);
+  assert.match(result.stdout,/ZORDE_STATIC_SIGNER_SYNTHETIC_12_OF_12_PASSED/);
 });
