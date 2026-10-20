@@ -16,6 +16,13 @@ TARGETS = {
     "private-entry-import": re.compile(r"(?<![A-Za-z0-9_])ZordePrivateCompiledEntry(?![A-Za-z0-9_])"),
     "private-storage-access": re.compile(r"(?<![A-Za-z0-9_])entries(?![A-Za-z0-9_])"),
 }
+STORAGE_REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:"
+    r"ZordeScalarRegistry[ \\t]*(?:(?:\\.|::)[ \\t]*|(?:member|field)[ \\t]+)entries"
+    r"|(?:member|field)[ \\t]+entries[ \\t]+(?:of|in|on)[ \\t]+ZordeScalarRegistry"
+    r"|entries[ \\t]+(?:of|in|on)[ \\t]+ZordeScalarRegistry"
+    r")(?![A-Za-z0-9_])"
+)
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 DENIAL = re.compile(
     r"\b(?:not[\s-]+(?:exported|public|visible|accessible)"
@@ -87,6 +94,8 @@ def assess(log: bytes, fixture: str) -> tuple[bool, str]:
             continue
         cleaned = line.translate(QUOTES)
         if rule.search(cleaned):
+            if fixture == "private-storage-access" and not STORAGE_REFERENCE.search(cleaned):
+                continue
             return True, "targeted visibility denial"
         if index + 1 >= len(lines):
             continue
@@ -94,8 +103,12 @@ def assess(log: bytes, fixture: str) -> tuple[bool, str]:
         # A free-floating unrelated private error on an adjacent line cannot.
         if re.fullmatch(r"[ \t]*(?:error:[ \t]*)?private[ \t]+(?:type|class|field|member|symbol)[ \t]*", cleaned, re.I):
             continuation = lines[index + 1].translate(QUOTES).strip()
-            if len(continuation) <= 256 and target.fullmatch(continuation):
-                return True, "targeted multiline visibility denial"
+            if len(continuation) <= 256:
+                if fixture == "private-storage-access":
+                    if STORAGE_REFERENCE.fullmatch(continuation):
+                        return True, "targeted multiline visibility denial"
+                elif target.fullmatch(continuation):
+                    return True, "targeted multiline visibility denial"
     return False, "targeted access denial absent"
 
 

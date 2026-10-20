@@ -28,7 +28,7 @@ class DiagnosticContracts(unittest.TestCase):
         self.assertTrue(self.verdict('error: private type\n  ZordePrivateCompiledEntry'))
 
     def test_storage_denial(self):
-        self.assertTrue(self.verdict('error: cannot access member entries', 'private-storage-access'))
+        self.assertTrue(self.verdict('error: cannot access member entries in ZordeScalarRegistry', 'private-storage-access'))
 
     def test_ansi_diagnostic(self):
         self.assertTrue(self.verdict('\x1b[31merror: ZordePrivateCompiledEntry not public\x1b[0m'))
@@ -98,7 +98,22 @@ class DiagnosticContracts(unittest.TestCase):
         self.assertFalse(self.verdict('error: ENTRIES is private', 'private-storage-access'))
 
     def test_quoted_member_denial_is_accepted(self):
-        self.assertTrue(self.verdict('error: `entries` has private access', 'private-storage-access'))
+        self.assertTrue(self.verdict('error: ZordeScalarRegistry.`entries` has private access', 'private-storage-access'))
+
+    def test_unqualified_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: entries is private', 'private-storage-access'))
+
+    def test_other_owner_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: Other.entries is private', 'private-storage-access'))
+
+    def test_other_owner_prefix_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: cannot access member entries in Other', 'private-storage-access'))
+
+    def test_spliced_owner_and_member_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: ZordeScalarRegistry unrelated; entries is private', 'private-storage-access'))
+
+    def test_qualified_storage_denial_is_accepted(self):
+        self.assertTrue(self.verdict('error: ZordeScalarRegistry.entries is private', 'private-storage-access'))
 
     def test_isolated_multiline_wrong_symbol_is_refused(self):
         self.assertFalse(self.verdict('error: private type\nOtherClass\nZordePrivateCompiledEntry'))
