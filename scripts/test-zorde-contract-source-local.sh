@@ -3,6 +3,14 @@
 # No cross-org checkout, mirror, publishing, credential, or artifact upload.
 # This does not compile/execute the Oreslang guest or certify backend parity.
 set -euo pipefail
+# Bash executes BASH_ENV before processing this file. Refuse unsafe direct
+# invocation; the approved entrypoint is the isolated Python -I -S launcher,
+# which strips the entire inherited environment *before* starting Bash.
+if [[ -n "${BASH_ENV:-}" || -n "${ENV:-}" ]]; then
+  printf 'ZORDE_CONTRACT_SOURCE_LOCAL_REFUSED: use isolated Python launcher (unsafe Bash startup environment)\n' >&2
+  exit 2
+fi
+unset BASH_ENV ENV CDPATH
 umask 077
 export PATH=/usr/bin:/bin
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
