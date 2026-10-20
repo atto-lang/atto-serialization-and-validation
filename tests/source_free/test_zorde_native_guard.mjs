@@ -353,5 +353,5 @@ test('static receipt signer independently rejects forged child Node evidence',()
     'tests/source_free/test_zorde_static_receipt_signer.py',
   ],{cwd:resolve('.'),encoding:'utf8',timeout:20000,maxBuffer:16384});
   assert.equal(result.status,0,'static receipt security test: '+result.stderr);
-  assert.match(result.stdout,/ZORDE_STATIC_SIGNER_SYNTHETIC_6_OF_6_PASSED/);
+  assert.match(result.stdout,/ZORDE_STATIC_SIGNER_SYNTHETIC_11_OF_11_PASSED/);
 });
