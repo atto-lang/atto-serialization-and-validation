@@ -74,7 +74,7 @@ export EXPECTED_PARITY_REPORT_SHA256='<reviewed parity receipt digest>'
 export EXPECTED_VERIFICATION_SHA256='<reviewed consumer verify-ir receipt digest>'
 export ZORDE_EVIDENCE_DIR='/approved/private/fresh/0700/directory'
 
-bash scripts/test-zorde-generated-guest-source-local.sh
+python3 -I -S scripts/launch-zorde-generated-guest-source-local.py
 ```
 
 The script refuses a different source SHA/tree, dirty tracked files,
@@ -91,6 +91,53 @@ review the verifier producer/toolchain and the exact submitted evidence.
 The source-local binary SHA alone does not attest the entire compiler
 dependency closure, and two successful guests on different backends do
 not automatically prove actor shareability or WIT ABI correctness.
+
+## Native guest admission and bounded output hardening (October 20, 2026)
+
+The native generated-guest gate previously invoked Bash directly, allowing an
+inherited `BASH_ENV` to execute arbitrary startup code **before the first
+security check**. Native execution must now start with the new
+`python3 -I -S scripts/launch-zorde-generated-guest-source-local.py`
+entrypoint, which constructs a minimal environment in Python before Bash
+starts. The launcher refuses `-O`, non-isolated Python, symlinked/hardlinked
+launcher or gate files, and symlinked path ancestors. The native shell
+also detects unsafe direct invocation and scrubs inherited Git/Node/Python
+variables, but direct Bash cannot undo an already-triggered startup hook.
+
+The native gate additionally validates the absolute compiler/evidence paths
+through nonsymlink ancestors, requires a unique compiler executable,
+and creates its log with Bash `set -C` (noclobber). Early guest evidence
+reads and final native receipt reads now use `os.open` with
+`O_NOFOLLOW|O_NONBLOCK`, require regular single-link bounded files, and
+confirm matching descriptor inode, size and modification time before/after
+reading. This narrows leaf-level check-to-read substitution and unsafe
+output clobbering. It does **not** make arbitrary adversarial concurrent
+directory mutations safe: run exclusively inside an approved, private
+worktree and separately attest the compiler and runtime dependency closure.
+
+A new **eleven-scenario**, source-local synthetic bootstrap regression at
+`tests/source_free/test_zorde_generated_guest_bootstrap.py` requires a
+real hostile Bash startup witness, then checks isolated launch refusal,
+unsafe direct Bash, optimized/nonisolated Python, symlinked and hardlinked
+paths, and newline-injected approvals. It is required by the integrated
+workflow. **It has not executed on a private repo runner**; the
+[private exact-head workflow run #39441849236](https://github.com/ores-truffle-oreslang/oreslang-serialization-and-validation/actions/runs/39441849236)
+failed with `runner_id:0` and `steps:[]` before any test step.
+
+Separately, the **public-only**, independently authored source-free oracle
+in [TJSV draft PR #241](https://github.com/ORESoftware/typespec-json-schema-validator/pull/241)
+executed on a funded Ubuntu 24.04 runner in
+[run #39442046045](https://github.com/ORESoftware/typespec-json-schema-validator/actions/runs/39442046045):
+**11/11** Bash/Python bootstrap plus **9/9** POSIX native-output checks
+passed (20/20). No private Oreslang source, source Git blobs, schemas,
+compiler code, guests, test fixtures or evidence were transferred to that
+organization. These tests establish only independent OS/security behavior,
+not execution of the original native runner or a Zorde guest.
+
+The private runner allocation, actual 11-case native bootstrap, real
+Node/TypeSpec Contract IR, compiled guest, WIT and Dafny execution remain
+**NOT EXECUTED**. The source confidentiality incidents #22 and #77 remain
+export holds. No release status may be advanced from the public canary.
 
 ## Remaining independent gates
 
