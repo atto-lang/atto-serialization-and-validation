@@ -424,3 +424,39 @@ private TypeSpec/Contract IR execution or Graal/LLVM/WIT/Dafny evidence.
 The exact private checkout must still execute on an approved source-local
 runner; a funded foreign GitHub Actions carrier does not waive the P0
 source-export authorization incidents.
+
+## Private/public/evidence path isolation (October 19, 2026)
+
+The source-local Contract IR runner now refuses three-way filesystem
+containment between the private checkout, the separately pinned **public**
+TJSV checkout, and its private receipts/log directory:
+
+- Public TJSV cannot contain the private source checkout (avoids
+  accidental subsequent `git add`/upload exposure).
+- Private receipts/logs cannot be written inside public TJSV checkout,
+  nor may the public checkout reside inside the private evidence directory.
+- The private source cannot contain TJSV, and the evidence directory cannot
+  be inside the private source (pre-existing protections retained).
+- A pre-existing, ignored `artifacts` directory must be a real directory,
+  never a symlink redirecting private TypeSpec/Contract IR output elsewhere.
+
+These guards are evaluated on canonical paths **before** invoking the public
+validator. They supplement, rather than supersede, independent numeric
+destination and source snapshot approval requirements for any future
+cross-organization source transfer.
+
+**Real local synthetic execution:** the byte-identical updated runner shell
+Git blob `8c9b0c2e896764ed4d775df8d46dc022899dbb40` passed
+`bash -n` and refused all four overlap/redirect attacks with exit 2
+and no receipt. A fifth disjoint-path preflight correctly continued as far
+as rejecting the deliberately fake public validator checkout. Separately,
+the static receipt signer passed its six positive/negative synthetic
+checks (including forged pass counts, TODO, bridge mutation and omitted
+fingerprints). Tests use synthetic source trees, **not** the private Zorde
+compiler implementation.
+
+A permanent `tests/source_free/test_zorde_contract_path_containment.py`
+regression now tests these path combinations on any future authorized
+source-org runner. `releaseReady:false` remains mandatory until the
+actual private Node / TypeSpec Contract IR and native/runtime proof suites
+have executed successfully.
