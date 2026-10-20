@@ -250,12 +250,52 @@ JS
 
 before_sha="$(sha256sum "$before" | cut -d' ' -f1)"
 [[ "$before_sha" =~ ^[0-9a-f]{64}$ ]] || deny "invalid pre-execution manifest digest"
-# Noclobber makes the native log creation exclusive even if a stale symlink
-# appears after the initial freshness check.
-set -C
+# Bash redirection itself may block on an adversarial FIFO before "timeout"
+# starts. Open the native log exclusively relative to a no-follow directory
+# descriptor, then pass the verified open regular FD to the timed guest.
+# Bound guest output to 16 MiB to avoid uncontrolled evidence disk filling.
 set +e
-timeout --signal=TERM --kill-after=5s 180s "$ORESLANG_BIN" \
-  "$root/artifacts/zorde-generated/registry-smoke.ores" >"$log" 2>&1
+NATIVE_LOG_DIR="$out" NATIVE_LOG_NAME="zorde-generated-smoke-native.log" \
+  python3 -I -S - "$ORESLANG_BIN" "$root/artifacts/zorde-generated/registry-smoke.ores" <<'PY'
+import os,resource,stat,subprocess,sys
+original=os.environ['NATIVE_LOG_DIR']
+name=os.environ['NATIVE_LOG_NAME']
+assert os.path.isabs(original) and name=='zorde-generated-smoke-native.log'
+assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW
+# Resolve each directory component from an anchored root fd: no ancestor
+# symlink can be followed between an earlier lstat and the final open.
+fd=os.open('/',flags)
+try:
+    for part in original.split('/'):
+        if not part:
+            continue
+        assert part not in ('.','..')
+        following=os.open(part,flags,dir_fd=fd)
+        os.close(fd)
+        fd=following
+    directory=os.fstat(fd)
+    assert stat.S_ISDIR(directory.st_mode) and directory.st_uid==os.geteuid()
+    assert stat.S_IMODE(directory.st_mode)&0o077==0
+    outfd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,
+                  0o600,dir_fd=fd)
+    try:
+        created=os.fstat(outfd)
+        assert stat.S_ISREG(created.st_mode) and created.st_nlink==1
+        assert created.st_uid==os.geteuid() and stat.S_IMODE(created.st_mode)&0o077==0
+        def limit_output():
+            resource.setrlimit(resource.RLIMIT_FSIZE,(16*1024*1024,16*1024*1024))
+        result=subprocess.run(
+            ['/usr/bin/timeout','--signal=TERM','--kill-after=5s','180s',
+             sys.argv[1],sys.argv[2]],
+            stdin=subprocess.DEVNULL,stdout=outfd,stderr=subprocess.STDOUT,
+            preexec_fn=limit_output,check=False)
+        assert result.returncode==0,('guest exit code',result.returncode)
+    finally:
+        os.close(outfd)
+finally:
+    os.close(fd)
+PY
 status=$?
 set -e
 [[ "$status" -eq 0 ]] || deny "guest compiler/execution failed, see native log"
