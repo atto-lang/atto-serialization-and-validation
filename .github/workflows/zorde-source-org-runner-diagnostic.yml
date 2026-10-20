@@ -1,0 +1,22 @@
+name: Zorde source-org allocation diagnostic (no checkout)
+# Infrastructure diagnostic only: proves runner allocation if a step executes.
+# Never check out private code, use secrets, upload artifacts or publish source.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/zorde-source-org-runner-diagnostic.yml'
+permissions: {}
+jobs:
+  source-org-runner-allocation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Prove an actual host step ran without private source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${GITHUB_RUN_ID:-}"
+          test -n "${RUNNER_OS:-}"
+          test "${RUNNER_OS}" = "Linux"
+          printf '%s\n' 'ZORDE_SOURCE_ORG_RUNNER_ALLOCATED_NO_CHECKOUT'
