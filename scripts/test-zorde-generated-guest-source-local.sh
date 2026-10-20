@@ -92,7 +92,7 @@ before="$out/zorde-generated-inputs-before.json"
   deny "use a fresh private evidence directory"
 
 python3 -I -S - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or inconsistent"
-import hashlib,json,stat,sys
+import hashlib,json,os,stat,sys
 from pathlib import Path
 root=Path(sys.argv[1])
 for directory in ('artifacts','artifacts/zorde-generated'):
@@ -100,9 +100,21 @@ for directory in ('artifacts','artifacts/zorde-generated'):
     assert stat.S_ISDIR(s.st_mode),directory
 def safe(p):
     p=root/p
-    s=p.lstat()
-    assert stat.S_ISREG(s.st_mode) and s.st_nlink==1,p
-    return p.read_bytes()
+    for parent in p.parents:
+        assert stat.S_ISDIR(os.lstat(parent).st_mode),parent
+    flags=os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW
+    fd=os.open(p,flags)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1,p
+        assert 0 < before.st_size <= 8*1024*1024,p
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size,p
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns),p
+        return data
+    finally:
+        os.close(fd)
 def obj(p): return json.loads(safe(p))
 def sha(p): return hashlib.sha256(safe(p)).hexdigest()
 v=obj('artifacts/zorde-scalars-consumer-verification.json')
@@ -281,13 +293,30 @@ done < <(git ls-files --others --exclude-standard -z)
 
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
 ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 -I -S - <<'PY'
-import hashlib,json,os
+import hashlib,json,os,stat
 from pathlib import Path
 h=lambda b:hashlib.sha256(b).hexdigest()
 root=Path(os.environ['ROOT'])
-log=Path(os.environ['NATIVE_LOG']).read_bytes()
+def bounded_file(path,limit=16*1024*1024):
+    path=Path(path)
+    assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+    for parent in path.parents:
+        assert stat.S_ISDIR(os.lstat(parent).st_mode),parent
+    fd=os.open(path,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= limit
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns)
+        return data
+    finally:
+        os.close(fd)
+log=bounded_file(os.environ['NATIVE_LOG'])
 art=root/'artifacts/zorde-generated'
-plan=json.loads((art/'registry-plan.json').read_text())
+plan=json.loads(bounded_file(art/'registry-plan.json'))
 # Re-verify the pre-execution manifest and every input immediately before
 # signing the final execution receipt. This avoids a second check-to-receipt
 # gap after the earlier post-execution comparison.
@@ -299,20 +328,16 @@ assert 8<=len(manifest['staticGuestImportClosure'])<=64
 assert len(manifest['files'])==18+len(manifest['staticGuestImportClosure'])
 assert all(name in manifest['files'] for name in manifest['staticGuestImportClosure'])
 for name,want in manifest['files'].items():
-    p=root/name
-    st=p.lstat()
-    import stat
-    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,name
-    assert h(p.read_bytes())==want,name
+    assert h(bounded_file(root/name))==want,name
 data={
  'schema':'oreslang.zorde.source-local.generated-guest/v1',
  'source_head_sha':os.environ['SOURCE_SHA'],
  'source_root_tree_sha':os.environ['SOURCE_TREE'],
  'compiler_executable_sha256':os.environ['COMPILER_SHA'],
  'plan_ir_id':plan['irId'],
- 'plan_sha256':h((art/'registry-plan.json').read_bytes()),
- 'specs_sha256':h((art/'registry-specs.ores').read_bytes()),
- 'smoke_guest_sha256':h((art/'registry-smoke.ores').read_bytes()),
+ 'plan_sha256':h(bounded_file(art/'registry-plan.json')),
+ 'specs_sha256':h(bounded_file(art/'registry-specs.ores')),
+ 'smoke_guest_sha256':h(bounded_file(art/'registry-smoke.ores')),
  'native_log_sha256':h(log),
  'pre_execution_input_manifest_sha256':os.environ['EXPECTED_MANIFEST_SHA256'],
  'source_bound_guest_inputs_unchanged':True,
