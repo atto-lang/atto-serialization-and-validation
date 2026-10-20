@@ -31,12 +31,19 @@ try:
  for p in inputs:write(root/p, 'unmodified synthetic input '+p+'\n')
  corpus='f'*64
  obj={
- 'reviewedParity':{'status':'passed','zeroUnexplainedFindings':True,'configuration':{'differential':{'instanceCorpusDigest':corpus}}},
- 'contractIr':{'irId':'synthetic-IR'},
+ 'reviewedParity':{'status':'passed','runId':'verified-tjsv-run','zeroUnexplainedFindings':True,'configuration':{'mode':'check','differential':{'instanceCorpusDigest':corpus}},'coverage':{'sourceMutationCheck':True},'differential':{'summary':{'corpusInstances':9,'matchedReviewedCorpusInstances':9,'reviewedUnassertedInstances':0,'declarationsWithReviewedPositiveAndNegative':2,'divergences':0,'refusals':0}}},
+ 'contractIr':{'irId':'synthetic-IR','status':'passed','admissible':True},
  'consumerVerification':{'status':'passed','admissible':True,'computedIrId':'synthetic-IR','suppliedIrId':'synthetic-IR','expectedIrId':'synthetic-IR'},
- 'guestPlan':{'irId':'synthetic-IR','releaseReady':False},
- 'buildComplete':{'irId':'synthetic-IR','releaseReady':False,'reviewedCorpusDigest':corpus,'reviewedCorpusInstances':9,'guestSmokeCompiled':False,'guestSmokeExecuted':False}}
+ 'guestPlan':{'schema':'oreslang.zorde.static-scalar-registry-plan/v1','role':'non-authoritative-generated-build-artifact','irId':'synthetic-IR','tjsvRunId':'verified-tjsv-run','runtimeImplementationVerified':False,'actorSafeSharingVerified':False,'releaseReady':False},
+ 'buildComplete':{'schema':'oreslang.zorde.static-registry-build-complete/v1','irId':'synthetic-IR','tjsvRunId':'verified-tjsv-run','releaseReady':False,'nativeGuestExecuted':False,'reviewedCorpusDigest':corpus,'reviewedCorpusInstances':9,'guestSmokeCompiled':False,'guestSmokeExecuted':False}}
  for k,p in paths.items():write(root/p,json.dumps(obj[k]) if k in obj else 'synthetic '+k+'\n')
+ built=obj['buildComplete']
+ built['planSha256']=sha((root/paths['guestPlan']).read_bytes())
+ built['guestSha256']=sha((root/paths['guestSpecs']).read_bytes())
+ built['smokeSha256']=sha((root/paths['guestSmoke']).read_bytes())
+ write(root/paths['buildComplete'],json.dumps(built))
+ baseline={p:(root/p).read_bytes() for p in paths.values()}
+ baseline.update({p:(root/p).read_bytes() for p in inputs})
  tap='TAP version 13\n# tests 90\n# pass 90\n# fail 0\n# skipped 0\n# todo 0\n# cancelled 0\n'
  log=evidence/'zorde-node-real-suite.log';write(log,tap)
  write(evidence/'zorde-contract-static.log','Synthetic static contract run output\n')
@@ -44,6 +51,7 @@ try:
   return {'schema':'oreslang.zorde.source-local.node-security-suite/v1','source_head_sha':source,'source_root_tree_sha':tree,'node_executable_sha256':node,'real_node_crypto_filesystem_tests_executed':True,'release_ready':False,'source_free_test_cases_passed':90,'source_free_test_cases_failed':0,'source_free_test_cases_skipped':0,'node_test_log_sha256':sha(log.read_bytes()),'test_source_sha256':{p:sha((root/p).read_bytes()) for p in inputs[:2]},'source_module_sha256':{inputs[2]:sha((root/inputs[2]).read_bytes())}}
  nr=evidence/'zorde-node-real-suite-receipt.json';base=receipt()
  def check(label,edit=None,expect=True):
+  for filename,data in baseline.items():write(root/filename,data)
   write(log,tap)
   write(nr,json.dumps(base))
   if edit:edit()
@@ -72,6 +80,17 @@ try:
  def swap():
   b=base.copy();b['test_source_sha256']={'unexpected': '0'*64};write(nr,json.dumps(b))
  check('substituted source fingerprint map',swap,False)
- print('ZORDE_STATIC_SIGNER_SYNTHETIC_6_OF_6_PASSED: no private source or compiler invoked')
+ def corrupt_build(field,val):
+  p=root/paths['buildComplete']; v=json.loads(p.read_text());v[field]=val;write(p,json.dumps(v))
+ check('tampered plan digest',lambda: corrupt_build('planSha256','0'*64),False)
+ check('tampered guest source after generation',lambda: write(root/paths['guestSpecs'],'attacker changed guest source'),False)
+ check('divergent TJSV run id',lambda: corrupt_build('tjsvRunId','forged-run'),False)
+ def missing_negative_coverage():
+  p=root/paths['reviewedParity'];v=json.loads(p.read_text());v['differential']['summary']['declarationsWithReviewedPositiveAndNegative']=1;write(p,json.dumps(v))
+ check('missing positive-and-negative corpus assertions',missing_negative_coverage,False)
+ def forged_ir_status():
+  p=root/paths['contractIr'];v=json.loads(p.read_text());v['admissible']=False;write(p,json.dumps(v))
+ check('inadmissible IR status',forged_ir_status,False)
+ print('ZORDE_STATIC_SIGNER_SYNTHETIC_11_OF_11_PASSED: no private source or compiler invoked')
 finally:
  shutil.rmtree(root);shutil.rmtree(evidence)
