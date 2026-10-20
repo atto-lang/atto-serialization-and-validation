@@ -53,6 +53,8 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
         'EXPECTED_PARITY_REPORT_SHA256': 'e' * 64,
         'EXPECTED_VERIFICATION_SHA256': 'f' * 64,
         'ORESLANG_BIN': '/does/not/exist/oreslang',
+        'NODE_BIN': '/does/not/exist/node',
+        'EXPECTED_NODE_SHA256': '1' * 64,
         'ZORDE_EVIDENCE_DIR': str(root / 'private-evidence'),
     })
     (root / 'private-evidence').mkdir(mode=0o700)
@@ -127,5 +129,54 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
     assert not marker.exists()
     print('PASS newline injection in independently approved input refused')
 
-    # All cases are synthetic; fake compiler ensures no native guest executes.
-    print('ZORDE_GUEST_BOOTSTRAP_SYNTHETIC_11_OF_11_PASSED')
+    # Node interpreter provenance must be bound before guest or corpus code.
+    absent = dict(env)
+    absent.pop('EXPECTED_NODE_SHA256')
+    proc = run([sys.executable, '-I', '-S', str(launcher)], root, absent)
+    refuse(proc, 'missing or invalid independently approved input: EXPECTED_NODE_SHA256')
+    assert not marker.exists()
+    print('PASS missing independently approved Node binary digest refused')
+
+    malformed = dict(env)
+    malformed['EXPECTED_NODE_SHA256'] = 'not-a-sha256'
+    proc = run([sys.executable, '-I', '-S', str(launcher)], root, malformed)
+    refuse(proc, 'invalid expected Node digest')
+    assert not marker.exists()
+    print('PASS malformed Node binary digest refused')
+
+    fake_compiler = root / 'synthetic-compiler'
+    fake_compiler.write_text('#!/usr/bin/env sh\\nexit 0\\n')
+    fake_compiler.chmod(0o700)
+    valid_paths = dict(env, ORESLANG_BIN=str(fake_compiler))
+
+    proc = run([sys.executable, '-I', '-S', str(launcher)], root, valid_paths)
+    refuse(proc, 'Node must be an absolute real executable')
+    assert not marker.exists()
+    print('PASS absent Node binary refused')
+
+    fake_node = root / 'synthetic-node'
+    fake_node.write_text('#!/usr/bin/env sh\\nprintf v22.18.0\\n')
+    fake_node.chmod(0o700)
+    linked_node = root / 'linked-node'
+    linked_node.symlink_to(fake_node)
+    linked_paths = dict(valid_paths, NODE_BIN=str(linked_node))
+    proc = run([sys.executable, '-I', '-S', str(launcher)], root, linked_paths)
+    refuse(proc, 'Node must be an absolute real executable')
+    assert not marker.exists()
+    print('PASS symlinked Node binary refused')
+
+    binaries = root / 'trusted-binaries'
+    binaries.mkdir()
+    nested_node = binaries / 'node'
+    nested_node.write_text('#!/usr/bin/env sh\\nprintf v22.18.0\\n')
+    nested_node.chmod(0o700)
+    alias = root / 'binaries-alias'
+    alias.symlink_to(binaries, target_is_directory=True)
+    indirect = dict(valid_paths, NODE_BIN=str(alias / 'node'))
+    proc = run([sys.executable, '-I', '-S', str(launcher)], root, indirect)
+    refuse(proc, 'compiler/Node/evidence path traverses a symlink')
+    assert not marker.exists()
+    print('PASS Node executable behind symlinked ancestor refused')
+
+    # These checks only exercise admission, never the guest compiler.
+    print('ZORDE_GUEST_BOOTSTRAP_SYNTHETIC_16_OF_16_PASSED')
