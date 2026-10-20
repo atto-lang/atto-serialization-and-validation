@@ -78,6 +78,12 @@ evidence="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 [[ "$evidence" != "$root" && "$evidence" != "$root/"* ]] || refuse 'evidence directory cannot reside in private source'
 [[ "$evidence" != "$tjsv_root" && "$evidence" != "$tjsv_root/"* ]] || refuse 'private evidence must not reside inside public TJSV checkout'
 [[ "$tjsv_root" != "$evidence/"* ]] || refuse 'public TJSV checkout must not be nested inside private evidence'
+# Artifacts are ignored by Git; a stale ignored subtree can hold dangling
+# symlinks which pass -e checks and redirect generated private outputs before
+# the final receipt validation. Demand *no pre-existing artifacts entry*.
+# mkdir is atomic with respect to an existing entry, including dangling links.
+[[ ! -e artifacts && ! -L artifacts ]] || refuse 'generated artifacts path must be absent at start (fresh checkout required)'
+mkdir -m 700 -- artifacts || refuse 'cannot safely create private generated artifacts directory'
 [[ "$(git -C "$tjsv_root" rev-parse --show-toplevel)" == "$tjsv_root" ]] || refuse 'TJSV checkout root mismatch'
 [[ "$(git -C "$tjsv_root" rev-parse HEAD)" == "$tjsv_sha" && "$(git -C "$tjsv_root" rev-parse 'HEAD^{tree}')" == "$tjsv_tree" ]] || refuse 'public TJSV source revision mismatch'
 git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'public TJSV tracked source modified'
