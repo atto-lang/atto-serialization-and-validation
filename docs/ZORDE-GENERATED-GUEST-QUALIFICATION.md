@@ -311,3 +311,31 @@ and the exact committed shell blob `a507db9b5eef71ea2945c1cc3434e32a97736c14`:
 These results validate the qualification *control plane only*. Actual
 private Zorde crypto/filesystem/Contract IR, native Graal/LLVM, WIT and
 Dafny qualification remain unexecuted pending approved source-local CI.
+
+## Static bridge source-module binding in the real Node harness
+
+The source-local Node test runner also verifies the actual imported implementation
+module `scripts/zorde-static-contract-ir.mjs`, not only the two executed test
+entrypoints. The three files have independently computed SHA-256 digests
+before execution; their bounded real-file and no-symlink conditions are checked,
+and the hashes are rechecked after execution. The receipt issuer reopens all
+three inputs using `O_NOFOLLOW | O_NONBLOCK`, requires the same bytes,
+and records the imported implementation in `source_module_sha256`.
+The limited pilot import set has one source-local bridge module and uses Node
+built-ins for the remaining imports. Future new local test imports must be
+added to this checked source closure before qualification.
+
+The committed shell gate Git blob is
+`0926bdb69cfe2491e293cb7a3120783c7402cebe`. Local **synthetic**
+Linux/Bash and Node 22 testing exercised five actual execution scenarios:
+90/90 clean passes with module digest recorded, imported module modification
+refused with no receipt, symlinked imported module refused with no receipt,
+TODO test refused with no receipt, and malicious Git/Python environment
+overrides unable to redirect the verifier. The JS regression adds imported
+module mutation, symlink and digest assertions; its syntax was checked, but
+the private source's real Node suite still awaits an authorized runtime.
+
+This additional per-file SHA is corroborating receipt evidence, not a
+substitute for independently approved source HEAD/root tree, runtime toolchain
+closure, signature-based attestation, private CI, Graal/LLVM guest execution,
+WIT ABI testing or Dafny proofs. `release_ready:false` remains mandatory.
