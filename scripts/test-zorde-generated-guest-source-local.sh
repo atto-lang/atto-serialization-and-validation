@@ -17,12 +17,12 @@ unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
   NODE_OPTIONS NODE_PATH NODE_V8_COVERAGE NODE_EXTRA_CA_CERTS
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 deny(){ printf 'ZORDE_GENERATED_GUEST_REFUSED: %s\n' "$*" >&2; exit 2; }
-for utility in git sha256sum timeout python3 grep node; do
+for utility in git sha256sum timeout python3 grep env; do
   command -v "$utility" >/dev/null 2>&1 || deny "utility unavailable"
 done
 for variable in EXPECTED_SOURCE_SHA EXPECTED_SOURCE_TREE EXPECTED_COMPILER_SHA256 \
   EXPECTED_CONTRACT_IR_SHA256 EXPECTED_PARITY_REPORT_SHA256 \
-  EXPECTED_VERIFICATION_SHA256 ORESLANG_BIN ZORDE_EVIDENCE_DIR; do
+  EXPECTED_VERIFICATION_SHA256 ORESLANG_BIN NODE_BIN EXPECTED_NODE_SHA256 ZORDE_EVIDENCE_DIR; do
   [[ -n "$(printenv "$variable" || true)" ]] || deny "required reviewed environment input missing"
 done
 
@@ -31,17 +31,20 @@ cd "$root"
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected source SHA"
 [[ "$EXPECTED_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected root tree"
 [[ "$EXPECTED_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]] || deny "invalid expected compiler digest"
+[[ "$EXPECTED_NODE_SHA256" =~ ^[0-9a-f]{64}$ ]] || deny "invalid expected Node digest"
 for reviewed in "$EXPECTED_CONTRACT_IR_SHA256" "$EXPECTED_PARITY_REPORT_SHA256" "$EXPECTED_VERIFICATION_SHA256"; do
   [[ "$reviewed" =~ ^[0-9a-f]{64}$ ]] || deny "invalid externally reviewed evidence digest"
 done
 [[ "$ORESLANG_BIN" = /* && -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" && ! -L "$ORESLANG_BIN" ]] ||
   deny "compiler must be an absolute real executable, not a symlink"
+[[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" && ! -L "$NODE_BIN" ]] ||
+  deny "Node must be an absolute real executable, not a symlink"
 [[ "$ZORDE_EVIDENCE_DIR" = /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
   deny "evidence directory must be an absolute preexisting real directory"
 # Ancestor components must also be real directories, not symbolic links.
-python3 -I -S - "$ORESLANG_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || deny 'compiler/evidence path traverses a symlink'
+python3 -I -S - "$ORESLANG_BIN" "$NODE_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || deny 'compiler/Node/evidence path traverses a symlink'
 import os,stat,sys
-for original,kind in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISDIR)):
+for original,kind in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISREG),(sys.argv[3],stat.S_ISDIR)):
     current=os.path.abspath(original)
     first=True
     while True:
@@ -74,6 +77,14 @@ done < <(git ls-files --others --exclude-standard -z)
   deny "consumer verification differs from independently reviewed bytes"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)"
 [[ "$compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] || deny "compiler digest changed"
+node_sha="$(sha256sum "$NODE_BIN" | cut -d' ' -f1)"
+[[ "$node_sha" == "$EXPECTED_NODE_SHA256" ]] || deny "approved Node executable digest changed"
+node_version="$(env -u NODE_OPTIONS -u NODE_PATH "$NODE_BIN" --version)"
+if [[ "$node_version" =~ ^v22\.([0-9]+)\.([0-9]+)$ ]]; then
+  (( 10#${BASH_REMATCH[1]} >= 18 )) || deny 'Node 22.18+ required for reviewed corpus identity'
+else
+  deny 'Node 22.18+ required for reviewed corpus identity'
+fi
 out="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out" in
   "$root"|"$root"/*) deny "evidence must be outside source checkout";;
@@ -234,7 +245,7 @@ PY
 
 # Recompute the real TJSV-compatible corpus identity against the source tree,
 # rather than trusting a stored digest and a newly sealed forged corpus.
-node --input-type=module - <<'JS' ||
+"$NODE_BIN" --input-type=module - <<'JS' ||
   deny "reviewed corpus no longer matches independently verified TJSV receipt"
 import {readFileSync} from 'node:fs';
 import {reviewedCorpusIdentity} from './scripts/zorde-static-contract-ir.mjs';
@@ -321,6 +332,8 @@ for name,expected in manifest["files"].items():
     assert hashlib.sha256(p.read_bytes()).hexdigest()==expected,name
 PY
 
+[[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] ||
+  deny "approved Node executable changed during test"
 [[ "$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)" == "$EXPECTED_COMPILER_SHA256" ]] ||
   deny "compiler executable changed during test"
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" &&
@@ -331,7 +344,7 @@ while IFS= read -r -d '' name; do
   [[ "$name" == artifacts/* ]] || deny "guest execution created unexpected untracked source files"
 done < <(git ls-files --others --exclude-standard -z)
 
-SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
+SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" NODE_SHA="$node_sha" \
 ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 -I -S - <<'PY'
 import hashlib,json,os,stat
 from pathlib import Path
@@ -374,6 +387,7 @@ data={
  'source_head_sha':os.environ['SOURCE_SHA'],
  'source_root_tree_sha':os.environ['SOURCE_TREE'],
  'compiler_executable_sha256':os.environ['COMPILER_SHA'],
+ 'node_executable_sha256':os.environ['NODE_SHA'],
  'plan_ir_id':plan['irId'],
  'plan_sha256':h(bounded_file(art/'registry-plan.json')),
  'specs_sha256':h(bounded_file(art/'registry-specs.ores')),
