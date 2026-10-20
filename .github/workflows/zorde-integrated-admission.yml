@@ -67,7 +67,7 @@ jobs:
           bash -n scripts/test-zorde-node-source-local.sh
           bash -n scripts/test-zorde-contract-source-local.sh
           python3 -I -S -c "import ast,pathlib; ast.parse(pathlib.Path('scripts/launch-zorde-contract-source-local.py').read_text())"
-          python3 tests/source_free/test_zorde_static_receipt_signer.py
+          python3 -I -S tests/source_free/test_zorde_static_receipt_signer.py
           bash -n scripts/test-zorde-generated-guest-source-local.sh
       - name: Execute original Node crypto/filesystem regression suite (not V8 shim)
         shell: bash
@@ -78,9 +78,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 tests/source_free/test_zorde_contract_path_containment.py
+          python3 -I -S tests/source_free/test_zorde_contract_path_containment.py
           python3 -I -S tests/source_free/test_zorde_isolated_bootstrap.py
-          python3 tests/source_free/test_zorde_static_receipt_signer.py
+          python3 -I -S tests/source_free/test_zorde_static_receipt_signer.py
       - name: Create independently compiled TypeSpec witness and source-bound Contract IR
         uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
         with:
