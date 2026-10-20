@@ -18,6 +18,7 @@ on:
       - 'tests/source_free/test_zorde_contract_path_containment.py'
       - 'tests/source_free/test_zorde_isolated_bootstrap.py'
       - 'tests/source_free/test_zorde_generated_guest_bootstrap.py'
+      - 'tests/source_free/test_zorde_native_input_manifest.py'
       - 'tests/source_free/test_zorde_native_log_admission.py'
       - 'scripts/launch-zorde-generated-guest-source-local.py'
       - 'tests/source_free/test_zorde_static_receipt_signer.py'
@@ -39,6 +40,7 @@ on:
       - 'tests/source_free/test_zorde_contract_path_containment.py'
       - 'tests/source_free/test_zorde_isolated_bootstrap.py'
       - 'tests/source_free/test_zorde_generated_guest_bootstrap.py'
+      - 'tests/source_free/test_zorde_native_input_manifest.py'
       - 'tests/source_free/test_zorde_native_log_admission.py'
       - 'scripts/launch-zorde-generated-guest-source-local.py'
       - 'tests/source_free/test_zorde_static_receipt_signer.py'
@@ -88,6 +90,7 @@ jobs:
           python3 -I -S tests/source_free/test_zorde_contract_path_containment.py
           python3 -I -S tests/source_free/test_zorde_isolated_bootstrap.py
           python3 -I -S tests/source_free/test_zorde_generated_guest_bootstrap.py
+          python3 -I -S tests/source_free/test_zorde_native_input_manifest.py
           python3 -I -S tests/source_free/test_zorde_native_log_admission.py
           python3 -I -S tests/source_free/test_zorde_static_receipt_signer.py
       - name: Create independently compiled TypeSpec witness and source-bound Contract IR
