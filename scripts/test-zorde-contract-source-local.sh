@@ -125,7 +125,7 @@ evidence=Path(os.environ['EVIDENCE'])
 sha=lambda b: hashlib.sha256(b).hexdigest()
 assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
 
-def file(p):
+def file(p,limit=8*1024*1024):
     # Refuse symbolic-link substitutions through the full selected path,
     # not only the leaf. Use exactly the bytes admitted by fstat to hash.
     p=Path(os.path.abspath(p))
@@ -136,7 +136,7 @@ def file(p):
     try:
         before=os.fstat(fd)
         assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
-        assert before.st_uid==os.geteuid() and 0 < before.st_size <= 8*1024*1024
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= limit
         data=os.read(fd,before.st_size+1)
         after=os.fstat(fd)
         assert len(data)==before.st_size==after.st_size
@@ -146,13 +146,41 @@ def file(p):
     finally:
         os.close(fd)
 node_receipt=json.loads(file(evidence/'zorde-node-real-suite-receipt.json'))
+assert node_receipt['schema']=='oreslang.zorde.source-local.node-security-suite/v1'
 assert node_receipt['source_head_sha']==os.environ['SOURCE']
 assert node_receipt['source_root_tree_sha']==os.environ['TREE']
 assert node_receipt['node_executable_sha256']==os.environ['NODE_SHA']
 assert node_receipt['real_node_crypto_filesystem_tests_executed'] is True
-assert node_receipt['source_free_test_cases_failed']==node_receipt['source_free_test_cases_skipped']==0
 assert node_receipt['release_ready'] is False
-assert sha(file(evidence/'zorde-node-real-suite.log'))==node_receipt['node_test_log_sha256']
+# Independently reconcile the actual TAP log rather than trusting only the
+# claims in a child receipt whose hash is controlled by the same executor.
+node_log=file(evidence/'zorde-node-real-suite.log',16*1024*1024)
+assert sha(node_log)==node_receipt['node_test_log_sha256']
+import re
+tap=node_log.decode('utf-8')
+def tap_metric(name):
+    match=re.findall(r'^# '+name+r' (\d+)\s*$',tap,re.M)
+    assert len(match)==1,(name,match)
+    return int(match[0])
+passed=tap_metric('pass');total=tap_metric('tests')
+assert total>=80 and passed==total==node_receipt['source_free_test_cases_passed']
+for name in ('fail','skipped','todo','cancelled'):
+    assert tap_metric(name)==0,name
+assert node_receipt['source_free_test_cases_failed']==node_receipt['source_free_test_cases_skipped']==0
+# Explicitly bind each guest-facing test entrypoint and compiler bridge to
+# its bytes in the checked-out source (not just to the child receipt's words).
+expected_sources={
+ 'test_source_sha256':(
+  'tests/source_free/test_zorde_contract_ir.mjs',
+  'tests/source_free/test_zorde_native_guard.mjs',
+ ),
+ 'source_module_sha256':('scripts/zorde-static-contract-ir.mjs',),
+}
+for group,paths in expected_sources.items():
+    supplied=node_receipt[group]
+    assert isinstance(supplied,dict) and set(supplied)==set(paths),group
+    for path in paths:
+        assert sha(file(root/path))==supplied[path],path
 files={
  'typespec':'contracts/zorde/scalars.tsp',
  'authoredJsonSchema':'contracts/zorde/scalars.schema.json',
