@@ -225,6 +225,13 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
       NODE_BIN:bin,
       ZORDE_EVIDENCE_DIR:evidence,
     };
+    if(mode==='poison-git-env'){
+      env.GIT_DIR='/definitely/not/a/git/directory';
+      env.GIT_CONFIG_COUNT='1';
+      env.GIT_CONFIG_KEY_0='core.bare';
+      env.GIT_CONFIG_VALUE_0='true';
+      env.PYTHONPATH=join(root,'untrusted-python');
+    }
     const run=spawnSync('bash',['scripts/test-zorde-node-source-local.sh'],{
       cwd:repo,env,encoding:'utf8',timeout:90000,maxBuffer:32768,
     });
@@ -254,6 +261,12 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     assert.match(log,/^# tests 90$/m);
     assert.match(log,/^# pass 89$/m);
     assert.match(log,/^# todo 1$/m);
+    const poisoned=runCase('poison-git-env');
+    assert.equal(poisoned.run.status,0,
+      'Git/Python environment injection must not redirect the verifier: '+poisoned.run.stderr);
+    const poisonReceipt=JSON.parse(readFileSync(
+      join(poisoned.evidence,'zorde-node-real-suite-receipt.json'),'utf8'));
+    assert.equal(poisonReceipt.source_free_test_cases_passed,90);
     for(const mode of ['symlink-log','oversized-log','mutate-source','symlink-test-input']){
       const rejected=runCase(mode);
       assert.equal(rejected.run.status,2,mode+': '+rejected.run.stderr);
