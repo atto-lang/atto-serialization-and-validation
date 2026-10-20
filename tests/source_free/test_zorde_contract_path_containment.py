@@ -11,6 +11,11 @@ import subprocess
 import sys
 import tempfile
 
+# Assertions are part of these fail-closed tests, not optional diagnostics.
+# -I ignores PYTHONOPTIMIZE; -S disables site hooks. Refuse nonisolated runs.
+if not (sys.flags.isolated and sys.flags.no_site and sys.flags.optimize == 0):
+    raise SystemExit("ZORDE_CONTAINMENT_TEST_REFUSED: require python3 -I -S without -O")
+
 SOURCE = Path(__file__).resolve().parents[2]
 SCRIPT = (SOURCE / "scripts/test-zorde-contract-source-local.sh").read_bytes()
 LAUNCHER = (SOURCE / "scripts/launch-zorde-contract-source-local.py").read_bytes()
