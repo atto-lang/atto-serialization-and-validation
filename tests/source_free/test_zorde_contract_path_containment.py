@@ -22,7 +22,7 @@ def git(root, *args):
 
 def scenario(label, expected, *, source_inside_validator=False,
              evidence_inside_validator=False, validator_inside_evidence=False,
-             artifacts_symlink=False):
+             artifacts_symlink=False, artifacts_preexisting=None):
     folder = WORK / label
     folder.mkdir(mode=0o700)
     validator = folder / "public"
@@ -47,6 +47,21 @@ def scenario(label, expected, *, source_inside_validator=False,
     if artifacts_symlink:
         (root / "artifacts").symlink_to(folder / "off-checkout-output",
                                         target_is_directory=True)
+
+    if artifacts_preexisting:
+        output = root / "artifacts"
+        if artifacts_preexisting == "file":
+            output.write_text("must not overwrite this path")
+        else:
+            output.mkdir()
+            if artifacts_preexisting == "dangling-child":
+                (output / "zorde-scalars-parity.json").symlink_to(
+                    folder / "outside-private-checkout.json")
+            elif artifacts_preexisting == "nested":
+                (output / "zorde-generated").mkdir()
+                (output / "zorde-generated" / "keep").write_text("stale")
+            elif artifacts_preexisting != "empty":
+                raise ValueError(artifacts_preexisting)
 
     env = os.environ.copy()
     env.update(
@@ -74,6 +89,18 @@ try:
     scenario("ignored-artifacts-symlink",
              "generated artifacts directory must not be a symlink",
              artifacts_symlink=True)
+    scenario("stale-empty-artifacts",
+             "generated artifacts path must be absent at start",
+             artifacts_preexisting="empty")
+    scenario("stale-dangling-artifact-child",
+             "generated artifacts path must be absent at start",
+             artifacts_preexisting="dangling-child")
+    scenario("stale-nested-artifacts",
+             "generated artifacts path must be absent at start",
+             artifacts_preexisting="nested")
+    scenario("artifacts-root-regular-file",
+             "generated artifacts path is not a directory",
+             artifacts_preexisting="file")
     scenario("evidence-inside-public",
              "private evidence must not reside inside public TJSV checkout",
              evidence_inside_validator=True)
@@ -84,6 +111,6 @@ try:
              "public TJSV checkout must not be nested inside private evidence",
              validator_inside_evidence=True)
     scenario("disjoint-preflight", "TJSV checkout root mismatch")
-    print("ZORDE_SOURCE_LOCAL_PATH_CONTAINMENT_SYNTHETIC_5_OF_5_PASSED")
+    print("ZORDE_SOURCE_LOCAL_PATH_CONTAINMENT_SYNTHETIC_9_OF_9_PASSED")
 finally:
     shutil.rmtree(WORK)
