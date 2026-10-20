@@ -48,7 +48,7 @@ out="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out" in
   "$root"|"$root"/*) deny "evidence must be outside source checkout";;
 esac
-python3 - "$out" <<'PY' || deny "evidence directory policy check failed"
+python3 -I -S - "$out" <<'PY' || deny "evidence directory policy check failed"
 import os,stat,sys
 s=os.lstat(sys.argv[1])
 assert stat.S_ISDIR(s.st_mode) and s.st_uid==os.geteuid()
@@ -61,7 +61,7 @@ before="$out/zorde-generated-inputs-before.json"
    ! -e "$before" && ! -L "$before" ]] ||
   deny "use a fresh private evidence directory"
 
-python3 - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or inconsistent"
+python3 -I -S - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or inconsistent"
 import hashlib,json,stat,sys
 from pathlib import Path
 root=Path(sys.argv[1])
@@ -107,7 +107,7 @@ PY
 # This closes the ordinary precheck-to-receipt mutation window. It cannot
 # attest a compromised runtime, so the compiler dependency closure stays
 # explicitly uncertified in the native result.
-ROOT="$root" INPUT_MANIFEST="$before" python3 - <<'PY' ||
+ROOT="$root" INPUT_MANIFEST="$before" python3 -I -S - <<'PY' ||
   deny "unable to create independently digest-bound guest input manifest"
 import hashlib,json,os,stat
 from pathlib import Path
@@ -219,7 +219,7 @@ grep -Fqx 'zorde generated registry guest smoke passed' "$log" ||
 
 [[ "$(sha256sum "$before" | cut -d' ' -f1)" == "$before_sha" ]] ||
   deny "pre-execution manifest was modified during guest execution"
-ROOT="$root" INPUT_MANIFEST="$before" python3 - <<'PY' ||
+ROOT="$root" INPUT_MANIFEST="$before" python3 -I -S - <<'PY' ||
   deny "source authority or generated guest changed during execution"
 import hashlib,json,os,stat
 from pathlib import Path
@@ -247,7 +247,7 @@ while IFS= read -r -d '' name; do
 done < <(git ls-files --others --exclude-standard -z)
 
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" \
-ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 - <<'PY'
+ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 -I -S - <<'PY'
 import hashlib,json,os
 from pathlib import Path
 h=lambda b:hashlib.sha256(b).hexdigest()
