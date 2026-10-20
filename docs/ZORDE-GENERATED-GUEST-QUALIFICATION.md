@@ -488,3 +488,31 @@ cases passed**, distinguishing a protected launch from an unsafe direct
 Bash invocation. The exact committed bootstrap and shell were exercised
 locally; these synthetic tests do not certify the private TypeSpec pipeline
 or native Graal/LLVM execution. Retain `releaseReady:false`.
+
+## Python optimization flag hardening — October 19, 2026
+
+The source-local Node, Contract IR and generated-guest qualification scripts use
+Python assertions as fail-closed evidence admission predicates. An adversarial
+standalone check established that an ordinary `python3` invocation with
+`PYTHONOPTIMIZE=1` silently removes `assert False`, allowing a signer to
+proceed past disabled checks. Running `python3 -I -S` with that same hostile
+environment preserves the assertion and refuses the forged evidence.
+
+All Python heredoc invocations in the three source-local qualification scripts
+now use **`python3 -I -S -`**, isolating the interpreter from environment
+injection and site startup customization. The integrated workflow's Python
+security tests and the Node-guard-to-Python regression invocation likewise
+use isolated no-site Python. The synthetic signer regression explicitly checks
+that Python assertions are enabled and includes a twelfth case: a forged child
+test count with `PYTHONOPTIMIZE=1` injected must not issue a static receipt.
+The bootstrap regression checks that no Python evidence heredoc regresses to
+an unisolated invocation.
+
+**Execution status:** The standalone Python optimization bypass and refusal
+were executed on a synthetic environment. The 12-case repository regression
+and the private source-local pipeline remain unexecuted on the actual Zorde
+source tree because the original source-org Actions runner still fails before
+executing steps. Do not infer actual private compiler or native qualification
+from this hardening. Use
+`python3 -I -S scripts/launch-zorde-contract-source-local.py` as the
+approved source-local entrypoint; direct Bash invocation remains unsupported.
