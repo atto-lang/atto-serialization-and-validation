@@ -294,3 +294,48 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
     rmSync(root,{recursive:true,force:true});
   }
 });
+
+
+test('source-local TJSV/Contract IR driver refuses unapproved inputs before compiler execution',()=>{
+  const gate=resolve('scripts/test-zorde-contract-source-local.sh');
+  const source=readFileSync(gate,'utf8');
+  assert.match(source,/a9aa7e0a258a0514b433178842288ab798b0947c/);
+  assert.match(source,/414047074b9358b81e79b5995a1dc4c1c5596a48/);
+  assert.match(source,/source_bound_contract_ir_consumer_verification_executed/);
+  assert.match(source,/native_guest_executed':False/);
+  const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-contract-local-'));
+  try {
+    const evidence=join(tmp,'evidence');
+    const validator=join(tmp,'untrusted-validator');
+    mkdirSync(evidence,{mode:0o700});
+    mkdirSync(validator,{mode:0o700});
+    const linked=join(tmp,'symlinked-validator');
+    symlinkSync(validator,linked,'dir');
+    const baseline={
+      ...process.env,
+      NODE_BIN:realpathSync(process.execPath),
+      ZORDE_EVIDENCE_DIR:evidence,
+      TJSV_ROOT:validator,
+      EXPECTED_SOURCE_SHA:'a'.repeat(40),
+      EXPECTED_SOURCE_TREE:'b'.repeat(40),
+      EXPECTED_NODE_SHA256:'c'.repeat(64),
+    };
+    const negatives=[
+      ['missing approval',{...baseline,EXPECTED_SOURCE_SHA:''},/missing independently approved input/],
+      ['malformed Git tree',{...baseline,EXPECTED_SOURCE_TREE:'bad'},/invalid source SHA\/tree/],
+      ['symbolic-linked TJSV path',{...baseline,TJSV_ROOT:linked},/TJSV must be an absolute directory, not a link/],
+      ['wrong private source commit',baseline,/wrong private source commit\/tree/],
+    ];
+    for(const [name,env,message] of negatives){
+      const result=spawnSync('bash',[gate],{
+        cwd:resolve('.'),env,encoding:'utf8',timeout:5000,maxBuffer:16384,
+      });
+      assert.equal(result.status,2,name+': '+result.stderr);
+      assert.match(result.stderr,/ZORDE_CONTRACT_SOURCE_LOCAL_REFUSED:/,name);
+      assert.match(result.stderr,message,name);
+      assert.equal(result.stdout,'',name);
+      assert.throws(()=>readFileSync(join(evidence,'zorde-contract-static-receipt.json')),
+        undefined,name+' must not issue a static receipt');
+    }
+  } finally {rmSync(tmp,{recursive:true,force:true});}
+});
