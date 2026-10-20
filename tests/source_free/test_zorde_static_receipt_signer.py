@@ -91,6 +91,12 @@ try:
  def forged_ir_status():
   p=root/paths['contractIr'];v=json.loads(p.read_text());v['admissible']=False;write(p,json.dumps(v))
  check('inadmissible IR status',forged_ir_status,False)
- print('ZORDE_STATIC_SIGNER_SYNTHETIC_11_OF_11_PASSED: no private source or compiler invoked')
+ # A hostile caller must not disable receipt assertions using Python's
+ # PYTHONOPTIMIZE environment switch. The signer is always -I -S.
+ runenv['PYTHONOPTIMIZE']='1'
+ check('optimized-env forged child pass count denied',
+       lambda: write(nr,json.dumps({**base,'source_free_test_cases_passed':89})),False)
+ runenv.pop('PYTHONOPTIMIZE',None)
+ print('ZORDE_STATIC_SIGNER_SYNTHETIC_12_OF_12_PASSED: no private source or compiler invoked')
 finally:
  shutil.rmtree(root);shutil.rmtree(evidence)
