@@ -44,6 +44,11 @@ cd "$root"
 [[ "$(git rev-parse --show-toplevel)" == "$root" ]] || refuse 'checkout root mismatch'
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" && "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] || refuse 'wrong private source commit/tree'
 git diff --quiet && git diff --cached --quiet || refuse 'source checkout has modified tracked files'
+# Git ignores generated artifacts; ignored directories do not appear in the
+# untracked inventory. Never let an ignored artifacts symlink redirect private
+# TypeSpec/Contract IR outputs to an unreviewed location.
+[[ ! -L artifacts ]] || refuse 'generated artifacts directory must not be a symlink'
+[[ ! -e artifacts || -d artifacts ]] || refuse 'generated artifacts path is not a directory'
 while IFS= read -r -d '' file; do
   [[ "$file" == artifacts/* ]] || refuse "unexpected untracked source file"
 done < <(git ls-files --others --exclude-standard -z)
@@ -56,13 +61,20 @@ else
 fi
 tjsv_root="$(cd "$TJSV_ROOT" && pwd -P)"
 [[ "$tjsv_root" != "$root" && "$tjsv_root" != "$root/"* ]] || refuse 'TJSV must be outside private source tree'
+# A public validator checkout must never contain private source. Otherwise
+# ordinary future Git operations could accidentally capture private files.
+[[ "$root" != "$tjsv_root/"* ]] || refuse 'private source must not be nested in public TJSV checkout'
+# Canonical evidence checkout containment is checked before reading any
+# public validator dependencies or running public verifier code.
+evidence="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
+[[ "$evidence" != "$root" && "$evidence" != "$root/"* ]] || refuse 'evidence directory cannot reside in private source'
+[[ "$evidence" != "$tjsv_root" && "$evidence" != "$tjsv_root/"* ]] || refuse 'private evidence must not reside inside public TJSV checkout'
+[[ "$tjsv_root" != "$evidence/"* ]] || refuse 'public TJSV checkout must not be nested inside private evidence'
 [[ "$(git -C "$tjsv_root" rev-parse --show-toplevel)" == "$tjsv_root" ]] || refuse 'TJSV checkout root mismatch'
 [[ "$(git -C "$tjsv_root" rev-parse HEAD)" == "$tjsv_sha" && "$(git -C "$tjsv_root" rev-parse 'HEAD^{tree}')" == "$tjsv_tree" ]] || refuse 'public TJSV source revision mismatch'
 git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'public TJSV tracked source modified'
 [[ -f "$tjsv_root/bin/typespec-json-schema-validator.mjs" && -f "$tjsv_root/scripts/verify-consumer.mjs" ]] || refuse 'approved TJSV entrypoints missing'
 [[ -f "$tjsv_root/node_modules/@typespec/compiler/package.json" && -f "$tjsv_root/node_modules/@typespec/json-schema/package.json" ]] || refuse 'TJSV preinstalled dependencies missing (run independently approved npm ci on trusted machine)'
-evidence="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
-[[ "$evidence" != "$root" && "$evidence" != "$root/"* ]] || refuse 'evidence directory cannot reside in private source'
 python3 - "$evidence" <<'PY' || refuse 'evidence directory ownership and privacy invalid'
 import os,stat,sys
 s=os.lstat(sys.argv[1])
