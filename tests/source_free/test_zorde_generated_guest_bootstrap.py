@@ -145,7 +145,7 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
     print('PASS malformed Node binary digest refused')
 
     fake_compiler = root / 'synthetic-compiler'
-    fake_compiler.write_text('#!/usr/bin/env sh\\nexit 0\\n')
+    fake_compiler.write_text('#!/usr/bin/env sh\nexit 0\n')
     fake_compiler.chmod(0o700)
     valid_paths = dict(env, ORESLANG_BIN=str(fake_compiler))
 
@@ -155,8 +155,13 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
     print('PASS absent Node binary refused')
 
     fake_node = root / 'synthetic-node'
-    fake_node.write_text('#!/usr/bin/env sh\\nprintf v22.18.0\\n')
+    fake_node.write_text('#!/usr/bin/env sh\nprintf v22.18.0\n')
     fake_node.chmod(0o700)
+    # Prove the fake executable is a valid script, not an escaped-newline
+    # pseudo-file that never reaches the system's interpreter.
+    node_control = run([str(fake_node), '--version'], root, env)
+    assert node_control.returncode == 0 and node_control.stdout.strip() == 'v22.18.0', node_control.stderr
+    print('PASS synthetic Node executable actually runs in positive control')
     linked_node = root / 'linked-node'
     linked_node.symlink_to(fake_node)
     linked_paths = dict(valid_paths, NODE_BIN=str(linked_node))
@@ -168,7 +173,7 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
     binaries = root / 'trusted-binaries'
     binaries.mkdir()
     nested_node = binaries / 'node'
-    nested_node.write_text('#!/usr/bin/env sh\\nprintf v22.18.0\\n')
+    nested_node.write_text('#!/usr/bin/env sh\nprintf v22.18.0\n')
     nested_node.chmod(0o700)
     alias = root / 'binaries-alias'
     alias.symlink_to(binaries, target_is_directory=True)
@@ -179,4 +184,4 @@ with tempfile.TemporaryDirectory(prefix='zorde-generated-bootstrap-') as temp:
     print('PASS Node executable behind symlinked ancestor refused')
 
     # These checks only exercise admission, never the guest compiler.
-    print('ZORDE_GUEST_BOOTSTRAP_SYNTHETIC_16_OF_16_PASSED')
+    print('ZORDE_GUEST_BOOTSTRAP_SYNTHETIC_17_OF_17_PASSED')
