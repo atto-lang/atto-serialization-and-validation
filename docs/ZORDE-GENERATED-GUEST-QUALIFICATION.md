@@ -425,6 +425,30 @@ The exact private checkout must still execute on an approved source-local
 runner; a funded foreign GitHub Actions carrier does not waive the P0
 source-export authorization incidents.
 
+## Fresh ignored-output hardening (October 19, 2026)
+
+The **source-local** Contract IR gate now requires `artifacts` to be wholly
+absent before starting the private Node and TypeSpec steps. In particular,
+`test -e` alone does not detect a dangling symlink, and the previous
+preflight accepted ignored nested output files or directories. Since a
+TypeSpec emitter could follow such a link **before** downstream verification,
+receipt-only symlink checks are insufficient for preventing output redirection.
+
+After checking private/public/evidence containment, the gate performs a
+fresh-absence test using both `-e` and `-L`, then atomically creates
+`artifacts` with mode 0700. Any pre-existing empty directory, dangling
+child symlink, occupied nested output directory, root file, or root symlink
+must be rejected. Use a fresh clean checkout instead of manually clearing
+unknown ignored outputs. The absence test still assumes an exclusive,
+trusted source-local workspace: it is not a defense against a malicious
+concurrent process with write access to the same checkout.
+
+Four new source-free negative scenarios were added to
+`tests/source_free/test_zorde_contract_path_containment.py` (nine total).
+They are **committed but not counted as executed** on the private runner.
+No Node/TypeSpec, compiler, WIT or Dafny qualification is inferred.
+The export authorization hold in conformance #22 and #77 still applies.
+
 ## Private/public/evidence path isolation (October 19, 2026)
 
 The source-local Contract IR runner now refuses three-way filesystem
