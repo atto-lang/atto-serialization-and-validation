@@ -123,11 +123,28 @@ from pathlib import Path
 root=Path.cwd()
 evidence=Path(os.environ['EVIDENCE'])
 sha=lambda b: hashlib.sha256(b).hexdigest()
+assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+
 def file(p):
-    st=p.lstat()
-    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1
-    assert 0 < st.st_size <= 8*1024*1024
-    return p.read_bytes()
+    # Refuse symbolic-link substitutions through the full selected path,
+    # not only the leaf. Use exactly the bytes admitted by fstat to hash.
+    p=Path(os.path.abspath(p))
+    for parent in p.parents:
+        st=os.lstat(parent)
+        assert stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode)
+    fd=os.open(p,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= 8*1024*1024
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size
+        assert before.st_dev==after.st_dev and before.st_ino==after.st_ino
+        assert before.st_mtime_ns==after.st_mtime_ns
+        return data
+    finally:
+        os.close(fd)
 node_receipt=json.loads(file(evidence/'zorde-node-real-suite-receipt.json'))
 assert node_receipt['source_head_sha']==os.environ['SOURCE']
 assert node_receipt['source_root_tree_sha']==os.environ['TREE']
