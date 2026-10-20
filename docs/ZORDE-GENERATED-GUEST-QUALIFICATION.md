@@ -339,3 +339,56 @@ This additional per-file SHA is corroborating receipt evidence, not a
 substitute for independently approved source HEAD/root tree, runtime toolchain
 closure, signature-based attestation, private CI, Graal/LLVM guest execution,
 WIT ABI testing or Dafny proofs. `release_ready:false` remains mandatory.
+
+## Execute complete static Contract IR pipeline without hosted Actions minutes
+
+In addition to the standalone Node gate, `scripts/test-zorde-contract-source-local.sh`
+now runs the **actual source-bound static validation pipeline** on a locally
+approved private machine. It first invokes the exact-source Node security
+gate, then the independently authored peer-authority TypeSpec and JSON
+Schema comparison, Contract IR consumer verification, and static Oreslang
+registry generator. It **does not** run the generated Oreslang guest or
+certify Graal/LLVM parity.
+
+The validator must be present in a separate, reviewed **public** Git
+checkout of `ORESoftware/typespec-json-schema-validator`, with commit
+`a9aa7e0a258a0514b433178842288ab798b0947c` and root tree
+`414047074b9358b81e79b5995a1dc4c1c5596a48`, identical to the
+pinned GitHub integration action. Dependencies must have been installed
+independently in that checkout using its locked package manager before
+execution. The driver requires Node **22.18+** (Node 22) and confirms the
+Node executable SHA-256 supplied by an independent approver. An
+administrator must maintain the machine and dependency confidentiality
+boundary; this script does not attest all package/transitive compiler bytes.
+
+Run from the **clean, exact private source checkout** with the private
+source root tree and approved Node executable digest already determined:
+
+```bash
+export EXPECTED_SOURCE_SHA='<approved 40-hex source head>'
+export EXPECTED_SOURCE_TREE='<approved 40-hex Git root tree>'
+export NODE_BIN='/approved/absolute/path/to/node22.18-or-newer'
+export EXPECTED_NODE_SHA256='<independently reviewed Node binary SHA-256>'
+export TJSV_ROOT='/approved/absolute/path/to/pinned-public-TJSV-checkout'
+mkdir -m 700 /approved/private/zorde-static-evidence-fresh
+export ZORDE_EVIDENCE_DIR=/approved/private/zorde-static-evidence-fresh
+bash scripts/test-zorde-contract-source-local.sh
+```
+
+After success, independently review the private
+`zorde-node-real-suite-receipt.json`, `zorde-contract-static.log`, and
+`zorde-contract-static-receipt.json` under the evidence directory.
+No source bytes or logs are uploaded to another organization. The final
+static receipt binds the approved source commit/tree, pinned public TJSV
+commit/tree, Node binary SHA, prior real Node execution receipt and the
+nine input/output authority, parity, IR, verification and generated-source
+file SHA-256 digests. It asserts `native_guest_executed:false`,
+`cross_backend_parity_certified:false` and `release_ready:false`.
+
+The script and its four preflight security tests have been committed.
+Its actual TypeSpec and private Node integration stages have **not run**
+on this private revision because source-org runner allocation still
+fails before executing job steps. Synthetic preflight tests do not
+substitute for production qualification. On successful static execution,
+the next step remains an authorized Oreslang native guest run with a
+separately approved compiler binary and formal/ABI evidence.
