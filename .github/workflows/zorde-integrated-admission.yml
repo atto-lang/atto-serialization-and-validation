@@ -14,6 +14,7 @@ on:
       - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
       - 'tests/source_free/test_zorde_native_guard.mjs'
+      - 'tests/source_free/test_zorde_static_receipt_signer.py'
       - '.github/workflows/zorde-integrated-admission.yml'
   pull_request:
     paths:
@@ -28,6 +29,7 @@ on:
       - 'tests/zorde_compiled_registry_test.ores'
       - 'tests/source_free/test_zorde_contract_ir.mjs'
       - 'tests/source_free/test_zorde_native_guard.mjs'
+      - 'tests/source_free/test_zorde_static_receipt_signer.py'
       - '.github/workflows/zorde-integrated-admission.yml'
 permissions:
   contents: read
@@ -58,6 +60,7 @@ jobs:
           set -euo pipefail
           bash -n scripts/test-zorde-node-source-local.sh
           bash -n scripts/test-zorde-contract-source-local.sh
+          python3 tests/source_free/test_zorde_static_receipt_signer.py
           bash -n scripts/test-zorde-generated-guest-source-local.sh
       - name: Execute original Node crypto/filesystem regression suite (not V8 shim)
         shell: bash
