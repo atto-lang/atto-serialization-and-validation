@@ -91,7 +91,7 @@ exec 3>"$log"
     --max-probes=64 \
     --int64-strategy=string \
     --seal-object-schemas=true \
-    --polymorphic-models-strategy=oneOf
+    --polymorphic-models-strategy=oneOf || refuse 'peer authority TypeSpec/JSON Schema check failed'
   TSJSV_VERIFY_IR=artifacts/zorde-scalars-contract-ir.json \
     TSJSV_VERIFY_REPORT=artifacts/zorde-scalars-parity.json \
     TSJSV_VERIFY_TYPESPEC=contracts/zorde/scalars.tsp \
@@ -100,7 +100,7 @@ exec 3>"$log"
     TSJSV_VERIFY_DECLARATIONS='["Zorde.Validation.Port","Zorde.Validation.ShortLabel"]' \
     TSJSV_VERIFY_VERIFICATION=artifacts/zorde-scalars-consumer-verification.json \
     GITHUB_WORKSPACE="$root" \
-    run_timeout "$NODE_BIN" "$tjsv_root/scripts/verify-consumer.mjs"
+    run_timeout "$NODE_BIN" "$tjsv_root/scripts/verify-consumer.mjs" || refuse 'source-bound Contract IR verifier rejected evidence'
   ir_sha="$(sha256sum artifacts/zorde-scalars-contract-ir.json | cut -d' ' -f1)"
   report_sha="$(sha256sum artifacts/zorde-scalars-parity.json | cut -d' ' -f1)"
   run_timeout "$NODE_BIN" scripts/zorde-static-contract-ir.mjs \
@@ -108,8 +108,8 @@ exec 3>"$log"
     --report=artifacts/zorde-scalars-parity.json \
     --ir-sha256="$ir_sha" --report-sha256="$report_sha" \
     --instances=contracts/zorde/scalar-instances \
-    --out-dir=artifacts/zorde-generated
-} >&3 2>&3 || refuse 'actual TypeSpec/Contract IR source-local execution failed; private log retained'
+    --out-dir=artifacts/zorde-generated || refuse 'static registry generation failed'
+} >&3 2>&3
 exec 3>&-
 [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" && "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] || refuse 'source snapshot changed during Contract IR execution'
 [[ "$(git -C "$tjsv_root" rev-parse HEAD)" == "$tjsv_sha" && "$(git -C "$tjsv_root" rev-parse 'HEAD^{tree}')" == "$tjsv_tree" ]] || refuse 'TJSV snapshot changed during Contract IR execution'
