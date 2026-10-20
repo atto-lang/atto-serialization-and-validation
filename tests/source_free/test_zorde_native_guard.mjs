@@ -350,7 +350,7 @@ test('static receipt signer independently rejects forged child Node evidence',()
   // The Python regression executes the real signer block with synthetic
   // evidence; no private source-tree export or Oreslang compiler is involved.
   const result=spawnSync('python3',[
-    'tests/source_free/test_zorde_static_receipt_signer.py',
+    '-I','-S','tests/source_free/test_zorde_static_receipt_signer.py',
   ],{cwd:resolve('.'),encoding:'utf8',timeout:20000,maxBuffer:16384});
   assert.equal(result.status,0,'static receipt security test: '+result.stderr);
   assert.match(result.stdout,/ZORDE_STATIC_SIGNER_SYNTHETIC_11_OF_11_PASSED/);
