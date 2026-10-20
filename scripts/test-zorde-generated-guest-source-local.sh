@@ -154,9 +154,9 @@ assert parity['differential']['summary']['declarationsWithReviewedPositiveAndNeg
 assert parity['differential']['summary']['reviewedUnassertedInstances']==0
 PY
 
-# Capture an exclusive pre-execution manifest of nine authority/derived
-# inputs PLUS the nine independently reviewed scalar corpus JSON fixtures.
-# Evidence emitted after execution must match those exact 18 source files.
+# Capture an exclusive pre-execution manifest of ten authority/derived/source
+# inputs PLUS nine independently reviewed scalar corpus JSON fixtures.
+# Evidence must match all 19 files and the closed static guest import graph.
 # This closes the ordinary precheck-to-receipt mutation window. It cannot
 # attest a compromised runtime, so the compiler dependency closure stays
 # explicitly uncertified in the native result.
@@ -168,6 +168,7 @@ root=Path(os.environ["ROOT"])
 paths=[
   "contracts/zorde/scalars.tsp",
   "contracts/zorde/scalars.schema.json",
+  "scripts/zorde-static-contract-ir.mjs",
   "artifacts/zorde-scalars-parity.json",
   "artifacts/zorde-scalars-contract-ir.json",
   "artifacts/zorde-scalars-consumer-verification.json",
@@ -194,7 +195,7 @@ for declaration in ("Port","ShortLabel"):
             assert path.name.endswith(".json") and path.name[0].isalnum()
             assert path.is_file() and not path.is_symlink()
             paths.append(path.relative_to(root).as_posix())
-assert len(paths)==18,"expected nine fixed inputs plus nine reviewed corpus files"
+assert len(paths)==19,"expected ten fixed inputs plus nine reviewed corpus files"
 # Seal the full statically imported guest source closure, not just generated
 # files. Derive imports from actual .ores sources and stop on absolute,
 # unsupported, missing, symlinked or outside-checkout imports.
@@ -204,10 +205,28 @@ guest_roots=(
     "artifacts/zorde-generated/registry-specs.ores",
 )
 closure=set()
+def bounded_input(name,limit=8*1024*1024):
+    # Validate complete ancestor chain and only hash bytes admitted by the
+    # original no-follow descriptor. Never trust lstat followed by read_bytes.
+    path=root/name
+    assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+    for ancestor in path.parents:
+        assert stat.S_ISDIR(os.lstat(ancestor).st_mode),ancestor
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1,name
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= limit,name
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size,name
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns),name
+        return data
+    finally:
+        os.close(fd)
 def visit_imports(name,depth=0):
     assert depth<=32 and len(closure)<=64,"guest import depth/size budget exceeded"
-    full=root/name
-    content=full.read_text(encoding="utf8")
+    content=bounded_input(name).decode("utf8")
     for line in content.splitlines():
         if not line.lstrip().startswith("import "):
             continue
@@ -231,10 +250,7 @@ assert 8<=len(closure)<=64,"incomplete/excessive guest import closure"
 assert not set(paths)&closure
 paths.extend(sorted(closure))
 def attested(path):
-    p=root/path
-    st=p.lstat()
-    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,path
-    return hashlib.sha256(p.read_bytes()).hexdigest()
+    return hashlib.sha256(bounded_input(path)).hexdigest()
 manifest={"schema":"oreslang.zorde.native-guest-inputs/v1",
           "staticGuestImportClosure":sorted(closure),
           "files":{name:attested(name) for name in paths}}
@@ -320,16 +336,29 @@ ROOT="$root" INPUT_MANIFEST="$before" python3 -I -S - <<'PY' ||
 import hashlib,json,os,stat
 from pathlib import Path
 root=Path(os.environ["ROOT"])
-manifest=json.loads(Path(os.environ["INPUT_MANIFEST"]).read_text(encoding="utf8"))
+def bounded_post_input(path,limit=8*1024*1024):
+    path=Path(path)
+    for ancestor in path.parents:
+        assert stat.S_ISDIR(os.lstat(ancestor).st_mode)
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+        assert before.st_uid==os.geteuid() and 0<before.st_size<=limit
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns)
+        return data
+    finally:
+        os.close(fd)
+manifest=json.loads(bounded_post_input(os.environ["INPUT_MANIFEST"],1024*1024))
 assert manifest["schema"]=="oreslang.zorde.native-guest-inputs/v1"
 assert 8<=len(manifest["staticGuestImportClosure"])<=64
-assert len(manifest["files"])==18+len(manifest["staticGuestImportClosure"])
+assert len(manifest["files"])==19+len(manifest["staticGuestImportClosure"])
 assert all(name in manifest["files"] for name in manifest["staticGuestImportClosure"])
 for name,expected in manifest["files"].items():
-    p=root/name
-    st=p.lstat()
-    assert stat.S_ISREG(st.st_mode) and st.st_nlink==1,name
-    assert hashlib.sha256(p.read_bytes()).hexdigest()==expected,name
+    assert hashlib.sha256(bounded_post_input(root/name)).hexdigest()==expected,name
 PY
 
 [[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] ||
@@ -373,12 +402,12 @@ plan=json.loads(bounded_file(art/'registry-plan.json'))
 # Re-verify the pre-execution manifest and every input immediately before
 # signing the final execution receipt. This avoids a second check-to-receipt
 # gap after the earlier post-execution comparison.
-manifest_bytes=Path(os.environ['INPUT_MANIFEST']).read_bytes()
+manifest_bytes=bounded_file(os.environ['INPUT_MANIFEST'],1024*1024)
 assert h(manifest_bytes)==os.environ['EXPECTED_MANIFEST_SHA256']
 manifest=json.loads(manifest_bytes)
 assert manifest['schema']=='oreslang.zorde.native-guest-inputs/v1'
 assert 8<=len(manifest['staticGuestImportClosure'])<=64
-assert len(manifest['files'])==18+len(manifest['staticGuestImportClosure'])
+assert len(manifest['files'])==19+len(manifest['staticGuestImportClosure'])
 assert all(name in manifest['files'] for name in manifest['staticGuestImportClosure'])
 for name,want in manifest['files'].items():
     assert h(bounded_file(root/name))==want,name
