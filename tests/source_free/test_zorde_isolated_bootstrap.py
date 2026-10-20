@@ -48,8 +48,13 @@ with tempfile.TemporaryDirectory(prefix='zorde-bootstrap-synthetic-') as temp:
     print('PASS isolated Python denies missing approval without executing BASH_ENV')
 
     p = run([sys.executable, str(scripts/'launch-zorde-contract-source-local.py')], os.environ.copy())
-    assert p.returncode == 2 and 'Python isolated (-I) and no-site (-S)' in p.stderr
+    assert p.returncode == 2 and 'Python isolated (-I), no-site (-S), unoptimized' in p.stderr
     print('PASS unisolated Python startup refused')
+
+    p = run([sys.executable, '-I', '-S', '-O',
+             str(scripts/'launch-zorde-contract-source-local.py')], os.environ.copy())
+    assert p.returncode == 2 and 'unoptimized startup is required' in p.stderr, p.stderr
+    print('PASS optimized Python launcher refused')
 
     env.update(EXPECTED_SOURCE_SHA='a'*40, EXPECTED_SOURCE_TREE='b'*40,
                EXPECTED_NODE_SHA256='c'*64, NODE_BIN='/not/a/real/node22',
@@ -58,7 +63,37 @@ with tempfile.TemporaryDirectory(prefix='zorde-bootstrap-synthetic-') as temp:
     assert p.returncode == 2 and 'Node must be an absolute non-symlink executable' in p.stderr and not marker.exists(), p.stderr
     print('PASS startup hooks stripped; underlying Contract IR admission still refuses bad binary')
 
+    # An alias to the scripts/ directory must not redirect the launcher and
+    # gate to a different filesystem source before exact-tree admission.
+    alias = root / 'symlinked-scripts'
+    alias.symlink_to(scripts, target_is_directory=True)
+    p = run([sys.executable, '-I', '-S',
+             str(alias/'launch-zorde-contract-source-local.py')], env)
+    assert p.returncode == 2 and 'ancestor cannot be a symlink' in p.stderr and not marker.exists(), p.stderr
+    print('PASS symlinked launcher/gate ancestor refused before Bash')
+
+    # Executing a launcher via an alternate linked filename also fails before
+    # it can resolve a local Bash script from an unreviewed path.
+    linked_launcher = scripts / 'linked-launch-zorde.py'
+    linked_launcher.symlink_to(scripts/'launch-zorde-contract-source-local.py')
+    p = run([sys.executable, '-I', '-S', str(linked_launcher)], env)
+    assert p.returncode == 2 and 'without links' in p.stderr and not marker.exists(), p.stderr
+    print('PASS symlinked launcher leaf refused')
+
+    gate = scripts/'test-zorde-contract-source-local.sh'
+    saved_gate = scripts/'test-zorde-contract-source-local.saved'
+    gate.rename(saved_gate)
+    gate.symlink_to(saved_gate)
+    try:
+        p = run([sys.executable, '-I', '-S',
+                 str(scripts/'launch-zorde-contract-source-local.py')], env)
+        assert p.returncode == 2 and 'without links' in p.stderr and not marker.exists(), p.stderr
+        print('PASS symlinked Bash gate leaf refused')
+    finally:
+        gate.unlink()
+        saved_gate.rename(gate)
+
     p = run(['/usr/bin/bash', '--noprofile', '--norc', str(scripts/'test-zorde-contract-source-local.sh')], env)
     assert p.returncode == 2 and 'unsafe Bash startup environment' in p.stderr and marker.exists(), p.stderr
     print('PASS unsafe direct Bash detects startup hooks (after Bash has run them)')
-    print('ZORDE_ISOLATED_BOOTSTRAP_SYNTHETIC_4_OF_4_PASSED')
+    print('ZORDE_ISOLATED_BOOTSTRAP_SYNTHETIC_8_OF_8_PASSED')
