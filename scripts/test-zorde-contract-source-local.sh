@@ -33,7 +33,7 @@ tjsv_tree=414047074b9358b81e79b5995a1dc4c1c5596a48
 [[ "$NODE_BIN" == /* && -f "$NODE_BIN" && -x "$NODE_BIN" && ! -L "$NODE_BIN" ]] || refuse 'Node must be an absolute non-symlink executable'
 [[ "$TJSV_ROOT" == /* && -d "$TJSV_ROOT" && ! -L "$TJSV_ROOT" ]] || refuse 'TJSV must be an absolute directory, not a link'
 [[ "$ZORDE_EVIDENCE_DIR" == /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] || refuse 'private evidence directory must exist and be absolute'
-python3 - "$NODE_BIN" "$TJSV_ROOT" "$ZORDE_EVIDENCE_DIR" <<'PY' || refuse 'approved executable/validator/evidence path traverses symlink'
+python3 -I -S - "$NODE_BIN" "$TJSV_ROOT" "$ZORDE_EVIDENCE_DIR" <<'PY' || refuse 'approved executable/validator/evidence path traverses symlink'
 import os,stat,sys
 for p,want in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISDIR),(sys.argv[3],stat.S_ISDIR)):
     q=os.path.abspath(p)
@@ -83,7 +83,7 @@ evidence="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'public TJSV tracked source modified'
 [[ -f "$tjsv_root/bin/typespec-json-schema-validator.mjs" && -f "$tjsv_root/scripts/verify-consumer.mjs" ]] || refuse 'approved TJSV entrypoints missing'
 [[ -f "$tjsv_root/node_modules/@typespec/compiler/package.json" && -f "$tjsv_root/node_modules/@typespec/json-schema/package.json" ]] || refuse 'TJSV preinstalled dependencies missing (run independently approved npm ci on trusted machine)'
-python3 - "$evidence" <<'PY' || refuse 'evidence directory ownership and privacy invalid'
+python3 -I -S - "$evidence" <<'PY' || refuse 'evidence directory ownership and privacy invalid'
 import os,stat,sys
 s=os.lstat(sys.argv[1])
 assert stat.S_ISDIR(s.st_mode) and s.st_uid==os.geteuid() and (stat.S_IMODE(s.st_mode)&0o077)==0
@@ -137,7 +137,7 @@ git diff --quiet && git diff --cached --quiet || refuse 'private tracked files m
 git -C "$tjsv_root" diff --quiet && git -C "$tjsv_root" diff --cached --quiet || refuse 'TJSV tracked files modified during Contract IR execution'
 [[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] || refuse 'Node binary changed during contract verification'
 # Seal an explicitly NON-NATIVE receipt from real source-local execution.
-SOURCE="$EXPECTED_SOURCE_SHA" TREE="$EXPECTED_SOURCE_TREE" TJSV="$tjsv_sha" TJSV_TREE="$tjsv_tree" NODE_SHA="$EXPECTED_NODE_SHA256" EVIDENCE="$evidence" python3 - <<'PY' || refuse 'static Contract IR receipt refused'
+SOURCE="$EXPECTED_SOURCE_SHA" TREE="$EXPECTED_SOURCE_TREE" TJSV="$tjsv_sha" TJSV_TREE="$tjsv_tree" NODE_SHA="$EXPECTED_NODE_SHA256" EVIDENCE="$evidence" python3 -I -S - <<'PY' || refuse 'static Contract IR receipt refused'
 import hashlib,json,os,stat
 from pathlib import Path
 root=Path.cwd()
