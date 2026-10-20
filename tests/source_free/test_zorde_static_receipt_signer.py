@@ -3,7 +3,7 @@ from pathlib import Path
 import hashlib, json, os, subprocess, tempfile, shutil
 
 script=(Path(__file__).resolve().parents[2]/'scripts/test-zorde-contract-source-local.sh').read_text()
-block=script.rsplit("python3 - <<'PY'",1)[1].split('\nPY\n',1)[0].split('\n',1)[1]
+block=script.rsplit("python3 -I -S - <<'PY'",1)[1].split('\nPY\n',1)[0].split('\n',1)[1]
 assert 'tap_metric' in block and 'expected_sources' in block
 sha=lambda b:hashlib.sha256(b).hexdigest()
 root=Path(tempfile.mkdtemp(prefix='zorde-static-signer-',dir='/tmp'))
@@ -56,7 +56,7 @@ try:
   write(nr,json.dumps(base))
   if edit:edit()
   (evidence/'zorde-contract-static-receipt.json').unlink(missing_ok=True)
-  p=subprocess.run(['python3','-c',block],cwd=root,env=runenv,capture_output=True,text=True,timeout=10)
+  p=subprocess.run(['python3','-I','-S','-c',block],cwd=root,env=runenv,capture_output=True,text=True,timeout=10)
   good=p.returncode==0 and (evidence/'zorde-contract-static-receipt.json').is_file()
   if good!=expect:raise AssertionError(f'{label}: expected={expect}, got={good}, stderr={p.stderr[-500:]}')
   print(f'{label}: '+('PASS receipt issued' if expect else 'DENIED no receipt'))
