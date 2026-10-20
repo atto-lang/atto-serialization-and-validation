@@ -139,6 +139,47 @@ Node/TypeSpec Contract IR, compiled guest, WIT and Dafny execution remain
 **NOT EXECUTED**. The source confidentiality incidents #22 and #77 remain
 export holds. No release status may be advanced from the public canary.
 
+## FIFO-before-timeout native output fix (October 20, 2026)
+
+An adversarial FIFO in the native log destination reveals a subtle
+`set -C` (Bash noclobber) limitation: `> log` opens an existing FIFO
+**before** `timeout` starts the intended guest command. On Linux, that
+redirection can block indefinitely instead of failing as a safe,
+already-existing output path. Ordinary file/symlink/hardlink protection
+does not prevent the FIFO hang.
+
+The native guest runner now uses a short isolated `python3 -I -S` helper
+which opens the approved evidence directory by following **directory FDs**
+from the filesystem root with `O_DIRECTORY|O_NOFOLLOW`, checks that the
+final directory is private and owned by the caller, then opens the log
+with `O_CREAT|O_EXCL|O_NOFOLLOW`. The already-open descriptor is passed
+as the timed guest process's stdout/stderr. A child `RLIMIT_FSIZE` of
+**16 MiB** bounds native guest output; nonzero guest exit or output
+overflow refuses qualification. A path-based Bash redirection is no
+longer involved in starting the guest.
+
+The committed private regression
+`tests/source_free/test_zorde_native_log_admission.py` runs the
+**exact inline Python admission helper** against ten synthetic scenarios:
+fresh output; existing regular file, FIFO, symlink, dangling symlink and
+hardlink; symlinked and overly-permissive evidence directories; compiler
+nonzero exit; and over-limit output. Its source-org CI stage is mandatory,
+but **not executed** while the original organization cannot allocate a
+runner. The native guest launcher must also receive an independently
+approved `NODE_BIN` and `EXPECTED_NODE_SHA256` for the corpus identity
+check, in addition to the compiler and source/evidence approval inputs.
+
+An independently authored, **source-free** version on public
+[TJSV draft PR #241](https://github.com/ORESoftware/typespec-json-schema-validator/pull/241)
+completed **22/22 hosted Linux checks** in
+[Actions run #39443649912](https://github.com/ORESoftware/typespec-json-schema-validator/actions/runs/39443649912)
+at public commit `4cca47bbd4916ba23a35f4b4f0023f35f7cbbe36`.
+It demonstrably blocks the old Bash FIFO operation before the command
+timeout and then proves exclusive descriptor-opening refuses immediately.
+These are independently authored OS security tests **only**, not private
+Zorde source or native guest tests. No private Git tree or files were
+mirrored or published.
+
 ## Remaining independent gates
 
 The existing `scripts/test-zorde-registry-source-local.sh` covers the
