@@ -73,7 +73,7 @@ def scenario(label, expected, *, source_inside_validator=False,
 
     marker = folder / "bash-startup-executed"
     startup = folder / "malicious-bashenv.sh"
-    startup.write_text("printf injected > " + str(marker) + "\\n")
+    startup.write_text("printf injected > " + str(marker) + "\n")
     env = os.environ.copy()
     env.update(
         BASH_ENV=str(startup), ENV=str(startup),
@@ -84,6 +84,17 @@ def scenario(label, expected, *, source_inside_validator=False,
         TJSV_ROOT=str(validator),
         ZORDE_EVIDENCE_DIR=str(evidence),
     )
+    # Positive control: prove this exact BASH_ENV payload executes in direct
+    # noninteractive Bash. Otherwise "marker absent" would be a false pass.
+    witness = subprocess.run(
+        ["/usr/bin/bash", "--noprofile", "--norc", "-c", ":"],
+        cwd=root, env=env, capture_output=True, text=True, timeout=15,
+    )
+    assert witness.returncode == 0, (label, witness.stderr)
+    assert marker.is_file() and marker.read_bytes() == b"injected", (
+        label, "malicious startup payload did not actually run")
+    marker.unlink()
+
     proc = subprocess.run(
         [sys.executable, "-I", "-S",
          str(root / "scripts/launch-zorde-contract-source-local.py")],
