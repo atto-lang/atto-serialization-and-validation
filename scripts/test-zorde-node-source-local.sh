@@ -51,18 +51,20 @@ git diff --quiet && git diff --cached --quiet || die 'tracked source files were 
 python3 - "$root" <<'PY' || die 'unsafe or unexpected Node test source files'
 import os,stat,sys
 root=sys.argv[1]
-for rel in ('tests','tests/source_free'):
+for rel in ('tests','tests/source_free','scripts'):
     st=os.lstat(os.path.join(root,rel))
     assert stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode)
 for rel in ('tests/source_free/test_zorde_contract_ir.mjs',
-            'tests/source_free/test_zorde_native_guard.mjs'):
+            'tests/source_free/test_zorde_native_guard.mjs',
+            'scripts/zorde-static-contract-ir.mjs'):
     st=os.lstat(os.path.join(root,rel))
     assert stat.S_ISREG(st.st_mode) and st.st_nlink==1
     assert 0 < st.st_size <= 2*1024*1024
 PY
 test_ir_sha="$(sha256sum tests/source_free/test_zorde_contract_ir.mjs | cut -d' ' -f1)"
 test_guard_sha="$(sha256sum tests/source_free/test_zorde_native_guard.mjs | cut -d' ' -f1)"
-[[ "$test_ir_sha" =~ ^[0-9a-f]{64}$ && "$test_guard_sha" =~ ^[0-9a-f]{64}$ ]] || die 'invalid test source digest'
+module_sha="$(sha256sum scripts/zorde-static-contract-ir.mjs | cut -d' ' -f1)"
+[[ "$test_ir_sha" =~ ^[0-9a-f]{64}$ && "$test_guard_sha" =~ ^[0-9a-f]{64}$ && "$module_sha" =~ ^[0-9a-f]{64}$ ]] || die 'invalid test source digest'
 while IFS= read -r -d '' file; do
   [[ "$file" == artifacts/* ]] || die 'unexpected untracked file outside generated artifacts'
 done < <(git ls-files --others --exclude-standard -z)
@@ -103,14 +105,15 @@ set -e
   die 'approved source revision changed during test execution'
 git diff --quiet && git diff --cached --quiet || die 'tracked source was modified by tests'
 [[ "$(sha256sum tests/source_free/test_zorde_contract_ir.mjs | cut -d' ' -f1)" == "$test_ir_sha" &&
-   "$(sha256sum tests/source_free/test_zorde_native_guard.mjs | cut -d' ' -f1)" == "$test_guard_sha" ]] ||
+   "$(sha256sum tests/source_free/test_zorde_native_guard.mjs | cut -d' ' -f1)" == "$test_guard_sha" &&
+   "$(sha256sum scripts/zorde-static-contract-ir.mjs | cut -d' ' -f1)" == "$module_sha" ]] ||
   die 'approved Node test source files changed during execution'
 while IFS= read -r -d '' file; do
   [[ "$file" == artifacts/* ]] || die 'test wrote an unexpected untracked file outside artifacts'
 done < <(git ls-files --others --exclude-standard -z)
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" \
 NODE_SHA="$EXPECTED_NODE_SHA256" NODE_VERSION="$node_version" \
-TEST_IR_SHA="$test_ir_sha" TEST_GUARD_SHA="$test_guard_sha" SOURCE_ROOT="$root" \
+TEST_IR_SHA="$test_ir_sha" TEST_GUARD_SHA="$test_guard_sha" MODULE_SHA="$module_sha" SOURCE_ROOT="$root" \
 LOG="$log" RECEIPT="$receipt" python3 - <<'PY' || die 'invalid private Node TAP log or receipt creation was refused'
 import hashlib,json,os,re,stat
 from pathlib import Path
@@ -133,11 +136,18 @@ finally:
     os.close(fd)
 # Revalidate actual test inputs from unique, no-follow file descriptors
 # immediately before sealing the final execution receipt.
-def checked_test_source(relative, expected):
-    parent=os.path.join(os.environ['SOURCE_ROOT'],'tests','source_free')
-    st=os.lstat(parent)
-    assert stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode)
-    path=os.path.join(parent,relative)
+def checked_source(relative, expected):
+    # The checked test's sole source-local import is the contract bridge.
+    # Every member of this closed pilot import set is independently pinned.
+    assert relative in ('tests/source_free/test_zorde_contract_ir.mjs',
+                        'tests/source_free/test_zorde_native_guard.mjs',
+                        'scripts/zorde-static-contract-ir.mjs')
+    path=os.environ['SOURCE_ROOT']
+    for piece in relative.split('/')[:-1]:
+        path=os.path.join(path,piece)
+        st=os.lstat(path)
+        assert stat.S_ISDIR(st.st_mode) and not stat.S_ISLNK(st.st_mode)
+    path=os.path.join(path,relative.rsplit('/',1)[-1])
     fd=os.open(path,flags)
     try:
         st=os.fstat(fd)
@@ -150,8 +160,9 @@ def checked_test_source(relative, expected):
         assert hashlib.sha256(data).hexdigest()==expected
     finally:
         os.close(fd)
-checked_test_source('test_zorde_contract_ir.mjs',os.environ['TEST_IR_SHA'])
-checked_test_source('test_zorde_native_guard.mjs',os.environ['TEST_GUARD_SHA'])
+checked_source('tests/source_free/test_zorde_contract_ir.mjs',os.environ['TEST_IR_SHA'])
+checked_source('tests/source_free/test_zorde_native_guard.mjs',os.environ['TEST_GUARD_SHA'])
+checked_source('scripts/zorde-static-contract-ir.mjs',os.environ['MODULE_SHA'])
 text=log.decode('utf-8')
 def metric(name):
     matches=re.findall(r'^# '+name+r' (\d+)\s*$',text,re.M)
@@ -174,6 +185,7 @@ receipt={
    'tests/source_free/test_zorde_contract_ir.mjs':os.environ['TEST_IR_SHA'],
    'tests/source_free/test_zorde_native_guard.mjs':os.environ['TEST_GUARD_SHA'],
  },
+ 'source_module_sha256':{'scripts/zorde-static-contract-ir.mjs':os.environ['MODULE_SHA']},
  'real_node_crypto_filesystem_tests_executed':True,
  'generated_oreslang_guest_executed':False,
  'compiler_dependency_closure_attested':False,
