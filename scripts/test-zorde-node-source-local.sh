@@ -26,7 +26,7 @@ done
   die 'evidence directory must be an absolute preexisting real directory'
 # The final-component -L checks above are insufficient: lstat all ancestor
 # components of both independently trusted paths, including the filesystem root.
-python3 - "$NODE_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || die 'Node executable or private evidence path traverses a symbolic link'
+python3 -I -S - "$NODE_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || die 'Node executable or private evidence path traverses a symbolic link'
 import os,stat,sys
 for source,expected_type in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISDIR)):
     current=os.path.abspath(source)
@@ -48,7 +48,7 @@ cd "$root"
 git diff --quiet && git diff --cached --quiet || die 'tracked source files were modified'
 # Identify the exact tests that are executed, independently of the Git tree.
 # Links or unexpected files in the test input path are not admissible.
-python3 - "$root" <<'PY' || die 'unsafe or unexpected Node test source files'
+python3 -I -S - "$root" <<'PY' || die 'unsafe or unexpected Node test source files'
 import os,stat,sys
 root=sys.argv[1]
 for rel in ('tests','tests/source_free','scripts'):
@@ -74,7 +74,7 @@ node_version="$(env -u NODE_OPTIONS -u NODE_PATH "$NODE_BIN" --version)"
 [[ "$node_version" =~ ^v22\. ]] || die 'Node 22 required for pinned source-free test runner'
 out="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out" in "$root"|"$root"/*) die 'evidence directory must be outside checkout';; esac
-python3 - "$out" <<'PY' || die 'unsafe evidence directory policy'
+python3 -I -S - "$out" <<'PY' || die 'unsafe evidence directory policy'
 import os,stat,sys
 s=os.lstat(sys.argv[1])
 assert stat.S_ISDIR(s.st_mode) and s.st_uid==os.geteuid()
@@ -114,7 +114,7 @@ done < <(git ls-files --others --exclude-standard -z)
 SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" \
 NODE_SHA="$EXPECTED_NODE_SHA256" NODE_VERSION="$node_version" \
 TEST_IR_SHA="$test_ir_sha" TEST_GUARD_SHA="$test_guard_sha" MODULE_SHA="$module_sha" SOURCE_ROOT="$root" \
-LOG="$log" RECEIPT="$receipt" python3 - <<'PY' || die 'invalid private Node TAP log or receipt creation was refused'
+LOG="$log" RECEIPT="$receipt" python3 -I -S - <<'PY' || die 'invalid private Node TAP log or receipt creation was refused'
 import hashlib,json,os,re,stat
 from pathlib import Path
 # Open the exact output log without following symbolic links and prove it is
