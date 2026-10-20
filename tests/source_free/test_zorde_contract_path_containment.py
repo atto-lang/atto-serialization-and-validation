@@ -8,10 +8,12 @@ import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 
-SCRIPT = (Path(__file__).resolve().parents[2] /
-          "scripts/test-zorde-contract-source-local.sh").read_bytes()
+SOURCE = Path(__file__).resolve().parents[2]
+SCRIPT = (SOURCE / "scripts/test-zorde-contract-source-local.sh").read_bytes()
+LAUNCHER = (SOURCE / "scripts/launch-zorde-contract-source-local.py").read_bytes()
 WORK = Path(tempfile.mkdtemp(prefix="zorde-overlap-synthetic-", dir="/tmp"))
 
 def git(root, *args):
@@ -30,6 +32,7 @@ def scenario(label, expected, *, source_inside_validator=False,
     root.mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "scripts/test-zorde-contract-source-local.sh").write_bytes(SCRIPT)
+    (root / "scripts/launch-zorde-contract-source-local.py").write_bytes(LAUNCHER)
     (root / ".gitignore").write_text("artifacts\n")
     git(root, "init", "-q")
     git(root, "add", ".")
@@ -63,8 +66,12 @@ def scenario(label, expected, *, source_inside_validator=False,
             elif artifacts_preexisting != "empty":
                 raise ValueError(artifacts_preexisting)
 
+    marker = folder / "bash-startup-executed"
+    startup = folder / "malicious-bashenv.sh"
+    startup.write_text("printf injected > " + str(marker) + "\\n")
     env = os.environ.copy()
     env.update(
+        BASH_ENV=str(startup), ENV=str(startup),
         EXPECTED_SOURCE_SHA=git(root, "rev-parse", "HEAD"),
         EXPECTED_SOURCE_TREE=git(root, "rev-parse", "HEAD^{tree}"),
         NODE_BIN=str(NODE),
@@ -73,11 +80,13 @@ def scenario(label, expected, *, source_inside_validator=False,
         ZORDE_EVIDENCE_DIR=str(evidence),
     )
     proc = subprocess.run(
-        ["bash", "scripts/test-zorde-contract-source-local.sh"],
+        [sys.executable, "-I", "-S",
+         str(root / "scripts/launch-zorde-contract-source-local.py")],
         cwd=root, env=env, capture_output=True, text=True, timeout=15,
     )
     assert proc.returncode == 2, (label, proc.returncode, proc.stderr)
     assert expected in proc.stderr, (label, proc.stderr)
+    assert not marker.exists(), (label, "inherited Bash startup code executed")
     assert not (evidence / "zorde-contract-static-receipt.json").exists(), label
     print("PASS", label, "refused:", expected)
 
