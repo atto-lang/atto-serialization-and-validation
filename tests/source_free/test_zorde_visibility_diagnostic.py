@@ -76,5 +76,42 @@ class DiagnosticContracts(unittest.TestCase):
         self.assertEqual(verifier.main(['program', '/tmp/dummy', 'fake-fixture']), 2)
 
 
+    def test_same_line_unrelated_private_entry_is_refused(self):
+        self.assertFalse(self.verdict('error: ZordePrivateCompiledEntry unknown; Other is private'))
+
+    def test_same_line_unrelated_private_storage_is_refused(self):
+        self.assertFalse(self.verdict('error: entries unknown; Other is private', 'private-storage-access'))
+
+    def test_same_line_unrelated_denial_prefix_is_refused(self):
+        self.assertFalse(self.verdict('error: cannot access Other; ZordePrivateCompiledEntry unknown'))
+
+    def test_adjacent_unrelated_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: Other is private\nZordePrivateCompiledEntry'))
+
+    def test_unrelated_adjacent_storage_is_refused(self):
+        self.assertFalse(self.verdict('error: Other field is private\nentries', 'private-storage-access'))
+
+    def test_private_target_case_sensitive(self):
+        self.assertFalse(self.verdict('error: ZordeprivateCompiledEntry is private'))
+
+    def test_private_member_case_sensitive(self):
+        self.assertFalse(self.verdict('error: ENTRIES is private', 'private-storage-access'))
+
+    def test_quoted_member_denial_is_accepted(self):
+        self.assertTrue(self.verdict('error: `entries` has private access', 'private-storage-access'))
+
+    def test_isolated_multiline_wrong_symbol_is_refused(self):
+        self.assertFalse(self.verdict('error: private type\nOtherClass\nZordePrivateCompiledEntry'))
+
+    def test_malformed_nul_rejected(self):
+        self.assertFalse(self.verdict(b'error: ZordePrivateCompiledEntry is private\x00'))
+
+    def test_parse_failure_overrides_valid_denial(self):
+        self.assertFalse(self.verdict('error: ZordePrivateCompiledEntry is private\nsyntax error'))
+
+    def test_spurious_word_between_symbol_and_denial(self):
+        self.assertFalse(self.verdict('error: entries variable is private', 'private-storage-access'))
+
+
 if __name__ == '__main__':
     unittest.main()
