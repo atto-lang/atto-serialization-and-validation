@@ -303,6 +303,11 @@ test('source-local TJSV/Contract IR driver refuses unapproved inputs before comp
   assert.match(source,/414047074b9358b81e79b5995a1dc4c1c5596a48/);
   assert.match(source,/source_bound_contract_ir_consumer_verification_executed/);
   assert.match(source,/native_guest_executed':False/);
+  assert.match(source,/--polymorphic-models-strategy=oneOf \|\| refuse/);
+  assert.match(source,/verify-consumer\.mjs" \|\| refuse/);
+  assert.match(source,/--out-dir=artifacts\/zorde-generated \|\| refuse/);
+  assert.doesNotMatch(source,/\} >&3 2>&3 \|\| refuse/);
+
   const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-contract-local-'));
   try {
     const evidence=join(tmp,'evidence');
