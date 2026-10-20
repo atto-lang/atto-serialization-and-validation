@@ -17,5 +17,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
       - name: Audit Oreslang source invariants
         run: python3 scripts/audit.py
