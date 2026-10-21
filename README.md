@@ -137,3 +137,7 @@ sharing remain separate release gates. In particular, mutable nested
 `List` fields cannot be safely shared across actor lanes until recursive
 `rt share` / `rt take` / `rt copy` / `rt borrow` semantics are enforced
 by the compiler. See [the ownership and AOT contract](docs/DYNAMIC-AOT-OWNERSHIP.md).
+
+## Development policy: no Python
+
+Python is prohibited in this repository for source code, tests, build tooling, code generation, CI, and automation. Existing Python tooling must be replaced with behavior-equivalent Rust and equivalent regression coverage before removal. Do not add Python source/notebooks, Python dependency manifests, `python`/`python3`, `pip`, `pytest`, `poetry`, `uv`, or Python setup actions. Rust tooling must pass `cargo fmt`, `cargo clippy -- -D warnings`, and `cargo test`.
