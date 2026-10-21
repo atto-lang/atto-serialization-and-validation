@@ -54,19 +54,19 @@ epochs, capability guards, event tags and sequence numbers separately.
    atomically. Encoding/quota/schema/admission failure preserves the sender's
    value. Cancellation must release any staged owned bytes exactly once.
 3. `rt copy value` is a value copy **only for Copy types** or a separately
-   verified recursive copy contract. It must never invent another `Pointer<T>`
-   owner or become a shallow alias of nested mutable graph values.
+   verified recursive copy contract. It must never invent a second owner for
+   unique non-Copy state or become a shallow alias of nested mutable graph values.
 4. `rt share value` is only for an explicitly proven, recursively immutable
    `Shared<T>`/frozen backing. It is **not** permission to serialize host
    pointers or skip mailbox snapshot isolation.
 
-`rt ref` gives a unique `Pointer<T>` owner, `rt deref` yields a scoped borrow,
-and `rt unref` has a separate proposed release meaning in Java pointer PR
-#1022. None of the three is a serialization conversion. Encoding `rt deref
-pointer` is permitted only for a **synchronous read of data** while a compiler
-loan is active, and only if the codec does not capture the loan. Serializing the
-pointer handle, graph address, native slot/generation, FFI capability or borrowed
-view is forbidden. After decoder return, payload bytes must not own aliases
+`rt borrow value` and `rt mut borrow value` create scoped loans; `rt take`
+transfers ownership; `rt copy` and `rt share` remain subject to their checked
+copy/share contracts. None is a serialization conversion. Encoding through a
+borrow is permitted only for a **synchronous read of data** while a compiler
+loan is active, and only if the codec does not capture the loan. Serializing any
+backend address/handle, graph address, native slot/generation, FFI capability or
+borrowed view is forbidden. After decoder return, payload bytes must not own aliases
 into the input. A borrowing/token decoder, if built later, must return a
 lifetime-indexed `ValueView<'input>` instead of `T` and must fail closed until
 the compiler proves it cannot outlive input, cross suspension or actor turns.
@@ -100,7 +100,7 @@ run guest destructor glue twice.
 - No dynamic host-class lookup, reflection/deserialization gadgets, foreign
   object methods, arbitrary constructor selection, or open generic erasure.
 - ActorRef, ActorGroup, supervisor CONTROL tokens, Future, MutexGuard,
-  Channel, Stream, Observable, Fnc, Pointer<T>, borrowed T, and nested forms
+  Channel, Stream, Observable, Fnc, borrowed T, source-inaccessible backend handles, and nested forms
   inside arrays/tuples/records/Option/Result/unknown fields are rejected.
   Stable actor *data IDs* may be serialized as integers only after explicit
   schema authorization; those IDs never grant mailbox authority.
