@@ -33,7 +33,7 @@ grant one another's permissions. Supervisor `CONTROL` (including
 
 Both APIs synchronously **borrow** input while encoding, return **owned**
 output bytes, and decode into a distinct **owned** value. Borrowed input
-views, `Pointer<T>`, closures, stream/channel handles and actor capabilities
+views, source-inaccessible backend handles, closures, stream/channel handles and actor capabilities
 cannot be serialized or smuggled through generic containers. An actor send
 requires an atomic reserve/encode/commit boundary with rollback on failure;
 this part remains a compiler/runtime integration gate, not an enabled
