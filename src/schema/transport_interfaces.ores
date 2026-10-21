@@ -35,7 +35,7 @@
 // is NOT a user-extensible ActorMessageCodec payload. CONTROL never gains
 // authority from decoding bytes or implementing this interface.
 //
-// Borrowed views and Pointer<T> may NEVER be serialized as identities.
+// Borrowed views and source-inaccessible backend handles may NEVER be serialized as identities.
 // A synchronous borrowed read while the owner remains alive is different
 // from exporting the borrow. Futures/Channels/Streams/Observables may carry
 // separately owned bytes, but not the serializer's input borrow.
