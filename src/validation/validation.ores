@@ -972,6 +972,9 @@ fnc value_tree_error(Value root): String {
         return "value_bytes";
       fi
       used_bytes = used_bytes + node.number_lexeme.length;
+      for const octet of node.number_lexeme do
+        if octet < 0 || octet > 255 then return "invalid_wire_octet"; fi
+      done
     elseif node.kind == 3 then
       if node.string_value.bytes.length > max_validation_tree_bytes() - used_bytes then
         return "value_bytes";
@@ -983,6 +986,9 @@ fnc value_tree_error(Value root): String {
         return "value_bytes";
       fi
       used_bytes = used_bytes + node.bytes_value.length;
+      for const octet of node.bytes_value do
+        if octet < 0 || octet > 255 then return "invalid_wire_octet"; fi
+      done
     elseif node.kind == 5 then
       if node.array_value.length > max_validation_collection_items() then
         return "value_items";
