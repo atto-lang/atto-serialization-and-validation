@@ -1,13 +1,13 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string, value_array, value_object, value_map, value_deep_equal from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, value_array, value_object, value_map, value_deep_equal, int_to_decimal_bytes from '../src/core/value';
 import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
 import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes from '../src/validation/validation';
 import fnc validate_value, validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 pub fnc run_validation_tests(): void {
@@ -135,5 +135,43 @@ pub fnc run_validation_tests(): void {
     !report_is_valid(rt borrow non_finite_conversion),
     "numeric range validation must reject NaN-producing decimal conversion"
   );
+  // Direct Value construction bypasses the JSON decoder. Object admission
+  // must reject malformed keys even if unknown field names are allowed.
+  val ObjectSchema open_schema = object_schema(new List<FieldRule>(), false);
+  val List<WireMember> bad_utf8_members = new List<WireMember>();
+  bad_utf8_members.add(new WireMember(
+    new Utf8Text(new List<int>(255)), value_int(1)
+  ));
+  require_true(!report_is_valid(validate_object(
+    value_object(bad_utf8_members), rt borrow open_schema,
+    default_validation_options())), "direct object rejects invalid UTF-8 keys");
+
+  val List<int> oversized_key_bytes = new List<int>();
+  let int key_index = 0;
+  loop do
+    if key_index > max_schema_key_bytes() then break; fi
+    oversized_key_bytes.add(97);
+    key_index = key_index + 1;
+  done
+  val List<WireMember> oversized_key_members = new List<WireMember>();
+  oversized_key_members.add(new WireMember(
+    new Utf8Text(oversized_key_bytes), value_int(1)
+  ));
+  require_true(!report_is_valid(validate_object(
+    value_object(oversized_key_members), rt borrow open_schema,
+    default_validation_options())), "direct object rejects oversized key before UTF-8 scan");
+
+  val List<WireMember> oversized_value_members = new List<WireMember>();
+  let int member_index = 0;
+  loop do
+    if member_index > max_schema_fields() then break; fi
+    oversized_value_members.add(new WireMember(
+      new Utf8Text(int_to_decimal_bytes(member_index)), value_int(member_index)
+    ));
+    member_index = member_index + 1;
+  done
+  require_true(!report_is_valid(validate_object(
+    value_object(oversized_value_members), rt borrow open_schema,
+    default_validation_options())), "direct object rejects excessive distinct member count");
   return;
 }
