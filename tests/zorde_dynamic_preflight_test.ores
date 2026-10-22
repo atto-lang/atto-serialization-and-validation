@@ -1,10 +1,26 @@
 // Dynamic Zorde admission must not accept malformed nested Values.
 import fnc require_true from './assert';
 import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_string, value_array, value_object, value_map, value_bytes, value_extension, value_number_lexeme from '../src/core/value';
+import fnc value_int, value_string, value_array, value_object, value_map, value_bytes, value_extension, value_number_lexeme, json_number_lexeme_valid from '../src/core/value';
 import class FieldRule, ObjectSchema, ValidationReport from '../src/validation/validation';
 import fnc any_rule, object_schema, validate_value, validate_object, report_is_valid from '../src/validation/validation';
 import fnc default_validation_options, max_validation_tree_depth, max_validation_collection_items from '../src/validation/validation';
+
+fnc require_valid_number(List<int> lexeme): void {
+  require_true(json_number_lexeme_valid(lexeme),
+    "valid JSON numeric byte grammar must be accepted");
+  require_true(report_is_valid(validate_value(
+    value_number_lexeme(lexeme), any_rule(), default_validation_options()
+  )), "valid number lexeme must pass dynamic any_rule");
+}
+
+fnc require_invalid_number(List<int> lexeme): void {
+  require_true(!json_number_lexeme_valid(lexeme),
+    "invalid JSON numeric byte grammar must be rejected");
+  require_true(!report_is_valid(validate_value(
+    value_number_lexeme(lexeme), any_rule(), default_validation_options()
+  )), "invalid number lexeme must fail dynamic any_rule");
+}
 
 pub fnc run_zorde_dynamic_preflight_tests(): void {
   val List<Value> good_values = new List<Value>();
@@ -31,6 +47,34 @@ pub fnc run_zorde_dynamic_preflight_tests(): void {
   require_true(report_is_valid(validate_value(
     value_array(good_octets), any_rule(), default_validation_options()
   )), "valid 0..255 octets remain accepted");
+
+  // Byte-exact grammar shared by JSON encoding and schema-free validation.
+  // Check incomplete numbers, leading zeros, signs and trailing garbage.
+  require_valid_number(new List<int>(48));                        // 0
+  require_valid_number(new List<int>(45, 48));                    // -0
+  require_valid_number(new List<int>(49, 50, 46, 51, 52));       // 12.34
+  require_valid_number(new List<int>(49, 101, 43, 50));          // 1e+2
+  require_valid_number(new List<int>(45, 49, 46, 50, 69, 45, 51)); // -1.2E-3
+  require_invalid_number(new List<int>());
+  require_invalid_number(new List<int>(45));                      // -
+  require_invalid_number(new List<int>(43, 49));                  // +1
+  require_invalid_number(new List<int>(48, 49));                  // 01
+  require_invalid_number(new List<int>(45, 48, 49));              // -01
+  require_invalid_number(new List<int>(46, 49));                  // .1
+  require_invalid_number(new List<int>(49, 46));                  // 1.
+  require_invalid_number(new List<int>(49, 101));                 // 1e
+  require_invalid_number(new List<int>(49, 101, 43));             // 1e+
+  require_invalid_number(new List<int>(49, 101, 45));             // 1e-
+  require_invalid_number(new List<int>(49, 50, 32, 51));         // 12 3
+  require_invalid_number(new List<int>(78, 97, 78));             // NaN
+  require_invalid_number(new List<int>(49, 300));                 // invalid raw octet
+
+  // A malformed number nested under a permissive object must be denied.
+  val List<Value> nested_numbers = new List<Value>();
+  nested_numbers.add(value_number_lexeme(new List<int>(48, 49)));
+  require_true(!report_is_valid(validate_value(
+    value_array(nested_numbers), any_rule(), default_validation_options()
+  )), "nested leading-zero numeric lexeme must fail any_rule");
 
   val List<Value> bad_strings = new List<Value>();
   bad_strings.add(value_string(new Utf8Text(new List<int>(255))));
