@@ -59,15 +59,26 @@ Cross-field:
 - one_of_fields
 - custom validator
 
-## Typestate
+## Dynamic validation is not typestate
 
-The library should support a validated wrapper concept so APIs can express that validation has already happened:
+The checked dynamic helpers (`validate_value_checked`,
+`validate_object_checked`, `zorde_parse*`) return ordinary mutable `Value`
+results, not compiler-issued proof. `ValidatedDecodedValue.value` is a normal
+value with a checked-at-decode-time result and a byte count. Any guest can
+construct its own `Value` or metadata holder. Aliased nested storage can
+change after validation. Neither success nor `report_is_valid` supplies
+schema authentication, authorization, immutable ownership, nominal identity,
+or cross-actor/FFI admission. Revalidate at every relevant use/trust boundary;
+freeze/move storage separately before trusting its contents.
 
-```text
-Unvalidated<T> -> validate() -> Result<Valid<T>, ValidationReport>
-```
+Previously the publicly constructible `ValidValue` wrapper misleadingly
+resembled a proof; it has been removed. This intentionally breaks consumers
+using `ValidValue` or `.valid.value`. Use `Value` and `.value` instead.
 
-This mirrors the useful Rust/Garde pattern and avoids accidental double validation at trust boundaries.
+**Not implemented:** future authoritative `Valid<T, SchemaId>` must be
+compiler-minted with inaccessible constructors, no forged casts/subclasses,
+frozen/owned nested graph, schema digest/version/generation binding, and
+lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
 
 ## Streaming validation
 
@@ -101,7 +112,7 @@ Implemented primitives include:
 - HTTP/HTTPS URL checks;
 - reject-unknown-field object schemas;
 - fail-fast or bounded error collection;
-- `ValidValue` wrappers through `validate_value_checked` and `validate_object_checked`.
+- plain `Result<Value, ValidationReport>` checked dynamic results; no typestate authority.
 
 Error reports are bounded by `ValidationOptions.max_errors`, and validation errors retain logical path segments without retaining the entire untrusted input payload.
 
