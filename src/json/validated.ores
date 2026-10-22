@@ -37,6 +37,20 @@ pub fnc decode_and_validate_object(
   ObjectSchema schema,
   ValidationOptions validation_options
 ): Result<ValidatedDecodedValue, JsonPayloadError> {
+  // A schema-bound trust boundary must not erase ambiguity *before* checking.
+  // first_wins / last_wins drop duplicate evidence; trailing-data acceptance
+  // lets a valid prefix masquerade as an admitted complete message.
+  // Keep those policies available to generic decoders, but refuse them here.
+  if decode_options.duplicate_key_policy != 0 ||
+     decode_options.allow_trailing_data then
+    return Err(new JsonPayloadError(
+      0,
+      new DecodeError("unsafe_decode_options", 0,
+        "schema-bound JSON admission requires duplicate rejection and full input"),
+      empty_validation_report()
+    ));
+  fi
+
   let DecodeAttempt attempt = decode_attempt(input, decode_options);
 
   if attempt.status != 0 then

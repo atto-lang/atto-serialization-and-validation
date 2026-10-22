@@ -80,6 +80,18 @@ compiler-minted with inaccessible constructors, no forged casts/subclasses,
 frozen/owned nested graph, schema digest/version/generation binding, and
 lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
 
+## Schema-bound decoder policy
+
+`decode_and_validate_object` is a **strict** JSON trust-boundary helper:
+`duplicate_key_policy` must be `0` (reject), and
+`allow_trailing_data` must be `false`. Any other configuration is refused
+with a decode error before parsing. This avoids first/last-wins policies
+silently discarding duplicate evidence, or a valid JSON prefix being mistaken
+for admission of an entire untrusted message. General codec decode functions
+may continue exposing explicit compatibility policies, but callers must not
+use them as a Zorde security-boundary substitute. The return value remains
+an ordinary mutable `Value`, not an opaque validation proof.
+
 ## Streaming validation
 
 Rules should run as early as possible:
