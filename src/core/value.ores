@@ -99,6 +99,59 @@ pub fnc value_bool(bool value): Value {
   );
 }
 
+// Source-independent, allocation-free JSON numeric grammar on *bytes*.
+// Number Values in the shared dynamic representation carry this spelling,
+// including numbers produced by MessagePack/CBOR adapters. No float
+// conversion, exponent arithmetic, or host reflection is required here.
+fnc number_digit(int byte): bool {
+  return byte >= 48 && byte <= 57;
+}
+
+pub fnc json_number_lexeme_valid(List<int> bytes): bool {
+  val int length = bytes.length;
+  if length == 0 then return false; fi
+  let int i = 0;
+  if bytes[i] == 45 then
+    i = i + 1;
+    if i >= length then return false; fi
+  fi
+
+  if bytes[i] == 48 then
+    i = i + 1;
+    // 0 and -0 are legal; 00 and -01 are not.
+    if i < length && number_digit(bytes[i]) then return false; fi
+  else
+    if bytes[i] < 49 || bytes[i] > 57 then return false; fi
+    i = i + 1;
+    loop do
+      if i >= length || !number_digit(bytes[i]) then break; fi
+      i = i + 1;
+    done
+  fi
+
+  if i < length && bytes[i] == 46 then
+    i = i + 1;
+    if i >= length || !number_digit(bytes[i]) then return false; fi
+    loop do
+      if i >= length || !number_digit(bytes[i]) then break; fi
+      i = i + 1;
+    done
+  fi
+
+  if i < length && (bytes[i] == 69 || bytes[i] == 101) then
+    i = i + 1;
+    if i < length && (bytes[i] == 43 || bytes[i] == 45) then
+      i = i + 1;
+    fi
+    if i >= length || !number_digit(bytes[i]) then return false; fi
+    loop do
+      if i >= length || !number_digit(bytes[i]) then break; fi
+      i = i + 1;
+    done
+  fi
+  return i == length;
+}
+
 pub fnc value_number_lexeme(List<int> lexeme): Value {
   return new Value(
     2,

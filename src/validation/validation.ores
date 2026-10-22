@@ -4,7 +4,7 @@
 // records so standalone validation and decode-time validation share semantics.
 
 import class Value, Utf8Text, WireMember from '../core/value';
-import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
+import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash, json_number_lexeme_valid from '../core/value';
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
@@ -935,6 +935,110 @@ fnc validate_rule_at(
   return;
 }
 
+// Defensive shape check for direct dynamic Values and decoded payloads. This
+// bounded walk is NOT an opaque validated type, freeze, or schema proof.
+pub fnc max_validation_tree_nodes(): int { return 8192; }
+pub fnc max_validation_tree_depth(): int { return 64; }
+pub fnc max_validation_tree_bytes(): int { return 1048576; }
+pub fnc max_validation_collection_items(): int { return 4096; }
+
+define class PendingValidationNode as
+  pub val Value node;
+  pub val int depth;
+end
+
+fnc value_tree_error(Value root): String {
+  val List<PendingValidationNode> pending = new List<PendingValidationNode>();
+  pending.add(new PendingValidationNode(root, 0));
+  let int index = 0;
+  let int used_bytes = 0;
+
+  loop do
+    if index >= pending.length then break; fi
+    // Charging every occurrence (not just unique identities) guarantees
+    // termination even if mutable caller-created graphs contain cycles.
+    if index >= max_validation_tree_nodes() then return "value_nodes"; fi
+    val PendingValidationNode frame = pending[index];
+    index = index + 1;
+    if frame.depth > max_validation_tree_depth() then
+      return "value_depth";
+    fi
+
+    val Value node = frame.node;
+    if node.kind < 0 || node.kind > 8 then return "invalid_value_kind"; fi
+
+    if node.kind == 2 then
+      if node.number_lexeme.length > max_validation_tree_bytes() - used_bytes then
+        return "value_bytes";
+      fi
+      used_bytes = used_bytes + node.number_lexeme.length;
+      // Grammar is checked even when the semantic rule is any_rule().
+      // A malformed direct Value must never bypass the JSON writer's
+      // canonical admission just because no range constraints were set.
+      if !json_number_lexeme_valid(node.number_lexeme) then
+        return "invalid_number_lexeme";
+      fi
+    elseif node.kind == 3 then
+      if node.string_value.bytes.length > max_validation_tree_bytes() - used_bytes then
+        return "value_bytes";
+      fi
+      used_bytes = used_bytes + node.string_value.bytes.length;
+      if !utf8_is_valid(node.string_value.bytes) then return "invalid_utf8"; fi
+    elseif node.kind == 4 || node.kind == 7 then
+      if node.bytes_value.length > max_validation_tree_bytes() - used_bytes then
+        return "value_bytes";
+      fi
+      used_bytes = used_bytes + node.bytes_value.length;
+      for const octet of node.bytes_value do
+        if octet < 0 || octet > 255 then return "invalid_wire_octet"; fi
+      done
+    elseif node.kind == 5 then
+      if node.array_value.length > max_validation_collection_items() then
+        return "value_items";
+      fi
+      if node.array_value.length > max_validation_tree_nodes() - pending.length then
+        return "value_nodes";
+      fi
+      for const child of node.array_value do
+        pending.add(new PendingValidationNode(child, frame.depth + 1));
+      done
+    elseif node.kind == 6 then
+      if node.object_value.length > max_validation_collection_items() then
+        return "value_items";
+      fi
+      // Charge and validate keys before hashing or building object buckets.
+      for const member of node.object_value do
+        if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > max_validation_tree_bytes() - used_bytes then
+          return "value_bytes";
+        fi
+        used_bytes = used_bytes + member.key.bytes.length;
+        if !utf8_is_valid(member.key.bytes) then return "invalid_object_key"; fi
+      done
+      if !object_keys_unique(node) then return "duplicate_key"; fi
+      if node.object_value.length > max_validation_tree_nodes() - pending.length then
+        return "value_nodes";
+      fi
+      for const member of node.object_value do
+        pending.add(new PendingValidationNode(member.value, frame.depth + 1));
+      done
+    elseif node.kind == 8 then
+      if node.map_value.length > max_validation_collection_items() then
+        return "value_items";
+      fi
+      // A general map consumes two nodes per entry; bounded multiplication.
+      if 2 * node.map_value.length > max_validation_tree_nodes() - pending.length then
+        return "value_nodes";
+      fi
+      for const pair of node.map_value do
+        pending.add(new PendingValidationNode(pair.key, frame.depth + 1));
+        pending.add(new PendingValidationNode(pair.value, frame.depth + 1));
+      done
+    fi
+  done
+  return "";
+}
+
 pub fnc validate_value(
   Value value,
   ValueRule rule,
@@ -952,6 +1056,13 @@ pub fnc validate_value(
       "invalid_rule",
       "validation rule is contradictory or incompatible with its value kind"
     );
+  fi
+
+  // An any_rule() on the root must not silently trust malformed subtrees.
+  val String structural_error = value_tree_error(value);
+  if structural_error != "" then
+    return config_report(structural_error,
+      "dynamic Value exceeds structural bounds or has malformed nested data");
   fi
 
   let ValidationReport report = new ValidationReport(
@@ -1066,6 +1177,13 @@ pub fnc validate_object(
       "object schema requires an object/map value"
     );
     return report;
+  fi
+
+  // Open schemas must also check unknown/nested members and map keys.
+  val String structural_error = value_tree_error(value);
+  if structural_error != "" then
+    return config_report(structural_error,
+      "dynamic Value exceeds structural bounds or has malformed nested data");
   fi
 
   if !object_keys_unique(value) then
