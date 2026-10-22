@@ -97,7 +97,8 @@ an ordinary mutable `Value`, not an opaque validation proof.
 Dynamic `validate_value` and `validate_object` now preflight the **entire**
 caller-provided graph, even for `any_rule()` or unknown fields in an open
 object schema. A bounded iterative walk refuses malformed nested UTF-8,
-duplicate object keys, unknown wire kind tags, oversized collections and
+duplicate object keys, out-of-range raw octets in number/byte/extension
+carriers, unknown wire kind tags, oversized collections and
 depth/node/byte budget exhaustion before applying rules or hashing array items.
 Limits currently are 64 edges of depth, 8,192 visited nodes, 4,096 items per
 collection, and 1 MiB of cumulative string/byte/number/key payload; repeat
