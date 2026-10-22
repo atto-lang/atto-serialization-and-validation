@@ -4,7 +4,7 @@
 // records so standalone validation and decode-time validation share semantics.
 
 import class Value, Utf8Text, WireMember from '../core/value';
-import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
+import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash, json_number_lexeme_valid from '../core/value';
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
@@ -972,9 +972,12 @@ fnc value_tree_error(Value root): String {
         return "value_bytes";
       fi
       used_bytes = used_bytes + node.number_lexeme.length;
-      for const octet of node.number_lexeme do
-        if octet < 0 || octet > 255 then return "invalid_wire_octet"; fi
-      done
+      // Grammar is checked even when the semantic rule is any_rule().
+      // A malformed direct Value must never bypass the JSON writer's
+      // canonical admission just because no range constraints were set.
+      if !json_number_lexeme_valid(node.number_lexeme) then
+        return "invalid_number_lexeme";
+      fi
     elseif node.kind == 3 then
       if node.string_value.bytes.length > max_validation_tree_bytes() - used_bytes then
         return "value_bytes";
