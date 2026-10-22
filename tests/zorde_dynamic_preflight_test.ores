@@ -1,7 +1,7 @@
 // Dynamic Zorde admission must not accept malformed nested Values.
 import fnc require_true from './assert';
 import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_string, value_array, value_object, value_map from '../src/core/value';
+import fnc value_int, value_string, value_array, value_object, value_map, value_bytes, value_extension, value_number_lexeme from '../src/core/value';
 import class FieldRule, ObjectSchema, ValidationReport from '../src/validation/validation';
 import fnc any_rule, object_schema, validate_value, validate_object, report_is_valid from '../src/validation/validation';
 import fnc default_validation_options, max_validation_tree_depth, max_validation_collection_items from '../src/validation/validation';
@@ -15,6 +15,22 @@ pub fnc run_zorde_dynamic_preflight_tests(): void {
   );
   require_true(report_is_valid(rt borrow good_report),
     "valid nested data must remain admitted");
+
+  // Directly constructed number/raw byte Value objects bypass wire decoders.
+  // Do not accept negative integers or values above 255 as octets.
+  val List<Value> bad_octets = new List<Value>();
+  bad_octets.add(value_bytes(new List<int>(-1)));
+  bad_octets.add(value_extension(1, new List<int>(256)));
+  bad_octets.add(value_number_lexeme(new List<int>(300)));
+  require_true(!report_is_valid(validate_value(
+    value_array(bad_octets), any_rule(), default_validation_options()
+  )), "all nested raw byte carriers must reject out-of-range octets");
+
+  val List<Value> good_octets = new List<Value>();
+  good_octets.add(value_bytes(new List<int>(0, 255)));
+  require_true(report_is_valid(validate_value(
+    value_array(good_octets), any_rule(), default_validation_options()
+  )), "valid 0..255 octets remain accepted");
 
   val List<Value> bad_strings = new List<Value>();
   bad_strings.add(value_string(new Utf8Text(new List<int>(255))));
