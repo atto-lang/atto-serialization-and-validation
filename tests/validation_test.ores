@@ -8,7 +8,7 @@ import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
 import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields from '../src/validation/validation';
-import fnc validate_value, validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
+import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 pub fnc run_validation_tests(): void {
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
@@ -135,5 +135,22 @@ pub fnc run_validation_tests(): void {
     !report_is_valid(rt borrow non_finite_conversion),
     "numeric range validation must reject NaN-producing decimal conversion"
   );
+  // Checked dynamic APIs return plain Value, never authoritative proof.
+  val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(2, 2, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(!accepted_dynamic.is_err(), "dynamic checked string accepts valid input");
+  val Result<Value, ValidationReport> denied_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(3, 3, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(denied_dynamic.is_err(), "dynamic checked string rejects invalid input");
+  val Result<Value, ValidationReport> denied_duplicate = validate_object_checked(
+    value_object(duplicate_members), rt borrow schema, default_validation_options()
+  );
+  require_true(denied_duplicate.is_err(), "dynamic checked object rejects duplicate keys");
   return;
 }
