@@ -32,9 +32,8 @@ pub define class ValidationReport as
   pub let bool truncated;
 end
 
-pub define class ValidValue as
-  pub val Value value;
-end
+// Dynamic validation never mints an authoritative, schema-bound typestate proof.
+// Future Valid<T, SchemaId> must be compiler-issued and nonforgeable.
 
 define class ParsedNumber as
   pub val bool ok;
@@ -1170,10 +1169,10 @@ pub fnc validate_value_checked(
   Value value,
   ValueRule rule,
   ValidationOptions options
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   let ValidationReport report = validate_value(value, rule, options);
   if report_is_valid(report) then
-    return Ok(new ValidValue(value));
+    return Ok(value);
   fi
   return Err(report);
 }
@@ -1182,10 +1181,10 @@ pub fnc validate_object_checked(
   Value value,
   ObjectSchema schema,
   ValidationOptions options
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   let ValidationReport report = validate_object(value, schema, options);
   if report_is_valid(report) then
-    return Ok(new ValidValue(value));
+    return Ok(value);
   fi
   return Err(report);
 }
