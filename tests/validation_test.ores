@@ -142,9 +142,12 @@ pub fnc run_validation_tests(): void {
   bad_utf8_members.add(new WireMember(
     new Utf8Text(new List<int>(255)), value_int(1)
   ));
-  require_true(!report_is_valid(validate_object(
+  val ValidationReport bad_key_report = validate_object(
     value_object(bad_utf8_members), rt borrow open_schema,
-    default_validation_options())), "direct object rejects invalid UTF-8 keys");
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow bad_key_report),
+    "direct object rejects invalid UTF-8 keys");
 
   val List<int> oversized_key_bytes = new List<int>();
   let int key_index = 0;
@@ -157,9 +160,12 @@ pub fnc run_validation_tests(): void {
   oversized_key_members.add(new WireMember(
     new Utf8Text(oversized_key_bytes), value_int(1)
   ));
-  require_true(!report_is_valid(validate_object(
+  val ValidationReport too_long_key_report = validate_object(
     value_object(oversized_key_members), rt borrow open_schema,
-    default_validation_options())), "direct object rejects oversized key before UTF-8 scan");
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow too_long_key_report),
+    "direct object rejects oversized key before UTF-8 scan");
 
   val List<WireMember> oversized_value_members = new List<WireMember>();
   let int member_index = 0;
@@ -170,8 +176,11 @@ pub fnc run_validation_tests(): void {
     ));
     member_index = member_index + 1;
   done
-  require_true(!report_is_valid(validate_object(
+  val ValidationReport too_many_members_report = validate_object(
     value_object(oversized_value_members), rt borrow open_schema,
-    default_validation_options())), "direct object rejects excessive distinct member count");
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow too_many_members_report),
+    "direct object rejects excessive distinct member count");
   return;
 }
