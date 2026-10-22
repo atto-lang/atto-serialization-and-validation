@@ -100,6 +100,7 @@ Implemented primitives include:
 - basic email shape checks;
 - HTTP/HTTPS URL checks;
 - reject-unknown-field object schemas;
+- bounded input object member counts and key bytes, with UTF-8 key validation even in open schemas;
 - fail-fast or bounded error collection;
 - `ValidValue` wrappers through `validate_value_checked` and `validate_object_checked`.
 
