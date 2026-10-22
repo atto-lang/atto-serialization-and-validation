@@ -37,7 +37,7 @@ nominal type or run a second constraint semantics engine.
 | --- | --- |
 | Registry entries | 1–64 |
 | Schema identifier | 1–128 printable ASCII bytes (no NUL/control bytes) |
-| Scalar exclusions | 0–256 per entry |
+| Scalar exclusions | 0–256 per entry; also enforced for direct core and descriptor construction |
 | Signed-int64 numeric lexeme | at most 20 bytes, checked before parsing |
 | UTF-8 scalar input | at most 65,536 bytes, checked before scanning |
 | Supported descriptor | canonical v1 exact signed int64 or UTF-8 Unicode-scalar string length |
@@ -46,6 +46,12 @@ nominal type or run a second constraint semantics engine.
 | Unknown schema selector | refused |
 | Floating-point coercion of signed int64 | never allowed |
 | Remote/dynamic references, schema recursion, JSON Schema general vocabulary | **not implemented / not admitted** |
+
+A direct core interval or descriptor with more than 256 exclusions now fails closed
+before snapshot allocation; even a public class constructor cannot bypass the
+validity check. This intentionally tightens generic dynamic scalar use, not
+only registry compilation. Fully independent compiler/native conformance is
+still pending.
 
 Source metadata and ID byte lists are deep-snapshotted at compilation, and the
 private entry class is not exported. The current bounded linear lookup is
