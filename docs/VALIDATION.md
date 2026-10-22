@@ -92,6 +92,26 @@ may continue exposing explicit compatibility policies, but callers must not
 use them as a Zorde security-boundary substitute. The return value remains
 an ordinary mutable `Value`, not an opaque validation proof.
 
+## Dynamic Value structural admission
+
+Dynamic `validate_value` and `validate_object` now preflight the **entire**
+caller-provided graph, even for `any_rule()` or unknown fields in an open
+object schema. A bounded iterative walk refuses malformed nested UTF-8,
+duplicate object keys, unknown wire kind tags, oversized collections and
+depth/node/byte budget exhaustion before applying rules or hashing array items.
+Limits currently are 64 edges of depth, 8,192 visited nodes, 4,096 items per
+collection, and 1 MiB of cumulative string/byte/number/key payload; repeat
+references consume quota repeatedly and cycles are therefore rejected.
+These are deliberately fixed limits pending compiler-generated per-profile
+budgets. Errors never echo hostile payload contents.
+
+**Remaining boundaries:** this is *not* a deep freeze, schema authenticity
+proof, canonical JSON/CBOR/MessagePack equivalence, universal byte grammar
+check, or compiler-issued `Valid<T, SchemaId>`. The legacy untyped number
+lexeme/byte representations and mutable aliases still require follow-on
+admission work. No source-compiler or backend pass is asserted until exact-head
+native tests execute.
+
 ## Streaming validation
 
 Rules should run as early as possible:
