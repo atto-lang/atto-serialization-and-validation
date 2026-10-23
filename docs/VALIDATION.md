@@ -174,10 +174,8 @@ character policies vacuously; use `min_length 1` to forbid emptiness.
 `src/validation/refined_string.ores` provides an exact UTF-8, report-only
 validator. Character policy enum: 0 any, 1 ascii_letters, 2 ascii_uppercase,
 3 ascii_lowercase, 4 Unicode uppercase, 5 Unicode lowercase, 6 Unicode Han.
-Only policies 0–3 have executable validation. Policies 4–6 reject **all**
-inputs with `unverified_unicode_policy` until certified Unicode **18.0.0**
-tables and differential Java/LLVM tests exist. Do not substitute host
-Unicode defaults or limited CJK block ranges for Script=Han. Han-script
+Policies 0–3 and **6 (Unicode 18 Script=Han)** have report-only executable validation. Policy 6 uses all 25 exact Unicode 18.0 `Scripts.txt` Han ranges (103352 code points, including supplementary-plane extensions). Policies 4–5 (Unicode Uppercase/Lowercase) still reject **all** inputs with `unverified_unicode_policy` until certified Unicode **18.0.0** derived property tables and differential Java/LLVM tests exist. Do not substitute host
+Unicode defaults or limited CJK block ranges for Script=Han. The exact data source is https://www.unicode.org/Public/18.0.0/ucd/Scripts.txt. Han-script
 characters are not equivalent to the Chinese language.
 
 Character policies use `zorde.scalar/v2`; length-only aliases continue
