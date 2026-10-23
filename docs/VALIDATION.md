@@ -106,3 +106,49 @@ Implemented primitives include:
 Error reports are bounded by `ValidationOptions.max_errors`, and validation errors retain logical path segments without retaining the entire untrusted input payload.
 
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
+
+
+## Oreslang `with` numeric refinement integration (staged exact-int kernel)
+
+The compiler/shared contract normalizes all three spellings to the **same**
+`zorde.scalar/v1` metadata and fingerprint:
+
+```ores
+declare type Code;
+fnc identity(Code value): Code { return value; }
+define type Code = int with min 0 and max 5;
+
+// Equivalent constraint, not a separate schema:
+define type EquivalentCode = int with value gte 0 and value lte 5;
+```
+
+`@Range(min=0,max=5)` and `Zorde.int().min(0).max(5)` also normalize to
+the same interval predicate (but names/nominal identities remain compiler
+type-system concerns). The shared JSON example lives at
+`tests/fixtures/zorde-code-0-5.json`; it is byte-identical to
+`oreslang-common-source/fixtures/refinement-v1/zorde-code-0-5.json`.
+Inclusive min/max allow 0 and 5 and reject -1 and 6. Strictly positive
+means `with value gt 0`, not `with min 0`. Arbitrary natural language
+`int as positive integer` is not a validation rule and must not be parsed
+as one.
+
+`src/validation/refined_int.ores` now offers `validate_refined_int`,
+`refined_int_schema_valid`, and `refined_int_accepts` as a bounded,
+reflection-free, exact signed-int64 **report-only** validation kernel.
+It uses `parse_int` over the number's original lexical bytes instead of
+the existing general `number_rule` floating-point path; this distinction
+matters above `2^53`. It rejects decimal, exponent and out-of-range
+integer encodings, contradictory bounds, sorted/unique-exclusion violations,
+and unsatisfiable intervals. The helper is included in both native test suites.
+
+**Security and release boundary:** Dynamic rule arguments or a user-provided
+schema fingerprint **never** mint compiler-authoritative
+`Valid<T, SchemaId>` or an Oreslang refined `Code` value. Source-level
+`with` parsing, static implication and checked-constructor codegen,
+trusted schema-identity admission, generated decode-time dispatch, and
+Java/LLVM executable parity are still pending. The existing
+`validate_value_checked` / `ValidValue` path is an ordinary dynamic
+validation report wrapper, not a substitute for the reserved proof type.
+Do not silently lower a refined `int` to plain `int` or route exact bounds
+through float-based `number_rule`; fail compilation instead until typed
+end-to-end lowering is verified.
