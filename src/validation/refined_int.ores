@@ -1,0 +1,116 @@
+// Exact signed-int64 runtime kernel for compiler-normalized refinements.
+//
+// `with min 0 and max 5`, `with value gte 0 and value lte 5`,
+// and `@Range(min=0,max=5)` all lower to the same bounded interval
+// descriptor in common-source. NEVER implement this using number_rule()
+// or float64 coercion: values beyond 2^53 would be unsound.
+//
+// This report-only helper DOES NOT manufacture compiler-authoritative
+// Valid<T, SchemaId>; the nominal proof type remains a separate gate.
+import class Value, IntParse from '../core/value';
+import fnc parse_int from '../core/value';
+import class ValidationOptions, ValidationError, ValidationReport, PathSegment from './validation';
+import fnc validation_options_valid, report_is_valid from './validation';
+
+pub fnc refined_int_schema_valid(
+  int minimum,
+  int maximum,
+  List<int> excluded
+): bool {
+  if minimum > maximum then return false; fi
+  if excluded.length > 4096 then return false; fi
+  // Compiler-generated exclusions are sorted, unique and in-domain.
+  // Reject malformed metadata rather than silently weaken the predicate.
+  let bool has_prior = false;
+  let int prior = 0;
+  for const hole of excluded do
+    if hole < minimum || hole > maximum then return false; fi
+    if has_prior && hole <= prior then return false; fi
+    prior = hole;
+    has_prior = true;
+  done
+
+  // Exclusions cannot cover every value in a nonempty interval. Check
+  // consecutive positions without computing maximum-minimum+1, which
+  // would overflow signed int64 for the full numeric domain.
+  if excluded.length > 0 then
+    let int next = minimum;
+    let bool complete = true;
+    for const hole of excluded do
+      if hole != next then
+        complete = false;
+        break;
+      fi
+      if next == maximum then break; fi
+      next = next + 1;
+    done
+    if complete && prior == maximum then return false; fi
+  fi
+
+  return true;
+}
+
+fnc failure_report(ValidationOptions options, String code, String message): ValidationReport {
+  if options.max_errors == 0 then
+    return new ValidationReport(new List<ValidationError>(), true);
+  fi
+  val List<ValidationError> errors = new List<ValidationError>();
+  errors.add(new ValidationError(code, new List<PathSegment>(), message, -1));
+  return new ValidationReport(errors, false);
+}
+
+// Runtime boundary for generated, canonical zorde.scalar/v1 integer schemas.
+// Metadata admission (compiler schema identity/fingerprint) must be performed
+// by the caller; arbitrary user metadata never grants trusted type authority.
+pub fnc validate_refined_int(
+  Value value,
+  int minimum,
+  int maximum,
+  List<int> excluded,
+  ValidationOptions options
+): ValidationReport {
+  if !validation_options_valid(options) then
+    return failure_report(
+      new ValidationOptions(true, 1),
+      "invalid_options",
+      "validation options are outside supported bounds"
+    );
+  fi
+  if !refined_int_schema_valid(minimum, maximum, excluded) then
+    return failure_report(options, "invalid_refinement_schema", "invalid exact integer refinement schema");
+  fi
+
+  val IntParse parsed = parse_int(value);
+  if !parsed.ok then
+    return failure_report(options, "int64", "expected an exact signed 64-bit integer");
+  fi
+  if parsed.value < minimum then
+    return failure_report(options, "min", "integer is below the minimum");
+  fi
+  if parsed.value > maximum then
+    return failure_report(options, "max", "integer is above the maximum");
+  fi
+  for const hole of excluded do
+    if parsed.value == hole then
+      return failure_report(options, "exclude", "integer is excluded by the refinement");
+    fi
+  done
+  return new ValidationReport(new List<ValidationError>(), false);
+}
+
+pub fnc refined_int_accepts(
+  Value value,
+  int minimum,
+  int maximum,
+  List<int> excluded
+): bool {
+  return report_is_valid(
+    validate_refined_int(
+      value,
+      minimum,
+      maximum,
+      excluded,
+      new ValidationOptions(true, 1)
+    )
+  );
+}
