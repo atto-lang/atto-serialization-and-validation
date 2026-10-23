@@ -4,6 +4,7 @@ import fnc run_messagepack_tests from './messagepack_test';
 import fnc run_cbor_tests from './cbor_test';
 import fnc run_protobuf_tests from './protobuf_test';
 import fnc run_validation_tests from './validation_test';
+import fnc run_refined_int_zorde_tests from './refined_int_zorde_test';
 import fnc run_metadata_tests from './metadata_test';
 import fnc run_object_codec_tests from './object_codec_test';
 import fnc run_generated_typed_codec_tests from './generated_typed_codec_test';
@@ -14,6 +15,7 @@ pub fnc main(): void {
   run_cbor_tests();
   run_protobuf_tests();
   run_validation_tests();
+  run_refined_int_zorde_tests();
   run_int64_decimal_codec_tests();
   run_metadata_tests();
   run_object_codec_tests();
