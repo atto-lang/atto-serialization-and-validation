@@ -7,14 +7,74 @@
 //   3 ascii_lowercase [a-z]
 //   4 uppercase (Unicode 18, reserved, NOT admitted without UCD tables)
 //   5 lowercase (Unicode 18, reserved, NOT admitted without UCD tables)
-//   6 han (Unicode 18 Script=Han, reserved, NOT admitted)
+//   6 han (Unicode 18 Script=Han, pinned 25-range table)
 //
 // ALL policies are compiler-owned descriptor metadata; callers with arbitrary
 // integers cannot mint Valid<T,S> or forge schema identity.
 import class Value, Utf8Text from '../core/value';
-import fnc utf8_codepoint_count from '../core/utf8';
+import fnc utf8_codepoint_count, utf8_expected_width from '../core/utf8';
 import class ValidationOptions, ValidationError, ValidationReport, PathSegment from './validation';
 import fnc validation_options_valid, report_is_valid from './validation';
+
+
+// Exact Unicode 18.0.0 Script=Han property. Source:
+// https://www.unicode.org/Public/18.0.0/ucd/Scripts.txt
+// Han section (2026-06-29), 25 disjoint ranges, 103352 code points.
+//
+// This is Script=Han, NOT the Chinese language or Script_Extensions=Han.
+// Chinese/Japanese punctuation, emoji, Latin transliterations etc. are not
+// Han script. Exact canonical ranges, including radicals and non-BMP planes.
+pub fnc unicode18_is_han(int codepoint): bool {
+  return (codepoint >= 11904 && codepoint <= 11929) ||
+      (codepoint >= 11931 && codepoint <= 12019) ||
+      (codepoint >= 12032 && codepoint <= 12245) ||
+      codepoint == 12293 ||
+      codepoint == 12295 ||
+      (codepoint >= 12321 && codepoint <= 12329) ||
+      (codepoint >= 12344 && codepoint <= 12346) ||
+      codepoint == 12347 ||
+      (codepoint >= 13312 && codepoint <= 19903) ||
+      (codepoint >= 19968 && codepoint <= 40959) ||
+      (codepoint >= 63744 && codepoint <= 64109) ||
+      (codepoint >= 64112 && codepoint <= 64217) ||
+      codepoint == 94178 ||
+      codepoint == 94179 ||
+      (codepoint >= 94192 && codepoint <= 94193) ||
+      (codepoint >= 94194 && codepoint <= 94195) ||
+      (codepoint >= 94196 && codepoint <= 94198) ||
+      (codepoint >= 131072 && codepoint <= 173791) ||
+      (codepoint >= 173824 && codepoint <= 178206) ||
+      (codepoint >= 178208 && codepoint <= 183981) ||
+      (codepoint >= 183984 && codepoint <= 191456) ||
+      (codepoint >= 191472 && codepoint <= 192093) ||
+      (codepoint >= 194560 && codepoint <= 195101) ||
+      (codepoint >= 196608 && codepoint <= 201546) ||
+      (codepoint >= 201552 && codepoint <= 210041);
+}
+
+// Caller must first confirm all input UTF-8 is valid. This routine is
+// intentionally narrow: direct scalar decoding into bounded signed integers,
+// no host Unicode tables, locale rules, normalization or character folding.
+fnc utf8_scalar_at(List<int> bytes, int offset, int width): int {
+  let int first = bytes[offset];
+  if width == 1 then return first; fi
+  if width == 2 then
+    return (first - 192) * 64 + (bytes[offset + 1] - 128);
+  fi
+  if width == 3 then
+    return (first - 224) * 4096 +
+      (bytes[offset + 1] - 128) * 64 +
+      (bytes[offset + 2] - 128);
+  fi
+  if width == 4 then
+    return (first - 240) * 262144 +
+      (bytes[offset + 1] - 128) * 4096 +
+      (bytes[offset + 2] - 128) * 64 +
+      (bytes[offset + 3] - 128);
+  fi
+  // unreachable if utf8_codepoint_count succeeded. Fail closed.
+  return -1;
+}
 
 pub fnc refined_string_schema_valid(
   int minimum,
@@ -59,10 +119,10 @@ pub fnc validate_refined_string(
     );
   fi
 
-  // Unicode 18 Script=Han and derived Unicode case classifications must
-  // use the EXACT versioned UCD dataset; the host runtime's Unicode tables
-  // are not a stable compiler ABI. Fail closed even for ASCII input.
-  if policy >= 4 then
+  // Full Unicode Uppercase/Lowercase derived properties still require
+  // exact pinned UCD 18.0 tables; host Unicode defaults are not stable.
+  // Han (policy 6) is independently certified by the 25 ranges above.
+  if policy == 4 || policy == 5 then
     return string_refinement_failure(
       "unverified_unicode_policy",
       "pinned Unicode 18 character tables are not installed",
@@ -92,6 +152,29 @@ pub fnc validate_refined_string(
     return string_refinement_failure(
       "max_length", "string contains too many Unicode scalar values", options
     );
+  fi
+
+  if policy == 6 then
+    let int offset = 0;
+    loop do
+      if offset >= text.bytes.length then break; fi
+      let int width = utf8_expected_width(text.bytes[offset]);
+      // Width and continuation-byte validity were already checked by
+      // utf8_codepoint_count. Retain defensive bounds admission here.
+      if width < 1 || width > text.bytes.length - offset then
+        return string_refinement_failure(
+          "utf8", "string contains invalid UTF-8", options
+        );
+      fi
+      let int scalar = utf8_scalar_at(text.bytes, offset, width);
+      if !unicode18_is_han(scalar) then
+        return string_refinement_failure(
+          "chars_han", "string contains a scalar outside Unicode Script=Han",
+          options
+        );
+      fi
+      offset = offset + width;
+    done
   fi
 
   if policy == 1 || policy == 2 || policy == 3 then
