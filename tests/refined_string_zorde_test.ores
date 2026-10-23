@@ -1,0 +1,67 @@
+import fnc require_true from './assert';
+import class Utf8Text from '../src/core/value';
+import fnc value_string, value_int from '../src/core/value';
+import class ValidationOptions, ValidationReport from '../src/validation/validation';
+import fnc report_is_valid from '../src/validation/validation';
+import fnc refined_string_accepts, validate_refined_string, refined_string_schema_valid from '../src/validation/refined_string';
+
+pub fnc run_refined_string_zorde_tests(): void {
+  // Policy 1 = ASCII English letters [A-Za-z], length 2 through 4 inclusive.
+  val List<int> a_b = new List<int>(65, 98);
+  val List<int> a_one = new List<int>(65, 49);
+  require_true(refined_string_accepts(value_string(new Utf8Text(a_b)), 2, 4, 1),
+    "A+b lowercase allowed by English letter policy");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(a_one)), 2, 4, 1),
+    "ASCII English letters must reject digits");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(65))), 2, 4, 1),
+    "one letter shorter than minimum");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(65, 66, 67, 68, 69))), 2, 4, 1),
+    "five letters longer than maximum");
+  require_true(refined_string_accepts(value_string(new Utf8Text(new List<int>(65, 66))), 1, 4, 2),
+    "ASCII uppercase");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(65, 98))), 1, 4, 2),
+    "uppercase rejects lowercase");
+  require_true(refined_string_accepts(value_string(new Utf8Text(new List<int>(97, 98))), 1, 4, 3),
+    "ASCII lowercase");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(97, 66))), 1, 4, 3),
+    "lowercase rejects uppercase");
+
+  // Unicode length counts scalar values, not UTF-8 bytes or grapheme clusters.
+  val List<int> emoji = new List<int>(240, 159, 152, 128);
+  require_true(refined_string_accepts(value_string(new Utf8Text(emoji)), 1, 1, 0),
+    "emoji is one Unicode scalar, four bytes");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(emoji)), 2, 2, 0),
+    "emoji not two Unicode scalars");
+  val List<int> decomposed_accent = new List<int>(101, 204, 129);
+  require_true(refined_string_accepts(value_string(new Utf8Text(decomposed_accent)), 2, 2, 0),
+    "e plus combining acute is two scalars");
+  val List<int> han_zhong = new List<int>(228, 184, 173);
+  require_true(refined_string_accepts(value_string(new Utf8Text(han_zhong)), 1, 1, 0),
+    "Han scalar counts as one");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(han_zhong)), 1, 1, 1),
+    "ASCII letters reject Han");
+
+  // Reserved Unicode 18 modes fail closed until versioned UCD tables ship.
+  require_true(!refined_string_accepts(value_string(new Utf8Text(han_zhong)), 1, 1, 6),
+    "Unicode Script=Han policy not silently approximated");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(65, 66))), 1, 2, 4),
+    "Unicode uppercase policy not approximated by ASCII");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(97, 98))), 1, 2, 5),
+    "Unicode lowercase policy not approximated by ASCII");
+
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(192, 175))), 0, 5, 0),
+    "overlong invalid UTF-8 rejected");
+  require_true(!refined_string_accepts(value_string(new Utf8Text(new List<int>(237, 160, 128))), 0, 5, 0),
+    "UTF-8 surrogate codepoint rejected");
+  require_true(!refined_string_accepts(value_int(65), 0, 3, 0),
+    "numeric value is not a string");
+  require_true(!refined_string_schema_valid(4, 3, 1), "unsatisfiable interval");
+  require_true(!refined_string_schema_valid(-1, 4, 0), "negative length");
+  require_true(!refined_string_schema_valid(0, 4, 7), "unknown character policy");
+  val ValidationReport zero_error_budget = validate_refined_string(
+    value_string(new Utf8Text(a_one)), 2, 4, 1, new ValidationOptions(true, 0)
+  );
+  require_true(!report_is_valid(zero_error_budget) && zero_error_budget.truncated,
+    "zero error budget fails closed");
+  return;
+}
