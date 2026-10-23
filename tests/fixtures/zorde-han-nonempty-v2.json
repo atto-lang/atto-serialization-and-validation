@@ -1,0 +1,22 @@
+{
+  "schema": "zorde.scalar/v2",
+  "version": 2,
+  "base": "string",
+  "property": "length",
+  "minimum": 1,
+  "maximum": 9223372036854776000,
+  "excluded": [],
+  "nominal_identity": null,
+  "fingerprint": "72c95e512c6e377ec6d4d2a16fcd18b88f2c84abe2d95f01cdc144d6e57061cc",
+  "length_semantics": "unicode_scalar_values",
+  "runtime_requirements": [
+    "valid_utf8_or_language_string",
+    "unicode_scalar_count",
+    "inclusive_signed_int64_interval",
+    "sorted_unique_exclusions",
+    "per_scalar_character_policy",
+    "ucd_18_0_0_script_han_25_ranges"
+  ],
+  "charset": "han",
+  "unicode_version": "18.0.0"
+}
