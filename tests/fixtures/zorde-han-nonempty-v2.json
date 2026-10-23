@@ -4,7 +4,7 @@
   "base": "string",
   "property": "length",
   "minimum": 1,
-  "maximum": 9223372036854776000,
+  "maximum": 9223372036854775807,
   "excluded": [],
   "nominal_identity": null,
   "fingerprint": "72c95e512c6e377ec6d4d2a16fcd18b88f2c84abe2d95f01cdc144d6e57061cc",
