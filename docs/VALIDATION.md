@@ -152,3 +152,45 @@ validation report wrapper, not a substitute for the reserved proof type.
 Do not silently lower a refined `int` to plain `int` or route exact bounds
 through float-based `number_rule`; fail compilation instead until typed
 end-to-end lowering is verified.
+
+## String length and character-set refinements (v2; staged)
+
+The canonical scalar string policies are:
+
+```ores
+define type Handle = string with min_length 2 and max_length 4
+    and chars ascii_letters;
+define type UpperCode = string with min_length 1 and chars ascii_uppercase;
+define type LowerCode = string with min_length 1 and chars ascii_lowercase;
+```
+
+`min_length N` and `max_length N` normalize to `length gte N` and
+`length lte N` without changing Unicode scalar counting. The character
+policy `chars ascii_letters` permits only ASCII A-Z / a-z; `ascii_uppercase`
+only A-Z; `ascii_lowercase` only a-z. Digits, punctuation, combining marks
+and non-ASCII letters do not satisfy these policies. Empty strings satisfy
+character policies vacuously; use `min_length 1` to forbid emptiness.
+
+`src/validation/refined_string.ores` provides an exact UTF-8, report-only
+validator. Character policy enum: 0 any, 1 ascii_letters, 2 ascii_uppercase,
+3 ascii_lowercase, 4 Unicode uppercase, 5 Unicode lowercase, 6 Unicode Han.
+Only policies 0–3 have executable validation. Policies 4–6 reject **all**
+inputs with `unverified_unicode_policy` until certified Unicode **18.0.0**
+tables and differential Java/LLVM tests exist. Do not substitute host
+Unicode defaults or limited CJK block ranges for Script=Han. Han-script
+characters are not equivalent to the Chinese language.
+
+Character policies use `zorde.scalar/v2`; length-only aliases continue
+using unmodified `zorde.scalar/v1` identities. Version 2 includes policy
+name and pinned Unicode table version in its canonical fingerprint.
+The shared fixture
+`tests/fixtures/zorde-english-letters-2-4-v2.json`
+must exactly match the common-source counterpart. Native string tests are
+included in both the core and full suites, covering UTF-8 validity,
+length semantics (including emoji/combining marks), ASCII policy checks,
+unknown/Unicode policy rejections and bounded errors.
+
+The validator does not mint typed `Valid<T,S>`, dispatch automatically from
+guest `with` syntax, or claim verified runtime/compiler acceptance.
+Compiler-generated schema-identity admission and end-to-end Java/LLVM
+refined type checking remain separate release gates.
