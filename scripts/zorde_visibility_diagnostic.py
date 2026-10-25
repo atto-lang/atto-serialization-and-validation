@@ -16,6 +16,13 @@ TARGETS = {
     "private-entry-import": re.compile(r"(?<![A-Za-z0-9_])ZordePrivateCompiledEntry(?![A-Za-z0-9_])"),
     "private-storage-access": re.compile(r"(?<![A-Za-z0-9_])entries(?![A-Za-z0-9_])"),
 }
+STORAGE_REFERENCE = re.compile(
+    r"(?<![A-Za-z0-9_])(?:"
+    r"ZordeScalarRegistry[ \t]*(?:(?:\.|::)[ \t]*|(?:member|field)[ \t]+)entries"
+    r"|(?:member|field)[ \t]+entries[ \t]+(?:of|in|on)[ \t]+ZordeScalarRegistry"
+    r"|entries[ \t]+(?:of|in|on)[ \t]+ZordeScalarRegistry"
+    r")(?![A-Za-z0-9_])"
+)
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 DENIAL = re.compile(
     r"\b(?:not[\s-]+(?:exported|public|visible|accessible)"
@@ -34,13 +41,44 @@ UNRELATED_FAILURE = re.compile(
 )
 
 
+def denial_matcher(symbol: str) -> re.Pattern[str]:
+    """Bind one visibility-denial phrase to exactly the named protected symbol.
+
+    The symbol remains case-sensitive while compiler wording is case-insensitive.
+    Quotes in compiler messages are turned into spacing before matching.
+    """
+    name = r"(?<![A-Za-z0-9_])" + re.escape(symbol) + r"(?![A-Za-z0-9_])"
+    suffix = (r"(?:is[ \t]+private|has[ \t]+private[ \t]+access"
+              r"|(?:is[ \t]+)?not[ \t]+(?:exported|public|visible|accessible)"
+              r"|is[ \t]+inaccessible|cannot[ \t]+be[ \t]+accessed)")
+    prefix = (r"(?:cannot[ \t]+(?:access|import)"
+              r"|access[ \t]+denied(?:[ \t]+to)?"
+              r"|private[ \t]+(?:class|type|member|field|declaration|symbol|import))")
+    descriptor = r"(?:(?:member|field|class|type|symbol)[ \t]+)?"
+    return re.compile(
+        r"(?:%s[ \t]+(?i:%s)|(?i:%s)[ \t]+(?i:%s)%s)" %
+        (name, suffix, prefix, descriptor, name)
+    )
+
+
+BOUND_DENIAL = {
+    fixture: denial_matcher("ZordePrivateCompiledEntry" if fixture == "private-entry-import" else "entries")
+    for fixture in TARGETS
+}
+QUOTES = str.maketrans({"'": " ", '"': " ", "`": " "})
+
+
 def assess(log: bytes, fixture: str) -> tuple[bool, str]:
-    """Only matching symbol + access denial on same or adjacent lines qualifies."""
-    target = TARGETS.get(fixture)
-    if target is None:
+    """Deny any mixed failure; accept only target-bound visibility diagnostics.
+
+    For a multiline compiler emission, accept an *isolated* two-line form:
+    'error: private type' + 'ZordePrivateCompiledEntry'. Do not join generic
+    adjacent lines or accept a different declaration's private error.
+    """
+    if fixture not in TARGETS:
         return False, "unrecognized fixture"
-    if not log or len(log) > MAX_LOG_BYTES:
-        return False, "empty or oversized diagnostic"
+    if not log or len(log) > MAX_LOG_BYTES or b"\x00" in log:
+        return False, "empty, binary or oversized diagnostic"
     try:
         message = log.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
@@ -49,13 +87,29 @@ def assess(log: bytes, fixture: str) -> tuple[bool, str]:
     if UNRELATED_FAILURE.search(message):
         return False, "mixed or unrelated compiler failure"
     lines = message.splitlines()
-    denial_lines = [i for i, line in enumerate(lines) if DENIAL.search(line)]
-    symbol_lines = {i for i, line in enumerate(lines) if target.search(line)}
-    if not denial_lines or not symbol_lines:
-        return False, "targeted access denial absent"
-    if not any(any(abs(d - s) <= 1 for s in symbol_lines) for d in denial_lines):
-        return False, "access denial separated from protected symbol"
-    return True, "targeted visibility denial"
+    rule = BOUND_DENIAL[fixture]
+    target = TARGETS[fixture]
+    for index, line in enumerate(lines):
+        if len(line) > 4096:
+            continue
+        cleaned = line.translate(QUOTES)
+        if rule.search(cleaned):
+            if fixture == "private-storage-access" and not STORAGE_REFERENCE.search(cleaned):
+                continue
+            return True, "targeted visibility denial"
+        if index + 1 >= len(lines):
+            continue
+        # Only the explicit compiler two-line grammar may cross the line.
+        # A free-floating unrelated private error on an adjacent line cannot.
+        if re.fullmatch(r"[ \t]*(?:error:[ \t]*)?private[ \t]+(?:type|class|field|member|symbol)[ \t]*", cleaned, re.I):
+            continuation = lines[index + 1].translate(QUOTES).strip()
+            if len(continuation) <= 256:
+                if fixture == "private-storage-access":
+                    if STORAGE_REFERENCE.fullmatch(continuation):
+                        return True, "targeted multiline visibility denial"
+                elif target.fullmatch(continuation):
+                    return True, "targeted multiline visibility denial"
+    return False, "targeted access denial absent"
 
 
 def main(argv: list[str]) -> int:
