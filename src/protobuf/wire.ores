@@ -51,7 +51,7 @@ define class ProtoCursor as
 end
 
 define class ProtoWriter as
-  pub let mut List<int> output;
+  pub let List<int> output;
   pub val ProtoEncodeOptions options;
   pub let bool failed;
   pub let ProtoError error;

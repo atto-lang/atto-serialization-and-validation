@@ -22,6 +22,15 @@ High-performance serialization, deserialization, streaming decode, and payload v
 
 The public API should stay format-neutral where possible while preserving format-specific capabilities such as MessagePack extension values and Protobuf field numbers / unknown fields.
 
+## Zorde
+
+**Zorde** is the public Oreslang schema/validation layer in this repository. It
+reuses the native reflection-free validation engine and is intended to be the
+runtime counterpart to compiler refinement types: prove constraints at compile
+time when possible, validate dynamic/untrusted values at explicit boundaries
+when proof is impossible. See [docs/ZORDE.md](docs/ZORDE.md) and
+[src/zorde/zorde.ores](src/zorde/zorde.ores).
+
 ## Architecture
 
 The implementation is intentionally split into:

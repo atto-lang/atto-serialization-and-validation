@@ -21,9 +21,9 @@ while IFS= read -r -d '' file; do
       continue
     fi
     if [[ "$module" == *.ores ]]; then
-      target="$(realpath -m "$(dirname "$file")/$module")"
+      target="$(dirname "$file")/$module"
     else
-      target="$(realpath -m "$(dirname "$file")/$module.ores")"
+      target="$(dirname "$file")/$module.ores"
     fi
     if [[ ! -f "$target" ]]; then
       echo "import source absent: $file -> $target" >&2
@@ -40,9 +40,9 @@ while IFS= read -r -d '' file; do
         continue
       fi
       if [[ "$kind" == class ]]; then
-        signature="^[[:space:]]*pub[[:space:]]+define[[:space:]]+class[[:space:]]+${name}[[:space:]]+as([[:space:]]|$)"
+        signature="^[[:space:]]*(pub[[:space:]]+define|define[[:space:]]+pub)[[:space:]]+class[[:space:]]+${name}[[:space:]]+as([[:space:]]|$)"
       else
-        signature="^[[:space:]]*pub[[:space:]]+((async|nlex|pure)[[:space:]]+)*fnc[[:space:]]+${name}[[:space:]]*\("
+        signature="^[[:space:]]*pub[[:space:]]+(async[[:space:]]+)?fnc[[:space:]]+${name}[[:space:]]*\("
       fi
       if ! grep -Eq "$signature" "$target"; then
         echo "unexported imported $kind '$name': $file -> $target" >&2

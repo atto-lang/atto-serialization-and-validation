@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "status": "equivalent",
+  "authoredDigest": "sha256:example-a",
+  "generatedDigest": "sha256:example-b",
+  "mismatchPaths": []
+}

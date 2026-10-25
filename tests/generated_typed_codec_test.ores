@@ -21,12 +21,12 @@ end
 
 fnc user_metadata(): CodecTypeMeta {
   val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
-  fields.add(codec_field(
+  fields.push(codec_field(
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101)),
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
     1, true, string_rule(1, 120, false, false, false, false)
   ));
-  fields.add(codec_field(
+  fields.push(codec_field(
     new Utf8Text(new List<int>(97, 103, 101)),
     new Utf8Text(new List<int>(97, 103, 101)),
     2, true, kind_rule(2)
@@ -60,8 +60,8 @@ fnc decode_user(List<int> input): Result<User, ObjectCodecError> {
   let IntParse age = parse_int(age_wire);
 
   if name.kind != 3 || !age.ok then
-    val List<ValidationError> errors = new List<ValidationError>();
-    errors.add(new ValidationError(
+    let List<ValidationError> errors = new List<ValidationError>();
+    errors.push(new ValidationError(
       "typed_conversion",
       new List<PathSegment>(),
       "generated User codec could not convert a validated field",
@@ -79,11 +79,11 @@ fnc decode_user(List<int> input): Result<User, ObjectCodecError> {
 
 fnc encode_user(User user): Result<List<int>, EncodeError> {
   val List<WireMember> members = new List<WireMember>();
-  members.add(new WireMember(
+  members.push(new WireMember(
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
     value_string(user.display_name)
   ));
-  members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(user.age)));
+  members.push(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(user.age)));
   return encode(value_object(members), default_encode_options());
 }
 
