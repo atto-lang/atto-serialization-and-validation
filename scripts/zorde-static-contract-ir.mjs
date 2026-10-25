@@ -3,9 +3,9 @@
 // validate payloads, or prove either schema authority: the CI trust boundary
 // must independently pin the actual TJSV action and source revision.
 import { createHash } from 'node:crypto';
-import { openSync, closeSync, readSync, fstatSync, lstatSync, existsSync, mkdirSync,
-  writeFileSync, constants as fsConstants } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { openSync, closeSync, readSync, fstatSync, lstatSync, readdirSync,
+  existsSync, mkdirSync, writeFileSync, constants as fsConstants } from 'node:fs';
+import { dirname, parse, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 const HEX = /^[0-9a-f]{64}$/;
@@ -120,14 +120,37 @@ export function deriveStaticRegistry(ir, report) {
   assert(object(report) && report.schema === REPORT_KIND
     && report.status === 'passed' && report.zeroUnexplainedFindings === true
     && sha(report.runId) && emptyArray(report.findings), 'unpassed TJSV report');
-  assert(object(report.counts) && report.counts.findings===0,
-    'TJSV report contains nonzero or missing finding count');
-  assert(report.coverage?.directDeclarationInventory === true
+  assert(object(report.counts) && report.counts.findings===0
+    && report.counts.structuralFindings===0
+    && report.counts.differentialFindings===0
+    && report.counts.emittedFindings===0
+    && report.counts.findingsTruncated===false,
+    'TJSV report contains missing/truncated or nonzero findings');
+  assert(report.configuration?.mode==='check'
+    && report.coverage?.sourceMutationCheck===true
+    && report.coverage?.directDeclarationInventory === true
     && report.coverage?.typespecGeneratedJsonSchemaComparison === true
-    && report.coverage?.differentialInstanceValidation === true, 'TJSV coverage missing');
+    && report.coverage?.differentialInstanceValidation === true,
+    'TJSV full source-backed check coverage missing');
   assert(report.differential?.summary?.probesEvaluated > 0
     && report.differential?.summary?.divergences === 0
     && report.differential?.summary?.refusals === 0, 'differential evidence missing/refused');
+  // Synthetic differential probes do not establish independently asserted
+  // positive/negative verdicts. Each nominal declaration must have a reviewed
+  // accepted and rejected instance. Bind the corpus digest and ensure there are
+  // no unclaimed/anonymous fixtures before trusting the reported inventory.
+  const summary=report.differential.summary;
+  assert(report.configuration.differential?.enabled === true
+    && sha(report.configuration.differential.instanceCorpusDigest)
+    && !Object.hasOwn(report.differential,'corpusDigest')
+    && Array.isArray(report.differential.declarations)
+    && Number.isSafeInteger(summary.corpusInstances)
+    && summary.corpusInstances > 0
+    && summary.corpusInstances === summary.matchedReviewedCorpusInstances
+    && summary.reviewedUnassertedInstances === 0
+    && summary.reviewedAcceptedInstances > 0
+    && summary.reviewedRejectedInstances > 0,
+    'independently reviewed scalar corpus is missing or incomplete');
   // Recompute the actual TJSV runId, not merely its SHA-256 syntax. Binding
   // source digests into a rewritten receipt is necessary but not proof of a
   // trusted producer or current checked-out source; those are CI obligations.
@@ -168,6 +191,40 @@ export function deriveStaticRegistry(ir, report) {
   assert(Array.isArray(report.declarationMap)
     && report.declarationMap.length === ir.declarations.length,
     'report declaration count mismatch');
+  assert(report.differential.declarations.length === ir.declarations.length
+    && summary.comparedDeclarations === ir.declarations.length
+    && summary.declarationsWithReviewedPositiveAndNegative === ir.declarations.length
+    && summary.declarationsWithoutReviewedFixtures === 0,
+    'positive/negative corpus not reviewed for every admitted declaration');
+  const reviewed=new Map();
+  let sumAccepted=0, sumRejected=0, sumUnasserted=0;
+  for(const entry of report.differential.declarations){
+    assert(object(entry) && typeof entry.typespec==='string'
+      && !reviewed.has(entry.typespec)
+      && entry.reviewedFixtureCoverage==='positive-and-negative'
+      && object(entry.reviewedCorpus)
+      && Number.isSafeInteger(entry.reviewedCorpus.accepted)
+      && Number.isSafeInteger(entry.reviewedCorpus.rejected)
+      && entry.reviewedCorpus.accepted > 0
+      && entry.reviewedCorpus.rejected > 0
+      && entry.reviewedCorpus.unasserted === 0
+      && entry.reviewedCorpus.total ===
+        entry.reviewedCorpus.accepted+entry.reviewedCorpus.rejected
+      && entry.behaviorallyIndistinguishable === true
+      && entry.divergences === 0 && entry.refusals === 0
+      && Number.isSafeInteger(entry.probes)
+      && entry.probes >= entry.reviewedCorpus.total,
+      'unreviewed, duplicate or contradictory declaration corpus');
+    reviewed.set(entry.typespec,entry);
+    sumAccepted+=entry.reviewedCorpus.accepted;
+    sumRejected+=entry.reviewedCorpus.rejected;
+    sumUnasserted+=entry.reviewedCorpus.unasserted;
+  }
+  assert(sumAccepted===summary.reviewedAcceptedInstances
+    && sumRejected===summary.reviewedRejectedInstances
+    && sumUnasserted===summary.reviewedUnassertedInstances
+    && sumAccepted+sumRejected===summary.corpusInstances,
+    'per-declaration corpus counts contradict the report summary');
   const mapped = new Map();
   for (const item of report.declarationMap) {
     assert(object(item) && typeof item.typespec === 'string'
@@ -184,6 +241,10 @@ export function deriveStaticRegistry(ir, report) {
     assert(object(decl.names) && decl.names.typespec === decl.id,
       'nominal schema identity mismatched');
     const pair = mapped.get(decl.id);
+    const corpus=reviewed.get(decl.id);
+    assert(corpus && corpus.generated === decl.names.generatedJsonSchema
+      && corpus.authored === decl.names.authoredJsonSchema,
+      'verified corpus nominal identity mismatches the admitted declaration');
     assert(pair && ['scalar','alias','scalar-like'].includes(pair.kind),
       'mapped declaration is not a scalar kind');
     assert(pair && pair.generated === decl.names.generatedJsonSchema
@@ -236,6 +297,13 @@ function assertSafePlan(plan) {
     'plan cannot claim release/implementation verification');
   assert(sha(plan.irId) && sha(plan.tjsvRunId),
     'plan must bind a reviewed IR and TJSV receipt identity');
+  assert(object(plan.sourceDigests)
+    && Object.keys(plan.sourceDigests).sort().join(',') ===
+      ['authoredJsonSchema','generatedJsonSchema','typespec'].join(',')
+    && sha(plan.sourceDigests.typespec)
+    && sha(plan.sourceDigests.authoredJsonSchema)
+    && sha(plan.sourceDigests.generatedJsonSchema),
+    'plan must bind exactly three valid peer-authority SHA-256 digests');
   assert(Array.isArray(plan.entries) && plan.entries.length >= 1
     && plan.entries.length <= 64, 'invalid plan entry count');
   const ids = new Set();
@@ -287,6 +355,81 @@ export function emitOreslangSpecs(plan) {
   lines.push('}');
   return lines.join('\n') + '\n';
 }
+// Pilot ONLY: a real Oreslang guest program that imports the emitted registry
+// specs and exercises positive/negative bounds using the existing native
+// registry. The guest must actually compile/execute before anyone may claim
+// native validation, Java/LLVM parity or schema-to-runtime correspondence.
+// Future generic guest generators must derive witnesses for every refinement.
+export function emitZordePilotGuestSmoke(plan) {
+  assertSafePlan(plan);
+  const port=plan.entries.find(x=>x.schemaId==='Zorde.Validation.Port');
+  const label=plan.entries.find(x=>x.schemaId==='Zorde.Validation.ShortLabel');
+  assert(plan.entries.length===2 && port && label,
+    'pilot guest requires exactly the reviewed Port and ShortLabel declarations');
+  assert(port.descriptor.kind===2 && port.descriptor.property===1
+    && port.descriptor.minimum===1 && port.descriptor.maximum===65535,
+    'pilot Port descriptor changed: re-review the actual guest assertions');
+  assert(label.descriptor.kind===3 && label.descriptor.property===2
+    && label.descriptor.minimum===1 && label.descriptor.maximum===64,
+    'pilot ShortLabel descriptor changed: re-review the actual guest assertions');
+  const bytes=x=>[...Buffer.from(x,'ascii')].join(',');
+  const lines=[
+    '// GENERATED pilot guest: not a proof until the approved Oreslang compiler',
+    '// executes this file at the exact IR/source-bound revision.',
+    "import fnc require_true from '../../tests/assert';",
+    "import fnc zorde_contract_registry_specs from './registry-specs';",
+    "import class ZordeScalarRegistry, ZordeScalarRegistrySpec from '../../src/zorde/compiled_registry';",
+    "import fnc zorde_compile_scalar_registry, zorde_registry_parse_scalar from '../../src/zorde/compiled_registry';",
+    "import class Utf8Text from '../../src/core/value';",
+    "import fnc value_int, value_string from '../../src/core/value';",
+    "import class ValidationReport from '../../src/validation/validation';",
+    'pub fnc main(): void {',
+    '  val List<ZordeScalarRegistrySpec> specs = zorde_contract_registry_specs();',
+    '  val Result<ZordeScalarRegistry,ValidationReport> result =',
+    '    zorde_compile_scalar_registry(rt borrow specs);',
+    '  require_true(!result.is_err(), "generated registry specs must compile");',
+    '  val ZordeScalarRegistry registry = result.unwrap();',
+    '  val Utf8Text port = new Utf8Text(new List<int>('+bytes(port.schemaId)+'));',
+    '  val Utf8Text label = new Utf8Text(new List<int>('+bytes(label.schemaId)+'));',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(1)).is_err(), "Port lower boundary accepts");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(65535)).is_err(), "Port upper boundary accepts");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(0)).is_err(), "Port below minimum rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, port,',
+    '    value_int(65536)).is_err(), "Port above maximum rejected");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>(97)))).is_err(),',
+    '    "ShortLabel one character accepted");',
+    '  require_true(!zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>('+Array(64).fill(97).join(',')+')))).is_err(),',
+    '    "ShortLabel 64 characters accepted");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>()))).is_err(),',
+    '    "ShortLabel empty rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>('+Array(65).fill(97).join(',')+')))).is_err(),',
+    '    "ShortLabel 65 characters rejected");',
+    '  val Result<int,ValidationReport> composed =',
+    '    zorde_registry_parse_scalar(rt borrow registry, label,',
+    '      value_string(new Utf8Text(new List<int>(195,169,240,159,152,128))));',
+    '  require_true(!composed.is_err(), "multibyte Unicode scalars accepted");',
+    '  require_true(composed.unwrap() == 2,',
+    '    "UTF-8 byte length cannot replace Unicode scalar count");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>(237,160,128)))).is_err(),',
+    '    "UTF-8 surrogate encoding rejected");',
+    '  require_true(zorde_registry_parse_scalar(rt borrow registry, label,',
+    '    value_string(new Utf8Text(new List<int>(192,175)))).is_err(),',
+    '    "malformed UTF-8 rejected");',
+    '  stdio.stdout.println("zorde generated registry guest smoke passed");',
+    '  return;',
+    '}',
+  ];
+  return lines.join('\n')+'\n';
+}
+
 // Duplicate JSON keys are ambiguous across tooling; even "\u0072ole"
 // duplicates "role". Detect decoded object-key collisions before JSON.parse.
 // The built-in parser still performs full JSON syntax/number validation.
@@ -353,8 +496,19 @@ export function rejectDuplicateJsonKeys(source) {
 // Open the reviewed input without following a symbolic link. Check type and
 // size *before* allocating/reading, then allow at most max+1 bytes even if a
 // concurrent writer grows the file after fstat. Hash the actual read bytes.
-export function readEvidenceFile(path, expected) {
-  assert(sha(expected), 'explicit expected SHA-256 is required');
+function readSafeJson(path, expected=null) {
+  if(expected!==null)assert(sha(expected), 'explicit expected SHA-256 is required');
+  // O_NOFOLLOW protects only the final component. Reject symbolic-link
+  // ancestors for independently verified IR/report JSON and every corpus
+  // fixture as well, including absolute paths passed by a build caller.
+  assertRealDirectoryChain(dirname(resolve(path)));
+  // O_NOFOLLOW is unsupported on some Node/OS combinations. Silent
+  // undefined-to-zero bitwise coercion would follow an attacker-controlled
+  // symlink, so stop before open() rather than weakening the boundary.
+  assert(Number.isInteger(fsConstants.O_NOFOLLOW) && fsConstants.O_NOFOLLOW !== 0,
+    'platform cannot guarantee O_NOFOLLOW evidence reads');
+  assert(Number.isInteger(fsConstants.O_NONBLOCK),
+    'platform cannot guarantee bounded nonblocking evidence opens');
   let fd=-1;
   try {
     fd=openSync(path,fsConstants.O_RDONLY|fsConstants.O_NOFOLLOW|fsConstants.O_NONBLOCK);
@@ -373,13 +527,91 @@ export function readEvidenceFile(path, expected) {
     assert(current.size===st.size && current.ino===st.ino && current.dev===st.dev,
       'source file changed while reading');
     const input=bytes.subarray(0,count);
-    assert(digest(input)===expected, 'input byte digest differs from trusted expectation');
+    const byteDigest=digest(input);
+    if(expected!==null)assert(byteDigest===expected,
+      'input byte digest differs from trusted expectation');
     const source=new TextDecoder('utf-8',{fatal:true}).decode(input);
     rejectDuplicateJsonKeys(source);
-    return JSON.parse(source);
+    return {value:JSON.parse(source),byteDigest,byteCount:count};
   } finally {
     if(fd!==-1)closeSync(fd);
   }
+}
+
+export function readEvidenceFile(path, expected) {
+  assert(sha(expected), 'explicit expected SHA-256 is required');
+  return readSafeJson(path,expected).value;
+}
+
+// Read the exact independently authored positive/negative corpus and
+// reproduce pinned TJSV src/run.mjs corpusIdentity(): SHA-256 of canonical
+// [{declaration,expectation,relativePath,instance}] in upstream directory
+// iteration order. Require an explicit, closed layout and no symlinks/hardlinks.
+// The source-bound CI must still pin the source tree and the TJSV action.
+// Reject a symlinked ancestor of a source fixture (not just its final file).
+// Otherwise a checked-out contracts/zorde path could redirect a supposedly
+// source-local corpus to bytes outside the reviewed source tree.
+function assertRealDirectoryChain(target) {
+  let current=resolve(target);
+  const pathRoot=parse(current).root;
+  while (true) {
+    const info=lstatSync(current);
+    assert(info.isDirectory() && !info.isSymbolicLink(),
+      'corpus source path must not traverse symlinked directories');
+    if(current===pathRoot)break;
+    const parent=dirname(current);
+    assert(parent!==current,'invalid ancestor chain');
+    current=parent;
+  }
+}
+export function reviewedCorpusIdentity(root) {
+  const corpusRoot=resolve(root);
+  assertRealDirectoryChain(corpusRoot);
+  const rootStat=lstatSync(corpusRoot);
+  assert(rootStat.isDirectory() && !rootStat.isSymbolicLink(),
+    'corpus root must be a real directory');
+  const alphabet=xs=>xs.sort((a,b)=>a.name.localeCompare(b.name));
+  const decls=alphabet(readdirSync(corpusRoot,{withFileTypes:true}));
+  assert(decls.length>0 && decls.length<=64,'unsupported corpus declaration count');
+  const corpus=[];
+  let totalBytes=0;
+  const ensureDirectory=(path)=>{
+    const stat=lstatSync(path);
+    assert(stat.isDirectory() && !stat.isSymbolicLink(),
+      'corpus path must be a real directory');
+  };
+  for(const decl of decls){
+    assert(decl.isDirectory() && !decl.isSymbolicLink()
+      && /^[A-Za-z][A-Za-z0-9_.-]{0,127}$/.test(decl.name),
+      'unsafe or unsupported corpus declaration');
+    const declPath=resolve(corpusRoot,decl.name);
+    ensureDirectory(declPath);
+    const directories=alphabet(readdirSync(declPath,{withFileTypes:true}));
+    assert(directories.length===2
+      && directories.some(x=>x.name==='valid' && x.isDirectory())
+      && directories.some(x=>x.name==='invalid' && x.isDirectory()),
+      'each corpus declaration requires valid and invalid directories only');
+    for(const expectation of ['valid','invalid']){
+      const folder=resolve(declPath,expectation);
+      ensureDirectory(folder);
+      const files=alphabet(readdirSync(folder,{withFileTypes:true}));
+      assert(files.length>0 && files.length<=64,'missing/excessive corpus fixtures');
+      for(const file of files){
+        assert(file.isFile() && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\.json$/.test(file.name),
+          'corpus fixture must be a regular JSON file');
+        assert(corpus.length<128,'corpus fixture count exceeds budget');
+        const pathname=resolve(folder,file.name);
+        const read=readSafeJson(pathname);
+        totalBytes+=read.byteCount;
+        assert(totalBytes<=1048576,'corpus exceeds total byte budget');
+        corpus.push({declaration:decl.name,
+          expectation:expectation==='valid'?'accepted':'rejected',
+          relativePath:decl.name+'/'+expectation+'/'+file.name,
+          instance:read.value});
+      }
+    }
+  }
+  return {digest:canonicalDigest(corpus),corpus};
 }
 
 export function main(args) {
@@ -388,15 +620,23 @@ export function main(args) {
     const p = arg.indexOf('=');
     assert(p > 2 && arg.startsWith('--'), 'expected --name=value');
     const key = arg.slice(2,p);
-    assert(['ir','report','ir-sha256','report-sha256','out-dir'].includes(key)
+    assert(['ir','report','ir-sha256','report-sha256','out-dir','instances'].includes(key)
       && !flags.has(key), 'unknown/duplicate argument ' + key);
     flags.set(key,arg.slice(p+1));
   }
-  assert(flags.size === 5 && [...flags.values()].every(Boolean),
-    'all five CLI arguments are mandatory');
+  assert(flags.size === 6 && [...flags.values()].every(Boolean),
+    'all six CLI arguments including --instances are mandatory');
   const ir = readEvidenceFile(flags.get('ir'), flags.get('ir-sha256'));
   const report = readEvidenceFile(flags.get('report'), flags.get('report-sha256'));
   const plan = deriveStaticRegistry(ir,report);
+  const reviewed=reviewedCorpusIdentity(flags.get('instances'));
+  assert(reviewed.digest===report.configuration.differential.instanceCorpusDigest
+    && reviewed.corpus.length===report.differential.summary.corpusInstances,
+    'current corpus does not match source-bound TJSV report');
+  const known=new Map(report.declarationMap.map(x=>[x.authored,x.typespec]));
+  assert(new Set(reviewed.corpus.map(x=>x.declaration)).size===known.size
+    && reviewed.corpus.every(x=>known.has(x.declaration)),
+    'corpus declaration scope differs from reviewed authorities');
   const dir = resolve(flags.get('out-dir'));
   // Imports in emitted Oreslang file assume artifacts/zorde-generated/; refuse
   // ambiguous location rather than quietly generating broken guest imports.
@@ -405,6 +645,7 @@ export function main(args) {
   // Prepare every output before creating a directory. Reject an existing
   // target instead of trusting old/stale receipts or following a symlink.
   const guest=emitOreslangSpecs(plan);
+  const guestSmoke=emitZordePilotGuestSmoke(plan);
   const planBytes=JSON.stringify(plan,null,2)+'\n';
   const artifacts=resolve('artifacts');
   if(!existsSync(artifacts))mkdirSync(artifacts,{mode:0o700});
@@ -420,11 +661,16 @@ export function main(args) {
   // this final marker as well as separately reviewed source provenance.
   writeFileSync(resolve(dir,'registry-plan.json'),planBytes,{flag:'wx',mode:0o600});
   writeFileSync(resolve(dir,'registry-specs.ores'),guest,{flag:'wx',mode:0o600});
+  writeFileSync(resolve(dir,'registry-smoke.ores'),guestSmoke,{flag:'wx',mode:0o600});
   writeFileSync(resolve(dir,'build-complete.json'),JSON.stringify({
     schema:'oreslang.zorde.static-registry-build-complete/v1',
     irId:plan.irId, tjsvRunId:plan.tjsvRunId,
+    reviewedCorpusDigest:reviewed.digest,
+    reviewedCorpusInstances:reviewed.corpus.length,
     planSha256:digest(Buffer.from(planBytes,'utf8')),
     guestSha256:digest(Buffer.from(guest,'utf8')),
+    smokeSha256:digest(Buffer.from(guestSmoke,'utf8')),
+    guestSmokeCompiled:false, guestSmokeExecuted:false,
     nativeGuestExecuted:false, releaseReady:false,
   },null,2)+'\n',{flag:'wx',mode:0o600});
   process.stdout.write('ZORDE_STATIC_PLAN_CREATED (not runtime/proof evidence)\n');

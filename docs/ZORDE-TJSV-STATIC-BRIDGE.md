@@ -60,11 +60,16 @@ node scripts/zorde-static-contract-ir.mjs \
   --report=artifacts/zorde-scalars-parity.json \
   --ir-sha256='<reviewed SHA-256 of the exact IR file>' \
   --report-sha256='<reviewed SHA-256 of the exact report file>' \
+  --instances=contracts/zorde/scalar-instances \
   --out-dir=artifacts/zorde-generated
 ```
 
-The output is write-once `artifacts/zorde-generated/registry-plan.json`
-plus `registry-specs.ores`; preexisting outputs are **not overwritten**.
+The output is write-once `artifacts/zorde-generated/registry-plan.json`,
+`registry-specs.ores` and a restricted pilot `registry-smoke.ores`.
+Only after all three files exist is `build-complete.json` issued with
+individual SHA-256 hashes and `guestSmokeCompiled:false`,
+`guestSmokeExecuted:false`, `releaseReady:false`. Existing output
+directories are refused rather than overwritten.
 The generated Oreslang function returns a list of
 `ZordeScalarRegistrySpec` using the existing
 `ZordeScalarDescriptor` and the current `compiled_registry.ores`
@@ -92,8 +97,10 @@ node --test tests/source_free/test_zorde_contract_ir.mjs
 
 The source-org workflow `zorde-static-ir-bridge.yml` is currently
 unable to allocate a runner. An isolated V8 test execution of the actual
-pure JavaScript functions passed **53/53** isolated pure-function cases (using simulated digest behavior), including 10,000 deterministic scalar projection property probes; this was **not** the
-Node CLI, TJSV compiler or Oreslang native compiler. The additional three Node-only regression cases check real SHA-256 vectors,
+pure JavaScript functions passed **73/73** isolated pure-function cases
+(including 10,000 deterministic scalar projection probes) with simulated
+noncryptographic hashing. These runs do **not** execute the Node CLI, genuine
+SHA-256/file I/O, TJSV compiler or native Oreslang guest. The additional three Node-only regression cases check real SHA-256 vectors,
 bounded no-follow file reads, symlink/hardlink rejection, CLI output completeness
 and output-parent symlink refusal. Those tests have **not** executed yet on a
 GitHub runner and cannot be counted as passed. The build bridge also recomputes
@@ -111,3 +118,50 @@ corpus; memory/ownership proof; WIT component/ABI adapter; hostile
 fuzzing; explicit trust-root for the hash-bound receipt. The open source
 export incidents forbid private code mirroring to an unapproved public
 funded Actions carrier.
+
+## October 19 additional fail-closed gates
+
+Actual admission now requires `configuration.mode=check`, `coverage.sourceMutationCheck=true`, zero structural/differential/emitted findings, and an untruncated finding inventory. Generated plans must bind exactly three well-formed SHA-256 source-authority digests; file ingestion stops when the host cannot supply a nonzero `O_NOFOLLOW` flag rather than silently following a symlink. These logic checks passed in the isolated V8 suite; the real Node crypto/filesystem suite is still pending a source-local runner.
+
+## Reviewed corpus identity and native receipt sealing
+
+The compiler bridge now **requires** a nonempty, independently authored
+positive-and-negative JSON instance corpus for *every* admitted scalar. It
+reconciles per-declaration counts against the TJSV report, refuses anonymous
+or unasserted fixtures, and demands an identical 64-character SHA-256 corpus
+identity in `configuration.differential.instanceCorpusDigest`. The
+pinned TJSV report deliberately does **not** duplicate the digest within
+`report.differential`; that object contains only the summary and the
+per-declaration details.
+
+The CLI uses `--instances=contracts/zorde/scalar-instances` to independently
+rebuild the pinned upstream `corpusIdentity`: canonical JSON SHA-256 of
+ordered `{declaration, expectation, relativePath, instance}` records. Only
+regular JSON files in the closed `<Declaration>/valid` and
+`<Declaration>/invalid` layout are accepted; symlinks, hardlinks, ambiguous
+JSON keys, extra directories and excessive input sizes fail closed. This
+check must succeed **before** any generated Oreslang output is published.
+
+The source-local native runner's pre-execution digest manifest includes
+**18 inputs**: nine authority/receipt/generated files and nine checked-in
+reviewed corpus fixtures. It recomputes the source corpus identity before
+native guest execution, and rechecks the full manifest afterward and
+immediately before issuing a non-release-qualified native receipt. These
+measures depend on a trusted ephemeral build host; a SHA of an
+attacker-controlled file does not independently attest who produced it.
+
+## Native guest import-closure sealing (October 19, 2026)
+
+The source-local harness now discovers and seals the **recursive static Oreslang
+import closure** of the generated registry smoke and registry specifications,
+not only the generated files and independently reviewed JSON fixtures. The
+current pilot adds ten implementation/test support modules to the existing
+18 source-authority, receipt, guest and fixture inputs (28 total).
+
+Unknown import grammar, missing modules, traversal outside the private source
+checkout, symbolic links, excess recursion and duplicate/altered source bytes
+must stop execution or the final receipt. The manifest records
+`staticGuestImportClosure`; its hash-bound contents are checked after the
+guest and before the receipt is issued. The source-free host test checks the
+exact expected import graph. This **does not attest the compiler binary's
+transitive dependency closure** and cannot replace real native guest tests.

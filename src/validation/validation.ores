@@ -1169,6 +1169,26 @@ pub fnc validate_object(
     return report;
   fi
 
+  // The dynamic Value model can be constructed without a JSON decoder.
+  // Refuse oversized input before building hash buckets or walking all fields.
+  // Reuse the schema's conservative member/key limits on this trust boundary.
+  if value.object_value.length > max_schema_fields() then
+    add_error(report, options, "object_capacity", new List<PathSegment>(),
+      "input object member count exceeds the bounded validation domain");
+    return report;
+  fi
+
+  // Do not permit malformed bytes in object keys, even when unknown fields
+  // are allowed. Unknown-schema keys would otherwise evade field rules.
+  for const member of value.object_value do
+    if member.key.bytes.length > max_schema_key_bytes() ||
+       !utf8_is_valid(member.key.bytes) then
+      add_error(report, options, "invalid_object_key", new List<PathSegment>(),
+        "input object key is oversized or is not valid UTF-8");
+      return report;
+    fi
+  done
+
   if !object_keys_unique(value) then
     add_error(
       report,

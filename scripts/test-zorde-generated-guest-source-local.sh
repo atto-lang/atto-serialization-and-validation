@@ -1,0 +1,440 @@
+#!/usr/bin/env bash
+# Run the real generated guest exclusively on an approved source-local machine.
+# Never export/mirror a private source tree to obtain an alternate runner.
+set -euo pipefail
+# A hostile BASH_ENV starts executing before any Bash script can inspect it.
+# Required entrypoint: python3 -I -S scripts/launch-zorde-generated-guest-source-local.py
+if [[ -n "${BASH_ENV:-}" || -n "${ENV:-}" ]]; then
+  printf 'ZORDE_GENERATED_GUEST_REFUSED: use isolated Python launcher (unsafe Bash startup environment)\n' >&2
+  exit 2
+fi
+unset BASH_ENV ENV CDPATH
+umask 077
+export PATH=/usr/bin:/bin
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
+  GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT \
+  PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONINSPECT \
+  NODE_OPTIONS NODE_PATH NODE_V8_COVERAGE NODE_EXTRA_CA_CERTS
+export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+deny(){ printf 'ZORDE_GENERATED_GUEST_REFUSED: %s\n' "$*" >&2; exit 2; }
+for utility in git sha256sum timeout python3 grep env; do
+  command -v "$utility" >/dev/null 2>&1 || deny "utility unavailable"
+done
+for variable in EXPECTED_SOURCE_SHA EXPECTED_SOURCE_TREE EXPECTED_COMPILER_SHA256 \
+  EXPECTED_CONTRACT_IR_SHA256 EXPECTED_PARITY_REPORT_SHA256 \
+  EXPECTED_VERIFICATION_SHA256 ORESLANG_BIN NODE_BIN EXPECTED_NODE_SHA256 ZORDE_EVIDENCE_DIR; do
+  [[ -n "$(printenv "$variable" || true)" ]] || deny "required reviewed environment input missing"
+done
+
+root="$(cd "$(dirname "$0")/.." && pwd -P)"
+cd "$root"
+[[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected source SHA"
+[[ "$EXPECTED_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || deny "invalid expected root tree"
+[[ "$EXPECTED_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]] || deny "invalid expected compiler digest"
+[[ "$EXPECTED_NODE_SHA256" =~ ^[0-9a-f]{64}$ ]] || deny "invalid expected Node digest"
+for reviewed in "$EXPECTED_CONTRACT_IR_SHA256" "$EXPECTED_PARITY_REPORT_SHA256" "$EXPECTED_VERIFICATION_SHA256"; do
+  [[ "$reviewed" =~ ^[0-9a-f]{64}$ ]] || deny "invalid externally reviewed evidence digest"
+done
+[[ "$ORESLANG_BIN" = /* && -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" && ! -L "$ORESLANG_BIN" ]] ||
+  deny "compiler must be an absolute real executable, not a symlink"
+[[ "$NODE_BIN" = /* && -f "$NODE_BIN" && -x "$NODE_BIN" && ! -L "$NODE_BIN" ]] ||
+  deny "Node must be an absolute real executable, not a symlink"
+[[ "$ZORDE_EVIDENCE_DIR" = /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
+  deny "evidence directory must be an absolute preexisting real directory"
+# Ancestor components must also be real directories, not symbolic links.
+python3 -I -S - "$ORESLANG_BIN" "$NODE_BIN" "$ZORDE_EVIDENCE_DIR" <<'PY' || deny 'compiler/Node/evidence path traverses a symlink'
+import os,stat,sys
+for original,kind in ((sys.argv[1],stat.S_ISREG),(sys.argv[2],stat.S_ISREG),(sys.argv[3],stat.S_ISDIR)):
+    current=os.path.abspath(original)
+    first=True
+    while True:
+        s=os.lstat(current)
+        assert kind(s.st_mode) if first else stat.S_ISDIR(s.st_mode),current
+        assert not stat.S_ISLNK(s.st_mode),current
+        if first and kind==stat.S_ISREG:
+            assert s.st_nlink==1,current
+        first=False
+        parent=os.path.dirname(current)
+        if parent==current: break
+        current=parent
+PY
+[[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]] || deny "source SHA changed"
+[[ "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] || deny "source tree changed"
+[[ "$(git rev-parse --show-toplevel)" == "$root" ]] || deny "unexpected repository root"
+git diff --quiet && git diff --cached --quiet || deny "tracked tree is dirty"
+while IFS= read -r -d '' name; do
+  [[ "$name" == artifacts/* ]] || deny "untracked files outside generated artifacts"
+done < <(git ls-files --others --exclude-standard -z)
+
+# The three evidence hashes must be obtained from a separately reviewed
+# source-local parity/verification run. A SHA the untrusted artifact supplier
+# computed for its own forged files does NOT authenticate those artifacts.
+[[ "$(sha256sum artifacts/zorde-scalars-contract-ir.json | cut -d' ' -f1)" == "$EXPECTED_CONTRACT_IR_SHA256" ]] ||
+  deny "Contract IR differs from independently reviewed bytes"
+[[ "$(sha256sum artifacts/zorde-scalars-parity.json | cut -d' ' -f1)" == "$EXPECTED_PARITY_REPORT_SHA256" ]] ||
+  deny "parity receipt differs from independently reviewed bytes"
+[[ "$(sha256sum artifacts/zorde-scalars-consumer-verification.json | cut -d' ' -f1)" == "$EXPECTED_VERIFICATION_SHA256" ]] ||
+  deny "consumer verification differs from independently reviewed bytes"
+compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)"
+[[ "$compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] || deny "compiler digest changed"
+node_sha="$(sha256sum "$NODE_BIN" | cut -d' ' -f1)"
+[[ "$node_sha" == "$EXPECTED_NODE_SHA256" ]] || deny "approved Node executable digest changed"
+node_version="$(env -u NODE_OPTIONS -u NODE_PATH "$NODE_BIN" --version)"
+if [[ "$node_version" =~ ^v22\.([0-9]+)\.([0-9]+)$ ]]; then
+  (( 10#${BASH_REMATCH[1]} >= 18 )) || deny 'Node 22.18+ required for reviewed corpus identity'
+else
+  deny 'Node 22.18+ required for reviewed corpus identity'
+fi
+out="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
+case "$out" in
+  "$root"|"$root"/*) deny "evidence must be outside source checkout";;
+esac
+python3 -I -S - "$out" <<'PY' || deny "evidence directory policy check failed"
+import os,stat,sys
+s=os.lstat(sys.argv[1])
+assert stat.S_ISDIR(s.st_mode) and s.st_uid==os.geteuid()
+assert stat.S_IMODE(s.st_mode)&0o077==0
+PY
+log="$out/zorde-generated-smoke-native.log"
+receipt="$out/zorde-generated-smoke-native-receipt.json"
+before="$out/zorde-generated-inputs-before.json"
+[[ ! -e "$log" && ! -L "$log" && ! -e "$receipt" && ! -L "$receipt" &&
+   ! -e "$before" && ! -L "$before" ]] ||
+  deny "use a fresh private evidence directory"
+
+python3 -I -S - "$root" <<'PY' || deny "source-bound TJSV/IR/guest receipt missing or inconsistent"
+import hashlib,json,os,stat,sys
+from pathlib import Path
+root=Path(sys.argv[1])
+for directory in ('artifacts','artifacts/zorde-generated'):
+    s=(root/directory).lstat()
+    assert stat.S_ISDIR(s.st_mode),directory
+def safe(p):
+    p=root/p
+    for parent in p.parents:
+        assert stat.S_ISDIR(os.lstat(parent).st_mode),parent
+    flags=os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW
+    fd=os.open(p,flags)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1,p
+        assert 0 < before.st_size <= 8*1024*1024,p
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size,p
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns),p
+        return data
+    finally:
+        os.close(fd)
+def obj(p): return json.loads(safe(p))
+def sha(p): return hashlib.sha256(safe(p)).hexdigest()
+v=obj('artifacts/zorde-scalars-consumer-verification.json')
+parity=obj('artifacts/zorde-scalars-parity.json')
+ir=obj('artifacts/zorde-scalars-contract-ir.json')
+plan=obj('artifacts/zorde-generated/registry-plan.json')
+built=obj('artifacts/zorde-generated/build-complete.json')
+assert v['schema']=='ores.typespec-json-schema-validator.consumer-verification-receipt/v1'
+assert v['status']=='passed' and v['admissible'] is True
+assert v['expectedIrId']==v['computedIrId']==v['suppliedIrId']==ir['irId']
+assert v['declarationIds']==['Zorde.Validation.Port','Zorde.Validation.ShortLabel']
+assert ir['status']=='passed' and ir['admissible'] is True
+assert plan['irId']==ir['irId']
+assert [x['schemaId'] for x in plan['entries']]==['Zorde.Validation.Port','Zorde.Validation.ShortLabel']
+assert plan['releaseReady'] is False and plan['runtimeImplementationVerified'] is False
+assert built['schema']=='oreslang.zorde.static-registry-build-complete/v1'
+assert built['irId']==ir['irId'] and built['tjsvRunId']==plan['tjsvRunId']
+assert built['guestSmokeCompiled'] is False and built['guestSmokeExecuted'] is False
+assert built['nativeGuestExecuted'] is False and built['releaseReady'] is False
+assert built['planSha256']==sha('artifacts/zorde-generated/registry-plan.json')
+assert built['guestSha256']==sha('artifacts/zorde-generated/registry-specs.ores')
+assert built['smokeSha256']==sha('artifacts/zorde-generated/registry-smoke.ores')
+assert built['reviewedCorpusDigest']==parity['configuration']['differential']['instanceCorpusDigest']
+assert built['reviewedCorpusInstances']==parity['differential']['summary']['corpusInstances']==9
+assert parity['differential']['summary']['declarationsWithReviewedPositiveAndNegative']==2
+assert parity['differential']['summary']['reviewedUnassertedInstances']==0
+PY
+
+# Capture an exclusive pre-execution manifest of ten authority/derived/source
+# inputs PLUS nine independently reviewed scalar corpus JSON fixtures.
+# Evidence must match all 19 files and the closed static guest import graph.
+# This closes the ordinary precheck-to-receipt mutation window. It cannot
+# attest a compromised runtime, so the compiler dependency closure stays
+# explicitly uncertified in the native result.
+ROOT="$root" INPUT_MANIFEST="$before" python3 -I -S - <<'PY' ||
+  deny "unable to create independently digest-bound guest input manifest"
+import hashlib,json,os,stat
+from pathlib import Path
+root=Path(os.environ["ROOT"])
+paths=[
+  "contracts/zorde/scalars.tsp",
+  "contracts/zorde/scalars.schema.json",
+  "scripts/zorde-static-contract-ir.mjs",
+  "artifacts/zorde-scalars-parity.json",
+  "artifacts/zorde-scalars-contract-ir.json",
+  "artifacts/zorde-scalars-consumer-verification.json",
+  "artifacts/zorde-generated/build-complete.json",
+  "artifacts/zorde-generated/registry-plan.json",
+  "artifacts/zorde-generated/registry-specs.ores",
+  "artifacts/zorde-generated/registry-smoke.ores",
+]
+# Exact closed reviewed corpus layout; reject a renamed/extra/missing fixture
+# or symbolic-link directory before computing a native execution receipt.
+corpus=root/"contracts/zorde/scalar-instances"
+assert corpus.is_dir() and not corpus.is_symlink()
+assert sorted(x.name for x in corpus.iterdir())==["Port","ShortLabel"]
+for declaration in ("Port","ShortLabel"):
+    part=corpus/declaration
+    assert part.is_dir() and not part.is_symlink()
+    assert sorted(x.name for x in part.iterdir())==["invalid","valid"]
+    for expectation in ("valid","invalid"):
+        lane=part/expectation
+        assert lane.is_dir() and not lane.is_symlink()
+        files=sorted(lane.iterdir(),key=lambda x:x.name)
+        assert files and len(files)<=64
+        for path in files:
+            assert path.name.endswith(".json") and path.name[0].isalnum()
+            assert path.is_file() and not path.is_symlink()
+            paths.append(path.relative_to(root).as_posix())
+assert len(paths)==19,"expected ten fixed inputs plus nine reviewed corpus files"
+# Seal the full statically imported guest source closure, not just generated
+# files. Derive imports from actual .ores sources and stop on absolute,
+# unsupported, missing, symlinked or outside-checkout imports.
+import os,re
+guest_roots=(
+    "artifacts/zorde-generated/registry-smoke.ores",
+    "artifacts/zorde-generated/registry-specs.ores",
+)
+closure=set()
+def bounded_input(name,limit=8*1024*1024):
+    # Validate complete ancestor chain and only hash bytes admitted by the
+    # original no-follow descriptor. Never trust lstat followed by read_bytes.
+    path=root/name
+    assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+    for ancestor in path.parents:
+        assert stat.S_ISDIR(os.lstat(ancestor).st_mode),ancestor
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1,name
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= limit,name
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size,name
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns),name
+        return data
+    finally:
+        os.close(fd)
+def visit_imports(name,depth=0):
+    assert depth<=32 and len(closure)<=64,"guest import depth/size budget exceeded"
+    content=bounded_input(name).decode("utf8")
+    for line in content.splitlines():
+        if not line.lstrip().startswith("import "):
+            continue
+        match=re.fullmatch(r'\s*import\s+.+\s+from\s+([\'"])(\.[^\'"]+)\1;\s*',line)
+        assert match is not None,"unsupported static import syntax"
+        target=os.path.normpath(os.path.join(os.path.dirname(name),
+                       match.group(2)+".ores"))
+        assert target.endswith(".ores") and not os.path.isabs(target)
+        assert not target.startswith(".."+os.sep) and target!=".."
+        assert (root/target).is_file(),"missing static guest dependency"
+        check=root
+        for segment in target.split(os.sep):
+            check=check/segment
+            assert not check.is_symlink(),"symlinked static guest dependency"
+        if target not in closure and target not in guest_roots:
+            closure.add(target)
+            visit_imports(target,depth+1)
+for guest in guest_roots:
+    visit_imports(guest)
+assert 8<=len(closure)<=64,"incomplete/excessive guest import closure"
+assert not set(paths)&closure
+paths.extend(sorted(closure))
+def attested(path):
+    return hashlib.sha256(bounded_input(path)).hexdigest()
+manifest={"schema":"oreslang.zorde.native-guest-inputs/v1",
+          "staticGuestImportClosure":sorted(closure),
+          "files":{name:attested(name) for name in paths}}
+with Path(os.environ["INPUT_MANIFEST"]).open("x",encoding="utf8") as f:
+    json.dump(manifest,f,sort_keys=True,indent=2)
+    f.write("\n")
+PY
+
+# Recompute the real TJSV-compatible corpus identity against the source tree,
+# rather than trusting a stored digest and a newly sealed forged corpus.
+"$NODE_BIN" --input-type=module - <<'JS' ||
+  deny "reviewed corpus no longer matches independently verified TJSV receipt"
+import {readFileSync} from 'node:fs';
+import {reviewedCorpusIdentity} from './scripts/zorde-static-contract-ir.mjs';
+const actual=reviewedCorpusIdentity('contracts/zorde/scalar-instances');
+const build=JSON.parse(readFileSync('artifacts/zorde-generated/build-complete.json','utf8'));
+const report=JSON.parse(readFileSync('artifacts/zorde-scalars-parity.json','utf8'));
+if(actual.digest!==build.reviewedCorpusDigest
+  ||actual.digest!==report.configuration.differential.instanceCorpusDigest
+  ||actual.corpus.length!==build.reviewedCorpusInstances){
+  throw Error('source reviewed corpus diverges from pinned parity evidence');
+}
+JS
+
+before_sha="$(sha256sum "$before" | cut -d' ' -f1)"
+[[ "$before_sha" =~ ^[0-9a-f]{64}$ ]] || deny "invalid pre-execution manifest digest"
+# Bash redirection itself may block on an adversarial FIFO before "timeout"
+# starts. Open the native log exclusively relative to a no-follow directory
+# descriptor, then pass the verified open regular FD to the timed guest.
+# Bound guest output to 16 MiB to avoid uncontrolled evidence disk filling.
+set +e
+NATIVE_LOG_DIR="$out" NATIVE_LOG_NAME="zorde-generated-smoke-native.log" \
+  python3 -I -S - "$ORESLANG_BIN" "$root/artifacts/zorde-generated/registry-smoke.ores" <<'PY'
+import os,resource,stat,subprocess,sys
+original=os.environ['NATIVE_LOG_DIR']
+name=os.environ['NATIVE_LOG_NAME']
+assert os.path.isabs(original) and name=='zorde-generated-smoke-native.log'
+assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+flags=os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW
+# Resolve each directory component from an anchored root fd: no ancestor
+# symlink can be followed between an earlier lstat and the final open.
+fd=os.open('/',flags)
+try:
+    for part in original.split('/'):
+        if not part:
+            continue
+        assert part not in ('.','..')
+        following=os.open(part,flags,dir_fd=fd)
+        os.close(fd)
+        fd=following
+    directory=os.fstat(fd)
+    assert stat.S_ISDIR(directory.st_mode) and directory.st_uid==os.geteuid()
+    assert stat.S_IMODE(directory.st_mode)&0o077==0
+    outfd=os.open(name,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,
+                  0o600,dir_fd=fd)
+    try:
+        created=os.fstat(outfd)
+        assert stat.S_ISREG(created.st_mode) and created.st_nlink==1
+        assert created.st_uid==os.geteuid() and stat.S_IMODE(created.st_mode)&0o077==0
+        def limit_output():
+            resource.setrlimit(resource.RLIMIT_FSIZE,(16*1024*1024,16*1024*1024))
+        result=subprocess.run(
+            ['/usr/bin/timeout','--signal=TERM','--kill-after=5s','180s',
+             sys.argv[1],sys.argv[2]],
+            stdin=subprocess.DEVNULL,stdout=outfd,stderr=subprocess.STDOUT,
+            preexec_fn=limit_output,check=False)
+        assert result.returncode==0,('guest exit code',result.returncode)
+    finally:
+        os.close(outfd)
+finally:
+    os.close(fd)
+PY
+status=$?
+set -e
+[[ "$status" -eq 0 ]] || deny "guest compiler/execution failed, see native log"
+grep -Fqx 'zorde generated registry guest smoke passed' "$log" ||
+  deny "actual guest success marker absent"
+
+[[ "$(sha256sum "$before" | cut -d' ' -f1)" == "$before_sha" ]] ||
+  deny "pre-execution manifest was modified during guest execution"
+ROOT="$root" INPUT_MANIFEST="$before" python3 -I -S - <<'PY' ||
+  deny "source authority or generated guest changed during execution"
+import hashlib,json,os,stat
+from pathlib import Path
+root=Path(os.environ["ROOT"])
+def bounded_post_input(path,limit=8*1024*1024):
+    path=Path(path)
+    for ancestor in path.parents:
+        assert stat.S_ISDIR(os.lstat(ancestor).st_mode)
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+        assert before.st_uid==os.geteuid() and 0<before.st_size<=limit
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns)
+        return data
+    finally:
+        os.close(fd)
+manifest=json.loads(bounded_post_input(os.environ["INPUT_MANIFEST"],1024*1024))
+assert manifest["schema"]=="oreslang.zorde.native-guest-inputs/v1"
+assert 8<=len(manifest["staticGuestImportClosure"])<=64
+assert len(manifest["files"])==19+len(manifest["staticGuestImportClosure"])
+assert all(name in manifest["files"] for name in manifest["staticGuestImportClosure"])
+for name,expected in manifest["files"].items():
+    assert hashlib.sha256(bounded_post_input(root/name)).hexdigest()==expected,name
+PY
+
+[[ "$(sha256sum "$NODE_BIN" | cut -d' ' -f1)" == "$EXPECTED_NODE_SHA256" ]] ||
+  deny "approved Node executable changed during test"
+[[ "$(sha256sum "$ORESLANG_BIN" | cut -d' ' -f1)" == "$EXPECTED_COMPILER_SHA256" ]] ||
+  deny "compiler executable changed during test"
+[[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" &&
+   "$(git rev-parse 'HEAD^{tree}')" == "$EXPECTED_SOURCE_TREE" ]] ||
+  deny "source revision changed during test"
+git diff --quiet && git diff --cached --quiet || deny "tracked checkout changed after test"
+while IFS= read -r -d '' name; do
+  [[ "$name" == artifacts/* ]] || deny "guest execution created unexpected untracked source files"
+done < <(git ls-files --others --exclude-standard -z)
+
+SOURCE_SHA="$EXPECTED_SOURCE_SHA" SOURCE_TREE="$EXPECTED_SOURCE_TREE" COMPILER_SHA="$compiler_sha" NODE_SHA="$node_sha" \
+ROOT="$root" INPUT_MANIFEST="$before" EXPECTED_MANIFEST_SHA256="$before_sha" NATIVE_LOG="$log" NATIVE_RECEIPT="$receipt" python3 -I -S - <<'PY'
+import hashlib,json,os,stat
+from pathlib import Path
+h=lambda b:hashlib.sha256(b).hexdigest()
+root=Path(os.environ['ROOT'])
+def bounded_file(path,limit=16*1024*1024):
+    path=Path(path)
+    assert hasattr(os,'O_NOFOLLOW') and os.O_NOFOLLOW != 0
+    for parent in path.parents:
+        assert stat.S_ISDIR(os.lstat(parent).st_mode),parent
+    fd=os.open(path,os.O_RDONLY|os.O_NONBLOCK|os.O_NOFOLLOW)
+    try:
+        before=os.fstat(fd)
+        assert stat.S_ISREG(before.st_mode) and before.st_nlink==1
+        assert before.st_uid==os.geteuid() and 0 < before.st_size <= limit
+        data=os.read(fd,before.st_size+1)
+        after=os.fstat(fd)
+        assert len(data)==before.st_size==after.st_size
+        assert (before.st_dev,before.st_ino,before.st_mtime_ns)==(after.st_dev,after.st_ino,after.st_mtime_ns)
+        return data
+    finally:
+        os.close(fd)
+log=bounded_file(os.environ['NATIVE_LOG'])
+art=root/'artifacts/zorde-generated'
+plan=json.loads(bounded_file(art/'registry-plan.json'))
+# Re-verify the pre-execution manifest and every input immediately before
+# signing the final execution receipt. This avoids a second check-to-receipt
+# gap after the earlier post-execution comparison.
+manifest_bytes=bounded_file(os.environ['INPUT_MANIFEST'],1024*1024)
+assert h(manifest_bytes)==os.environ['EXPECTED_MANIFEST_SHA256']
+manifest=json.loads(manifest_bytes)
+assert manifest['schema']=='oreslang.zorde.native-guest-inputs/v1'
+assert 8<=len(manifest['staticGuestImportClosure'])<=64
+assert len(manifest['files'])==19+len(manifest['staticGuestImportClosure'])
+assert all(name in manifest['files'] for name in manifest['staticGuestImportClosure'])
+for name,want in manifest['files'].items():
+    assert h(bounded_file(root/name))==want,name
+data={
+ 'schema':'oreslang.zorde.source-local.generated-guest/v1',
+ 'source_head_sha':os.environ['SOURCE_SHA'],
+ 'source_root_tree_sha':os.environ['SOURCE_TREE'],
+ 'compiler_executable_sha256':os.environ['COMPILER_SHA'],
+ 'node_executable_sha256':os.environ['NODE_SHA'],
+ 'plan_ir_id':plan['irId'],
+ 'plan_sha256':h(bounded_file(art/'registry-plan.json')),
+ 'specs_sha256':h(bounded_file(art/'registry-specs.ores')),
+ 'smoke_guest_sha256':h(bounded_file(art/'registry-smoke.ores')),
+ 'native_log_sha256':h(log),
+ 'pre_execution_input_manifest_sha256':os.environ['EXPECTED_MANIFEST_SHA256'],
+ 'source_bound_guest_inputs_unchanged':True,
+ 'static_guest_import_closure_sealed':True,
+ 'static_guest_import_module_count':len(manifest['staticGuestImportClosure']),
+ 'native_guest_executed':True,'success_marker_observed':True,
+ 'process_exit_code':0,
+ 'compiler_dependency_closure_attested':False,
+ 'actor_shareability_certified':False,
+ 'cross_backend_parity_certified':False,
+ 'release_ready':False,
+}
+with Path(os.environ['NATIVE_RECEIPT']).open('x',encoding='utf8') as f:
+    json.dump(data,f,indent=2,sort_keys=True)
+    f.write('\n')
+PY
+printf 'ZORDE_GENERATED_NATIVE_EXECUTED: %s\n' "$receipt"
