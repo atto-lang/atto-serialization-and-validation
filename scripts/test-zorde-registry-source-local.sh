@@ -165,11 +165,13 @@ for fixture in private-entry-import private-storage-access; do
      "$negative_status" -ne 126 && "$negative_status" -ne 127 &&
      "$negative_status" -ne 143 ]] ||
     die "private registry fixture timed out: ${fixture}"
-  # Require the protected symbol and a visibility denial on the same or
-  # adjacent diagnostic lines; unrelated parse/module/internal failures
-  # cannot satisfy this negative compiler fixture.
+  # Require both the current targeted visibility classifier and the stricter
+  # same-line protected-symbol denial verifier. Unrelated/spliced diagnostics
+  # cannot qualify the compiler-negative fixture.
   python3 "$root/scripts/zorde_visibility_diagnostic.py" "$negative_log" "$fixture" ||
     die "negative fixture lacked a targeted visibility diagnostic: ${fixture}"
+  python3 "$root/scripts/check-zorde-denial.py" "$negative_log" "$fixture" ||
+    die "negative fixture lacked a matching access-control diagnostic: ${fixture}"
 done
 
 # A failing Git command with empty stdout must not be interpreted as a clean

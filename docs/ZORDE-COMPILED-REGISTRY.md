@@ -144,7 +144,9 @@ executed public-import control and a separate public-API execution control
 under `fixtures/zorde-compile-positive/`, then requires two compiler-negative privacy fixtures under
 `fixtures/zorde-compile-negative/` to fail with specific access-control
 diagnostics rather than an arbitrary parser error. The same approved compiler
-must execute all four fixtures. It creates
+must execute all four fixtures. A source-free 17-case denial-verifier suite
+rejects unrelated and cross-line access messages, malformed UTF-8 and
+oversized logs; those source-free tests are not native compiler validation. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
