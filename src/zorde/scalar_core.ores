@@ -8,6 +8,10 @@
 
 import fnc utf8_scalar_count from '../core/utf8_scalar';
 
+// A consistent work limit across direct dynamic rules and compiled registry.
+// Check before cloning to avoid allocating on untrusted oversized exclusions.
+pub fnc zorde_core_max_exclusions(): int { return 256; }
+
 pub define class ZordeCoreInterval as
   pub val int minimum;
   pub val int maximum;
@@ -21,6 +25,11 @@ pub fnc zorde_core_interval(
 ): ZordeCoreInterval {
   // Snapshot primitive values so the caller cannot modify the exclusion
   // list after constructing this dynamic validation descriptor.
+  // Even a direct, untrusted builder must refuse oversized metadata *before*
+  // cloning: an invalid empty interval is the fail-closed sentinel.
+  if exclusions.length > zorde_core_max_exclusions() then
+    return new ZordeCoreInterval(1, 0, new List<int>());
+  fi
   val List<int> snapshot = new List<int>();
   for const hole of exclusions do snapshot.add(hole); done
   return new ZordeCoreInterval(minimum, maximum, snapshot);
@@ -30,6 +39,7 @@ pub fnc zorde_core_interval_valid(
   ZordeCoreInterval interval,
   bool is_string_length
 ): bool {
+  if interval.excluded.length > zorde_core_max_exclusions() then return false; fi
   if interval.minimum > interval.maximum then return false; fi
   if is_string_length && interval.minimum < 0 then return false; fi
   let bool has_previous = false;

@@ -10,7 +10,7 @@ import class Value from '../core/value';
 import class ZordeScalarRule from './scalar';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_accepts from './scalar';
 import class ZordeCoreInterval from './scalar_core';
-import fnc zorde_core_interval, zorde_core_interval_valid from './scalar_core';
+import fnc zorde_core_interval, zorde_core_interval_valid, zorde_core_max_exclusions from './scalar_core';
 
 pub define class ZordeScalarDescriptor as
   pub val int version;
@@ -32,6 +32,11 @@ pub fnc zorde_scalar_descriptor(
   int maximum,
   List<int> excluded
 ): ZordeScalarDescriptor {
+  // Construct an invalid descriptor instead of cloning attacker-sized lists.
+  if excluded.length > zorde_core_max_exclusions() then
+    return new ZordeScalarDescriptor(0, kind, property, minimum, maximum,
+      new List<int>());
+  fi
   val List<int> snapshot = new List<int>();
   for const hole of excluded do snapshot.add(hole); done
   return new ZordeScalarDescriptor(
@@ -42,6 +47,8 @@ pub fnc zorde_scalar_descriptor_valid(
   ZordeScalarDescriptor descriptor
 ): bool {
   if descriptor.version != 1 then return false; fi
+  // Public class constructors can bypass the bounded helper above.
+  if descriptor.excluded.length > zorde_core_max_exclusions() then return false; fi
   if descriptor.kind == 2 then
     if descriptor.property != 1 then return false; fi
   elif descriptor.kind == 3 then

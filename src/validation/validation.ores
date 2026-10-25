@@ -278,11 +278,16 @@ pub fnc value_rule_valid(ValueRule rule): bool {
     return false;
   fi
 
-  if rule.has_min_number && rule.min_number != rule.min_number then
+  // Reject nonfinite bounds, not just NaN. A zero bound is finite;
+  // for every other finite IEEE float, x/x == 1.0. Infinity and NaN
+  // both fail this check without depending on backend-specific intrinsics.
+  if rule.has_min_number &&
+     (rule.min_number != 0.0 && rule.min_number / rule.min_number != 1.0) then
     return false;
   fi
 
-  if rule.has_max_number && rule.max_number != rule.max_number then
+  if rule.has_max_number &&
+     (rule.max_number != 0.0 && rule.max_number / rule.max_number != 1.0) then
     return false;
   fi
 
@@ -638,13 +643,82 @@ pub fnc is_url(Utf8Text text): bool {
   return saw_authority;
 }
 
+// Validation is a boundary even for programmatically built Value lexemes.
+// Bound work independently of JSON decoder settings, which callers may bypass.
+pub fnc max_validated_number_bytes(): int { return 1024; }
+
+// Lexical admission is independent of a float range comparison. Decoder
+// callers cannot bypass JSON-number grammar by building Value directly.
+// A valid unbounded JSON number need not fit IEEE double.
+pub fnc number_lexeme_valid(Value value): bool {
+  if value.kind != 2 then return false; fi
+  val List<int> bytes = value.number_lexeme;
+  if bytes.length == 0 || bytes.length > max_validated_number_bytes() then
+    return false;
+  fi
+
+  let int i = 0;
+  if bytes[i] == 45 then
+    i = i + 1;
+    if i >= bytes.length then return false; fi
+  fi
+
+  // Canonical integer: one zero, or a nonzero digit followed by digits.
+  if bytes[i] == 48 then
+    i = i + 1;
+    if i < bytes.length && bytes[i] >= 48 && bytes[i] <= 57 then
+      return false;
+    fi
+  else
+    if bytes[i] < 49 || bytes[i] > 57 then return false; fi
+    i = i + 1;
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  if i < bytes.length && bytes[i] == 46 then
+    i = i + 1;
+    if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+      return false;
+    fi
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  if i < bytes.length && (bytes[i] == 101 || bytes[i] == 69) then
+    i = i + 1;
+    if i < bytes.length && (bytes[i] == 43 || bytes[i] == 45) then
+      i = i + 1;
+    fi
+    if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+      return false;
+    fi
+    loop do
+      if i >= bytes.length || bytes[i] < 48 || bytes[i] > 57 then
+        break;
+      fi
+      i = i + 1;
+    done
+  fi
+
+  return i == bytes.length;
+}
+
 pub fnc parse_number(Value value): ParsedNumber {
   if value.kind != 2 then
     return new ParsedNumber(false, 0.0);
   fi
 
   let List<int> bytes = value.number_lexeme;
-  if bytes.length == 0 then
+  if bytes.length == 0 || bytes.length > max_validated_number_bytes() then
     return new ParsedNumber(false, 0.0);
   fi
 
@@ -658,6 +732,7 @@ pub fnc parse_number(Value value): ParsedNumber {
 
   let float whole = 0.0;
   let bool saw_digit = false;
+  let bool saw_nonzero_digit = false;
 
   loop do
     if i >= bytes.length then
@@ -666,6 +741,15 @@ pub fnc parse_number(Value value): ParsedNumber {
     let int byte = bytes[i];
     if byte < 48 || byte > 57 then
       break;
+    fi
+    // JSON numbers cannot start their integer component with 00 or 01.
+    if (i == 0 || (i == 1 && bytes[0] == 45)) && byte == 48 then
+      if i + 1 < bytes.length && bytes[i + 1] >= 48 && bytes[i + 1] <= 57 then
+        return new ParsedNumber(false, 0.0);
+      fi
+    fi
+    if byte != 48 then
+      saw_nonzero_digit = true;
     fi
     whole = (whole * 10.0) + (byte - 48);
     saw_digit = true;
@@ -690,6 +774,9 @@ pub fnc parse_number(Value value): ParsedNumber {
       let int byte = bytes[i];
       if byte < 48 || byte > 57 then
         break;
+      fi
+      if byte != 48 then
+        saw_nonzero_digit = true;
       fi
       fraction = (fraction * 10.0) + (byte - 48);
       divisor = divisor * 10.0;
@@ -757,7 +844,11 @@ pub fnc parse_number(Value value): ParsedNumber {
     j = j + 1;
   done
 
-  if result != result then
+  // NaN, +Infinity and -Infinity are never valid range-comparison inputs.
+  // Reject nonzero decimals that silently underflowed to zero as well.
+  if result != result ||
+     (result != 0.0 && result / result != 1.0) ||
+     (result == 0.0 && saw_nonzero_digit) then
     return new ParsedNumber(false, 0.0);
   fi
 
@@ -893,6 +984,15 @@ fnc validate_rule_at(
 
     if rule.require_unique_items then
       validate_unique(value, report, options, path);
+    fi
+  fi
+
+  if value.kind == 2 then
+    // Even type-only/any rules must not admit malformed number lexemes.
+    // Do not float-convert JSON values when no numeric range is requested.
+    if !number_lexeme_valid(rt borrow value) then
+      add_error(report, options, "number", path, "number has an invalid JSON lexeme");
+      return;
     fi
   fi
 
@@ -1067,6 +1167,26 @@ pub fnc validate_object(
     );
     return report;
   fi
+
+  // The dynamic Value model can be constructed without a JSON decoder.
+  // Refuse oversized input before building hash buckets or walking all fields.
+  // Reuse the schema's conservative member/key limits on this trust boundary.
+  if value.object_value.length > max_schema_fields() then
+    add_error(report, options, "object_capacity", new List<PathSegment>(),
+      "input object member count exceeds the bounded validation domain");
+    return report;
+  fi
+
+  // Do not permit malformed bytes in object keys, even when unknown fields
+  // are allowed. Unknown-schema keys would otherwise evade field rules.
+  for const member of value.object_value do
+    if member.key.bytes.length > max_schema_key_bytes() ||
+       !utf8_is_valid(member.key.bytes) then
+      add_error(report, options, "invalid_object_key", new List<PathSegment>(),
+        "input object key is oversized or is not valid UTF-8");
+      return report;
+    fi
+  done
 
   if !object_keys_unique(value) then
     add_error(

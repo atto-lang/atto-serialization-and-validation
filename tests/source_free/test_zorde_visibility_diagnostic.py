@@ -28,7 +28,7 @@ class DiagnosticContracts(unittest.TestCase):
         self.assertTrue(self.verdict('error: private type\n  ZordePrivateCompiledEntry'))
 
     def test_storage_denial(self):
-        self.assertTrue(self.verdict('error: cannot access member entries', 'private-storage-access'))
+        self.assertTrue(self.verdict('error: cannot access member entries in ZordeScalarRegistry', 'private-storage-access'))
 
     def test_ansi_diagnostic(self):
         self.assertTrue(self.verdict('\x1b[31merror: ZordePrivateCompiledEntry not public\x1b[0m'))
@@ -74,6 +74,58 @@ class DiagnosticContracts(unittest.TestCase):
 
     def test_cli_denies_unsupported_fixture(self):
         self.assertEqual(verifier.main(['program', '/tmp/dummy', 'fake-fixture']), 2)
+
+
+    def test_same_line_unrelated_private_entry_is_refused(self):
+        self.assertFalse(self.verdict('error: ZordePrivateCompiledEntry unknown; Other is private'))
+
+    def test_same_line_unrelated_private_storage_is_refused(self):
+        self.assertFalse(self.verdict('error: entries unknown; Other is private', 'private-storage-access'))
+
+    def test_same_line_unrelated_denial_prefix_is_refused(self):
+        self.assertFalse(self.verdict('error: cannot access Other; ZordePrivateCompiledEntry unknown'))
+
+    def test_adjacent_unrelated_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: Other is private\nZordePrivateCompiledEntry'))
+
+    def test_unrelated_adjacent_storage_is_refused(self):
+        self.assertFalse(self.verdict('error: Other field is private\nentries', 'private-storage-access'))
+
+    def test_private_target_case_sensitive(self):
+        self.assertFalse(self.verdict('error: ZordeprivateCompiledEntry is private'))
+
+    def test_private_member_case_sensitive(self):
+        self.assertFalse(self.verdict('error: ENTRIES is private', 'private-storage-access'))
+
+    def test_quoted_member_denial_is_accepted(self):
+        self.assertTrue(self.verdict('error: ZordeScalarRegistry.`entries` has private access', 'private-storage-access'))
+
+    def test_unqualified_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: entries is private', 'private-storage-access'))
+
+    def test_other_owner_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: Other.entries is private', 'private-storage-access'))
+
+    def test_other_owner_prefix_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: cannot access member entries in Other', 'private-storage-access'))
+
+    def test_spliced_owner_and_member_storage_denial_is_refused(self):
+        self.assertFalse(self.verdict('error: ZordeScalarRegistry unrelated; entries is private', 'private-storage-access'))
+
+    def test_qualified_storage_denial_is_accepted(self):
+        self.assertTrue(self.verdict('error: ZordeScalarRegistry.entries is private', 'private-storage-access'))
+
+    def test_isolated_multiline_wrong_symbol_is_refused(self):
+        self.assertFalse(self.verdict('error: private type\nOtherClass\nZordePrivateCompiledEntry'))
+
+    def test_malformed_nul_rejected(self):
+        self.assertFalse(self.verdict(b'error: ZordePrivateCompiledEntry is private\x00'))
+
+    def test_parse_failure_overrides_valid_denial(self):
+        self.assertFalse(self.verdict('error: ZordePrivateCompiledEntry is private\nsyntax error'))
+
+    def test_spurious_word_between_symbol_and_denial(self):
+        self.assertFalse(self.verdict('error: entries variable is private', 'private-storage-access'))
 
 
 if __name__ == '__main__':
