@@ -133,14 +133,18 @@ executable Oreslang compiler. The script
 refuses dirty checkouts, wrong HEADs, unexpected executable digests, missing
 executables, missing required environment variables, absent native test
 markers, nonzero process exits, and evidence output inside the checkout. It
-caps the full suite at 300 seconds, then requires a successful public import
-positive control before the two compiler-negative privacy fixtures under `fixtures/zorde-compile-negative/` to fail with specific
-access-control diagnostics rather than an arbitrary parser error. It creates
+caps the positive execution at 300 seconds. It first requires a separately
+executed public-import control and a separate public-API execution control
+under `fixtures/zorde-compile-positive/`, then requires two compiler-negative privacy fixtures under
+`fixtures/zorde-compile-negative/` to fail with specific access-control
+diagnostics rather than an arbitrary parser error. The same approved compiler
+must execute all four fixtures. It creates
 a SHA-bound, non-release machine-readable receipt **only after those checks
 and the full native suite have actually succeeded**. The evidence directory
 must be new, caller-owned, and mode `0700` (no group/world access); existing
-logs or receipts are never overwritten. Twelve source-free preflight refusal
-cases are exercised by `scripts/test-zorde-source-local-contracts.sh`; they
+logs or receipts are never overwritten. Twenty source-free harness refusal
+cases, including parent-path symlinks, silent Git-status failures, Git-index-hidden edits, a redirected tracked directory, a deliberately failing public import, an ignored untracked injection, and an unchanged-tree but different-HEAD attack, are exercised
+by `scripts/test-zorde-source-local-contracts.sh`; they
 are **not** Oreslang compiler/runtime executions.
 
 ```bash
@@ -160,13 +164,76 @@ marks that gap explicitly. Source-level and transitive compiler provenance,
 authorized environment identity, separate output review and full backend
 conformance are still required for release.
 
-## Targeted diagnostic evidence guard
+The launcher rejects symbolic links at any existing path component for both
+the compiler executable and evidence directory and rechecks these paths after
+execution. These checks do **not** eliminate same-user path races, hostile
+self-hosted runners, malicious approved binaries or mutable transitive JVM
+dependencies. A trusted isolated runner and independently pinned full compiler
+provenance are still required; no source-org native result is claimed by
+this script change alone.
 
-The source-local runner now invokes a small Python verifier for each nonzero
-negative Oreslang compiler fixture. It requires the protected symbol and a
-visibility/export/access denial in the same or adjacent diagnostic lines.
-A 64-KiB log cap, strict UTF-8 decoding, known-fixture allowlist and refusal of
-mixed parse/internal/missing-module errors prevent unrelated failures from
-masquerading as access-control evidence. Its 18 independent source-free Python
-unit tests run from `scripts/test-runner.sh`. These tests are not native
-Oreslang compiler or backend-conformance evidence.
+### Git source identity at issuance
+
+The preflight harness treats `git status` command failure as a hard refusal,
+not as an empty clean-tree report. After synthetic guest/visibility checks it
+re-reads the exact Git HEAD **and** root-tree SHA, and refuses a receipt even
+when a different HEAD points to an identical tree. This complements (but does
+not replace) an isolated runner and source-file integrity controls against
+working-tree mutations that a hostile process may conceal from ordinary Git
+status.
+
+The source-free regression harness deliberately invokes a **noncompiler fake**
+that prints synthetic success markers, moves a disposable fixture repository
+HEAD, and must be refused before any native receipt is created. Its outcomes
+are never Oreslang guest or compiler evidence.
+
+### Exact source-byte admission (not just Git cleanliness)
+
+The source-local harness now runs `scripts/verify-zorde-checkout.py` **before
+and after** guest/negative-fixture execution. It walks the reviewed HEAD Git
+tree and recomputes actual Git blob IDs from every tracked working-tree file,
+including symlink contents, executable permissions and any tracked-file parent-directory redirection. It does not trust the
+index's `assume-unchanged` or `skip-worktree` flags, and refuses submodules,
+unexpected file types, modified blobs, non-exact line-ending conversions,
+file-count and aggregate byte budgets. The attester intentionally supports the
+repository's Git SHA-1 object format only and fails closed on a different
+format; future SHA-256 repositories require a separately reviewed update.
+
+On October 18, 2026, the hardened attester's exact Git blob
+`4036e281b4c216d040fb269939df874467133397` was independently executed
+in a local **source-free** Git fixture. Eight targeted cases passed: unmodified
+checkout accepted, ordinary mutation refused, assume-unchanged mutation
+refused, skip-worktree mutation refused, altered symlink refused, redirected tracked directory refused, executable
+mode mismatch refused, and different HEAD/same tree refused. These tests did
+**not** execute the native Oreslang compiler and are not a substitute for the
+still-blocked source-org CI or actual guest conformance.
+
+## Manually approved source-local Actions execution
+
+An opt-in `workflow_dispatch` path has been added to the preexisting
+`.github/workflows/runner.yml`. It requires environment-bound review values
+for exact source HEAD/tree, compiler executable SHA-256 and absolute executable
+and evidence paths; it targets only a dedicated source-org ephemeral runner.
+This does **not** restore GitHub-hosted minutes, enroll a runner or create an
+independent reviewer. Administrator security/environment configuration and a
+trusted isolated runner are required before triggering it. See
+[`docs/ZORDE-SOURCE-LOCAL-RUNNER-BOOTSTRAP.md`](./ZORDE-SOURCE-LOCAL-RUNNER-BOOTSTRAP.md).
+
+The physical verifier also rejects files hidden by Git ignore rules. Their
+presence can affect runtime import/tooling resolution despite a clean
+`git status`. This adds a source-free refusal case; native compiler behavior
+remains **NOT_EXECUTED** until authorized source-local Actions executes.
+
+## Targeted compiler-visibility evidence guard
+
+The latest compiled-registry parent adds
+`scripts/zorde_visibility_diagnostic.py`: access-control negatives are
+qualified only when the protected symbol and a denial occur on the same or
+adjacent diagnostic lines. The verifier rejects mixed parser, missing-module,
+internal-compiler errors, malformed UTF-8 and oversized diagnostics; it
+cannot infer true compiler correctness without the pinned actual compiler.
+Its 18 self-contained source-free Python tests are wired into the runner
+contracts. Corrected `tests/source_free/test_zorde_visibility_diagnostic.py`
+to resolve the imported verifier from the repository root (`parents[2]`,
+not `parents[1]`). This fix is staged in compiled registry parent PR #20 and
+reconciled here, but source-org Actions has not executed the suite.
