@@ -1,0 +1,17 @@
+{
+  "schema": "zorde.scalar/v1",
+  "version": 1,
+  "base": "int",
+  "property": "value",
+  "minimum": 0,
+  "maximum": 5,
+  "excluded": [],
+  "nominal_identity": null,
+  "fingerprint": "827510a6eea2d9be501904db2a1ce1f840bb37d0ae8424db074edd24189673b2",
+  "runtime_requirements": [
+    "exact_signed_int64",
+    "inclusive_signed_int64_interval",
+    "sorted_unique_exclusions",
+    "no_float_coercion"
+  ]
+}

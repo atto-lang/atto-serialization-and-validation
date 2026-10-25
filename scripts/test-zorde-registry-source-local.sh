@@ -12,6 +12,32 @@ done
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 cd "$root"
+
+# Reject symlinked parent directories as well as a symlink at the leaf.
+# Realpath alone resolves those components rather than proving the approved
+# command path is unredirected. This is preflight hardening, not a substitute
+# for runner isolation against same-UID path swaps during execution.
+no_symlink_components() {
+  python3 - "$1" <<'PY'
+import os, stat, sys
+path = sys.argv[1]
+if not os.path.isabs(path):
+    sys.exit(1)
+current = "/"
+for component in path.split("/"):
+    if not component or component == ".":
+        continue
+    if component == "..":
+        sys.exit(1)
+    current = os.path.join(current, component)
+    try:
+        mode = os.lstat(current).st_mode
+    except OSError:
+        sys.exit(1)
+    if stat.S_ISLNK(mode):
+        sys.exit(1)
+PY
+}
 [[ -n "${EXPECTED_SOURCE_SHA:-}" && "${EXPECTED_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] ||
   die "EXPECTED_SOURCE_SHA must be an explicit immutable 40-hex source commit"
 [[ -n "${EXPECTED_SOURCE_TREE:-}" && "${EXPECTED_SOURCE_TREE}" =~ ^[0-9a-f]{40}$ ]] ||
@@ -21,7 +47,9 @@ cd "$root"
 [[ -n "${ORESLANG_BIN:-}" ]] || die "ORESLANG_BIN must identify the pinned compiler executable"
 [[ -n "${ZORDE_EVIDENCE_DIR:-}" ]] || die "ZORDE_EVIDENCE_DIR is required (outside checkout)"
 [[ -d "$ZORDE_EVIDENCE_DIR" ]] || die "evidence directory must exist before test execution"
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
+git_status="$(git status --porcelain --untracked-files=all)" ||
+  die "unable to inspect source working tree"
+[[ -z "$git_status" ]] ||
   die "source tree is not clean"
 source_sha="$(git rev-parse HEAD)"
 [[ "$source_sha" == "$EXPECTED_SOURCE_SHA" ]] ||
@@ -32,6 +60,9 @@ source_tree="$(git rev-parse 'HEAD^{tree}')"
 source_root="$(git rev-parse --show-toplevel)"
 [[ "$(cd "$source_root" && pwd -P)" == "$root" ]] ||
   die "source checkout root mismatch"
+# Physical byte verification intentionally bypasses Git's index/status cache.
+python3 "$root/scripts/verify-zorde-checkout.py" "$source_sha" "$source_tree" ||
+  die "source bytes differ from reviewed Git tree"
 
 case "$ORESLANG_BIN" in
   /*) ;;
@@ -39,6 +70,8 @@ case "$ORESLANG_BIN" in
 esac
 [[ ! -L "$ORESLANG_BIN" ]] ||
   die "compiler executable must not be a symlink"
+no_symlink_components "$ORESLANG_BIN" ||
+  die "compiler executable path must have no symlink components or traversal"
 [[ -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" ]] ||
   die "approved compiler executable missing or not executable"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
@@ -47,6 +80,8 @@ compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 
 [[ ! -L "$ZORDE_EVIDENCE_DIR" ]] ||
   die "evidence directory must not be a symlink"
+no_symlink_components "$ZORDE_EVIDENCE_DIR" ||
+  die "evidence directory path must have no symlink components or traversal"
 out_dir="$(cd "$ZORDE_EVIDENCE_DIR" && pwd -P)"
 case "$out_dir" in
   "$root"|"$root"/*) die "evidence must be outside the source checkout" ;;
@@ -68,7 +103,8 @@ then
   die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
 for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
-  zorde-public-import-positive.log zorde-private-entry-import-denial.log \
+  zorde-public-export-control.log zorde-public-import-positive.log \
+  zorde-private-entry-import-denial.log \
   zorde-private-storage-access-denial.log; do
   [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
     die "evidence output already exists; use a fresh, private directory"
@@ -89,16 +125,31 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
-# A valid public import must compile before private import failures can count.
-# Otherwise, an unrelated compiler/path failure could mimic a visibility denial.
-positive_log="$out_dir/zorde-public-import-positive.log"
+# Keep the parent's positive-import control as a separate compiler
+# invocation. Its function signature must resolve the public class/import
+# even if no guest stdout marker is emitted by this compile-only fixture.
+positive_import_log="$out_dir/zorde-public-import-positive.log"
 set +e
 timeout --signal=TERM --kill-after=5s 60s \
-  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-registry-import.ores" >"$positive_log" 2>&1
-positive_status=$?
+  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-registry-import.ores" >"$positive_import_log" 2>&1
+positive_import_status=$?
 set -e
-[[ "$positive_status" -eq 0 ]] ||
-  die "public registry import positive control failed (exit=$positive_status)"
+[[ "$positive_import_status" -eq 0 ]] ||
+  die "public registry import positive control failed (exit=$positive_import_status)"
+
+# Independently prove that public registry API execution emits the expected
+# marker, before interpreting either private failure as visibility enforcement.
+public_log="$out_dir/zorde-public-export-control.log"
+set +e
+timeout --signal=TERM --kill-after=5s 60s \
+  "$ORESLANG_BIN" "$root/fixtures/zorde-compile-positive/public-export-control.ores" >"$public_log" 2>&1
+public_status=$?
+set -e
+[[ "$public_status" -eq 0 ]] ||
+  die "public registry export control failed (status=$public_status)"
+grep -Fqx "native Zorde public export control passed" "$public_log" ||
+  die "public registry export control success marker absent"
+
 # A parse error is insufficient: negative fixtures must fail with a real
 # export/visibility error from the same approved compiler that ran the suite.
 for fixture in private-entry-import private-storage-access; do
@@ -114,20 +165,42 @@ for fixture in private-entry-import private-storage-access; do
      "$negative_status" -ne 126 && "$negative_status" -ne 127 &&
      "$negative_status" -ne 143 ]] ||
     die "private registry fixture timed out: ${fixture}"
-  # Never accept unrelated/spliced lines as private-access diagnostics:
-  # one line must name the precise protected symbol and deny its visibility.
+  # Require both the current targeted visibility classifier and the stricter
+  # same-line protected-symbol denial verifier. Unrelated/spliced diagnostics
+  # cannot qualify the compiler-negative fixture.
+  python3 "$root/scripts/zorde_visibility_diagnostic.py" "$negative_log" "$fixture" ||
+    die "negative fixture lacked a targeted visibility diagnostic: ${fixture}"
   python3 "$root/scripts/check-zorde-denial.py" "$negative_log" "$fixture" ||
-    die "negative fixture lacked a matching access-control diagnostic: $fixture"
+    die "negative fixture lacked a matching access-control diagnostic: ${fixture}"
 done
 
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] ||
+# A failing Git command with empty stdout must not be interpreted as a clean
+# checkout. Re-verify source identity, not just cleanliness: HEAD can move
+# to a distinct commit with an identical tree without changing git status.
+git_status="$(git status --porcelain --untracked-files=all)" ||
+  die "unable to inspect source working tree after native validation"
+[[ -z "$git_status" ]] ||
   die "native test modified source tree; cannot issue receipt"
+post_source_sha="$(git rev-parse HEAD)" ||
+  die "unable to inspect source HEAD after native validation"
+[[ "$post_source_sha" == "$source_sha" ]] ||
+  die "source HEAD changed during native validation"
+post_source_tree="$(git rev-parse 'HEAD^{tree}')" ||
+  die "unable to inspect source root tree after native validation"
+[[ "$post_source_tree" == "$source_tree" ]] ||
+  die "source root Git tree changed during native validation"
+python3 "$root/scripts/verify-zorde-checkout.py" "$source_sha" "$source_tree" ||
+  die "source bytes differ from reviewed Git tree after native validation"
 
 # The compiler file must remain the reviewed executable throughout the run.
 # This catches persistent mutation between entry checks and evidence issuance;
 # a pinned launcher digest alone still does not attest its transitive runtime.
 [[ ! -L "$ORESLANG_BIN" ]] ||
   die "compiler executable became a symlink during native validation"
+no_symlink_components "$ORESLANG_BIN" ||
+  die "compiler executable path acquired symlink components during native validation"
+no_symlink_components "$ZORDE_EVIDENCE_DIR" ||
+  die "evidence directory path acquired symlink components during native validation"
 final_compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [[ "$final_compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] ||
   die "compiler executable changed during native validation"
@@ -149,9 +222,15 @@ record = {
     "actual_native_guest_executed": True,
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
-    "process_exit_code": 0,
     "public_registry_import_control_passed": True,
-    "public_registry_import_log_sha256": hashlib.sha256((Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()).hexdigest(),
+    "public_registry_import_log_sha256": hashlib.sha256(
+        (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()
+    ).hexdigest(),
+    "public_export_control_executed": True,
+    "public_export_control_log_sha256": hashlib.sha256(
+        (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-export-control.log").read_bytes()
+    ).hexdigest(),
+    "process_exit_code": 0,
     "negative_private_entry_import_refused": True,
     "negative_private_storage_access_refused": True,
     "negative_diagnostic_sha256": {

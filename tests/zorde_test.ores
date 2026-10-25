@@ -2,7 +2,7 @@ import fnc require_true from './assert';
 
 import class Value, Utf8Text, WireMember, IntParse from '../src/core/value';
 import fnc value_string, value_int, value_number_lexeme, value_object, parse_int, int_to_decimal_bytes from '../src/core/value';
-import class FieldRule, ValidValue, ValidationReport from '../src/validation/validation';
+import class FieldRule, ValidationReport from '../src/validation/validation';
 import class ZordeValueSchema, ZordeObjectSchema, ZordeIntSchema from '../src/zorde/zorde';
 import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
 import fnc zorde_int_min, zorde_int_max, zorde_int_range, zorde_parse_int from '../src/zorde/zorde';
@@ -16,13 +16,13 @@ import fnc zorde_parse_refinement from '../src/zorde/zorde';
 pub fnc run_zorde_tests(): void {
   val ZordeValueSchema nonempty = zorde_nonempty_string();
 
-  val Result<ValidValue, ValidationReport> valid_nonempty = zorde_parse(
+  val Result<Value, ValidationReport> valid_nonempty = zorde_parse(
     value_string(new Utf8Text(new List<int>(111, 114, 101, 115))),
     rt borrow nonempty
   );
   require_true(!valid_nonempty.is_err(), "Zorde nonempty string must accept non-empty text");
 
-  val Result<ValidValue, ValidationReport> invalid_empty = zorde_parse(
+  val Result<Value, ValidationReport> invalid_empty = zorde_parse(
     value_string(new Utf8Text(new List<int>())),
     rt borrow nonempty
   );
@@ -30,7 +30,7 @@ pub fnc run_zorde_tests(): void {
 
   // U+1F600 encoded as UTF-8 is one Unicode scalar value, not four bytes.
   val ZordeValueSchema negative_exact = zorde_exact_string(-1);
-  val Result<ValidValue, ValidationReport> negative_exact_result = zorde_parse(
+  val Result<Value, ValidationReport> negative_exact_result = zorde_parse(
     value_string(new Utf8Text(new List<int>(120))),
     rt borrow negative_exact
   );
@@ -38,7 +38,7 @@ pub fnc run_zorde_tests(): void {
     "Zorde negative exact length must fail closed instead of becoming unbounded");
 
   val ZordeValueSchema exactly_one = zorde_exact_string(1);
-  val Result<ValidValue, ValidationReport> emoji = zorde_parse(
+  val Result<Value, ValidationReport> emoji = zorde_parse(
     value_string(new Utf8Text(new List<int>(240, 159, 152, 128))),
     rt borrow exactly_one
   );
@@ -70,7 +70,7 @@ pub fnc run_zorde_tests(): void {
   ));
   members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(42)));
 
-  val Result<ValidValue, ValidationReport> valid_person = zorde_parse_object(
+  val Result<Value, ValidationReport> valid_person = zorde_parse_object(
     value_object(members),
     rt borrow person
   );
@@ -233,5 +233,24 @@ pub fnc run_zorde_tests(): void {
       "malformed compiler descriptor must fail closed");
   done
 
+  // Public descriptor constructors must not allocate or validate an
+  // attacker-sized exclusion list beyond the same registry/kernel limit.
+  val List<int> over_budget = new List<int>();
+  let int exclusion_index = 1;
+  loop do
+    if exclusion_index > 257 then break; fi
+    over_budget.add(exclusion_index);
+    exclusion_index = exclusion_index + 1;
+  done
+  val ZordeScalarDescriptor refused_descriptor = zorde_scalar_descriptor(
+    1, 2, 1, 0, 512, rt borrow over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow refused_descriptor).is_err(),
+    "direct descriptor helper must reject over-budget exclusion sets");
+  val ZordeScalarDescriptor forged_descriptor = new ZordeScalarDescriptor(
+    1, 2, 1, 0, 512, over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow forged_descriptor).is_err(),
+    "public descriptor construction cannot bypass exclusion validation");
   return;
 }

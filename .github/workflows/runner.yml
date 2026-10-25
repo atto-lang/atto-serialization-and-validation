@@ -4,6 +4,12 @@ on:
     branches: [main, "hardening/**"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      source_local_native:
+        description: 'Use admin-approved ephemeral source-local runner for Zorde native validation'
+        type: boolean
+        required: true
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -11,6 +17,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   runner-contracts:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.source_local_native }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
@@ -26,3 +33,72 @@ jobs:
         run: bash scripts/check-exports.sh
       - name: Verify runner failure and invocation contracts
         run: bash scripts/test-runner.sh
+  # Does not use private cross-org carriers. An administrator must separately
+  # configure a protected environment and a trusted ephemeral source-org runner
+  # with this exact runner label. Do not install the label on shared/persistent
+  # hosts or consider this job a substitute for independent approval.
+  zorde-native-source-local:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_local_native }}
+    environment: zorde-source-local-trusted
+    runs-on: [self-hosted, linux, x64, zorde-source-ephemeral]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      # The protected environment's admin-maintained values must match the
+      # intended immutable source snapshot *before checking out any code*.
+      # Empty or self-reported action-input digests are never an approval.
+      - name: Reject unapproved source snapshot before checkout
+        shell: bash
+        env:
+          APPROVED_SHA: ${{ vars.ZORDE_APPROVED_SOURCE_SHA }}
+          APPROVED_TREE: ${{ vars.ZORDE_APPROVED_SOURCE_TREE }}
+          APPROVED_COMPILER: ${{ vars.ZORDE_APPROVED_COMPILER_SHA256 }}
+          APPROVED_BIN: ${{ vars.ZORDE_APPROVED_COMPILER_PATH }}
+          APPROVED_EVIDENCE_ROOT: ${{ vars.ZORDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          [[ "$APPROVED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_TREE" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_COMPILER" =~ ^[0-9a-f]{64}$ ]] || exit 2
+          [[ "$APPROVED_SHA" == "$GITHUB_SHA" ]] || exit 2
+          [[ "$APPROVED_BIN" = /* && -n "$APPROVED_BIN" ]] || exit 2
+          [[ "$APPROVED_EVIDENCE_ROOT" = /* && -d "$APPROVED_EVIDENCE_ROOT" ]] || exit 2
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify shell syntax and source-free refusal contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' script; do
+            bash -n "$script"
+          done < <(find scripts -type f -name '*.sh' -print0)
+          bash scripts/check-exports.sh
+          bash scripts/test-runner.sh
+
+      - name: Run actual compiler and privacy diagnostics
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ vars.ZORDE_APPROVED_SOURCE_SHA }}
+          EXPECTED_SOURCE_TREE: ${{ vars.ZORDE_APPROVED_SOURCE_TREE }}
+          EXPECTED_COMPILER_SHA256: ${{ vars.ZORDE_APPROVED_COMPILER_SHA256 }}
+          ORESLANG_BIN: ${{ vars.ZORDE_APPROVED_COMPILER_PATH }}
+          APPROVED_EVIDENCE_ROOT: ${{ vars.ZORDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$GITHUB_SHA" == "$EXPECTED_SOURCE_SHA" ]] || exit 2
+          [[ -d "$APPROVED_EVIDENCE_ROOT" ]] || exit 2
+          export ZORDE_EVIDENCE_DIR
+          ZORDE_EVIDENCE_DIR="$(mktemp -d "$APPROVED_EVIDENCE_ROOT/zorde-native.XXXXXXXX")"
+          # Do not echo raw guest/negative compiler logs into public output.
+          # The administrator must retain the private evidence directory
+          # within the approved source trust boundary for independent review.
+          bash scripts/test-zorde-registry-source-local.sh
+          sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"
+          cat "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"

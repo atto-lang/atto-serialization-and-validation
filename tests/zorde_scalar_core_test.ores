@@ -80,6 +80,35 @@ pub fnc main(): void {
     zorde_core_interval(-1,2,new List<int>()),true),
     "negative Unicode scalar bound rejected");
 
+  val List<int> oversized_exclusions = new List<int>();
+  let int excluded_index = 1;
+  loop do
+    if excluded_index > 257 then break; fi
+    oversized_exclusions.add(excluded_index);
+    excluded_index = excluded_index + 1;
+  done
+  val ZordeCoreInterval builder_refusal = zorde_core_interval(
+    0, 512, rt borrow oversized_exclusions);
+  require_true(!zorde_core_interval_valid(rt borrow builder_refusal, false),
+    "direct interval builder must fail closed before cloning >256 exclusions");
+  val ZordeCoreInterval forged_overlarge = new ZordeCoreInterval(
+    0, 512, oversized_exclusions);
+  require_true(!zorde_core_interval_valid(rt borrow forged_overlarge, false),
+    "public interval constructor cannot bypass the excluded-value budget");
+  val List<int> edge_exclusions = new List<int>();
+  excluded_index = 1;
+  loop do
+    if excluded_index > 256 then break; fi
+    edge_exclusions.add(excluded_index);
+    excluded_index = excluded_index + 1;
+  done
+  val ZordeCoreInterval edge_rule = zorde_core_interval(
+    0, 512, edge_exclusions);
+  require_true(zorde_core_interval_valid(rt borrow edge_rule, false),
+    "256 sorted in-domain exclusions remain admissible");
+  require_true(zorde_core_interval_contains(rt borrow edge_rule, false, 257),
+    "the next non-excluded integer remains admissible");
+
   stdio.stdout.println("native Zorde core scalar ConstraintIR tests passed");
   return;
 }
