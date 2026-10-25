@@ -1,0 +1,17 @@
+// Positive compiler control: the public compiled-registry interface MUST be
+// importable and executable by the same approved compiler used for negatives.
+// Failure is not an access-control proof and must block the native receipt.
+import fnc require_true from '../../tests/assert';
+import class ZordeScalarRegistry from '../../src/zorde/compiled_registry';
+import fnc zorde_registry_max_entries from '../../src/zorde/compiled_registry';
+
+pub fnc accepts_public_registry(ZordeScalarRegistry registry): bool {
+  return true;
+}
+
+pub fnc main(): void {
+  require_true(zorde_registry_max_entries() == 64,
+    "public registry export control must evaluate its bounded API");
+  stdio.stdout.println("native Zorde public export control passed");
+  return;
+}

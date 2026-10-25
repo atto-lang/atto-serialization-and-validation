@@ -225,7 +225,7 @@ pub define class JsonIncrementalDecoder as
     done
   
     for const byte of chunk do
-      self.buffer.add(byte);
+      self.buffer.push(byte);
     done
   
     let int scan_status = self.scan_incremental();
@@ -627,7 +627,7 @@ fnc push_number_byte(
     return false;
   fi
 
-  lexeme.add(byte);
+  lexeme.push(byte);
   return true;
 }
 

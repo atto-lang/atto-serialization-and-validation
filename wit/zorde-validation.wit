@@ -1,0 +1,31 @@
+// Proposed Component Model adapter surface, NOT an implemented Zorde export.
+// Explicit version/ABI. WIT does not encode JSON Schema constraints.
+package oreslang:zorde-validation@0.1.0;
+
+interface validation {
+  enum error-code {
+    missing-required,
+    wrong-type,
+    unknown-field,
+    out-of-range,
+  }
+
+  record validation-issue {
+    code: error-code,
+    path: string,
+  }
+
+  record validation-report {
+    schema-version: u32,
+    valid: bool,
+    issues: list<validation-issue>,
+  }
+
+  // A host/component adapter supplies a pre-admitted schema by identifier.
+  // Payload limits, errors, cancellation and capabilities are separate policy.
+  validate-json: func(schema-id: string, payload: list<u8>) -> validation-report;
+}
+
+world zorde-validation-guest {
+  export validation;
+}

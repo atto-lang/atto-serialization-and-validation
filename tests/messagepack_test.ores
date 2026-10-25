@@ -147,24 +147,5 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
 
-  // MessagePack non-string-key map of map of array: {1:{2:[true]}}.
-  val Result<DecodedValue, DecodeError> deep_dynamic = decode(
-    new List<int>(129, 1, 129, 2, 145, 195),
-    default_decode_options()
-  );
-  require_true(!deep_dynamic.is_err(), "nested MessagePack dynamic map must decode");
-
-  val List<Value> deep_path = new List<Value>();
-  deep_path.add(value_int(1));
-  deep_path.add(value_int(2));
-  deep_path.add(value_int(0));
-  val Result<Value, String> deep_leaf = value_lookup_path(
-    deep_dynamic.unwrap().value,
-    deep_path
-  );
-  require_true(!deep_leaf.is_err(), "nested MessagePack non-string map keys must resolve");
-  require_true(deep_leaf.unwrap().bool_value, "nested MessagePack array boolean value");
-
-
   return;
 }

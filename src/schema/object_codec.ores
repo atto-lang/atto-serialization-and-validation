@@ -52,7 +52,7 @@ fnc empty_validation_report(): ValidationReport {
 fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
   val List<FieldRule> fields = new List<FieldRule>();
   for const field of metadata.fields do
-    fields.add(field_rule(
+    fields.push(field_rule(
       field.wire_name,
       field.required,
       false,
@@ -73,7 +73,7 @@ fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
       continue;
     fi
     let CodecFieldMeta field = selected.unwrap();
-    output.add(new WireMember(field.source_name, member.value));
+    output.push(new WireMember(field.source_name, member.value));
   done
   return value_object(output);
 }

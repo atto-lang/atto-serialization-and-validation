@@ -14,13 +14,13 @@ pub fnc max_channel_bytes(): int {
   return 256 * 1024 * 1024;
 }
 
-pub define class ByteStreamError as
+define pub class ByteStreamError as
   pub val String code;
   pub val int offset;
   pub val String message;
 end
 
-pub define class ByteStreamResult as
+define pub class ByteStreamResult as
   pub val bool ok;
   pub val List<int> bytes;
   pub val ByteStreamError error;
@@ -46,7 +46,7 @@ pub async fnc collect_bytes_from_channel(
     );
   fi
 
-  val List<int> output = new List<int>();
+  let List<int> output = new List<int>();
 
   loop do
     val Future<Option<List<int>>> pending = nb readch input;
@@ -84,7 +84,7 @@ pub async fnc collect_bytes_from_channel(
     fi
 
     for const byte of chunk do
-      output.add(byte);
+      output.push(byte);
     done
   done
 

@@ -31,9 +31,9 @@ pub fnc run_metadata_tests(): void {
   val CodecFieldMeta found = field.unwrap();
   require_int(found.field_number, 1, "field number lookup result");
 
-  val List<CodecFieldMeta> duplicates = new List<CodecFieldMeta>();
-  duplicates.add(rt borrow fields[0]);
-  duplicates.add(
+  let List<CodecFieldMeta> duplicates = new List<CodecFieldMeta>();
+  duplicates.push(rt borrow fields[0]);
+  duplicates.push(
     codec_field(
       new Utf8Text(new List<int>(97)),
       new Utf8Text(new List<int>(98)),
@@ -57,11 +57,11 @@ pub fnc run_metadata_tests(): void {
   );
   require_true(empty_type_name.is_err(), "empty codec type names must reject");
 
-  val List<CodecFieldMeta> too_many_fields = new List<CodecFieldMeta>();
+  let List<CodecFieldMeta> too_many_fields = new List<CodecFieldMeta>();
   let int field_index = 0;
   loop do
     if field_index > max_codec_fields() then break; fi
-    too_many_fields.add(rt borrow fields[0]);
+    too_many_fields.push(rt borrow fields[0]);
     field_index = field_index + 1;
   done
 

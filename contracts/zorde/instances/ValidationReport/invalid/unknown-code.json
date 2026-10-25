@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "valid": false,
+  "issues": [
+    {
+      "code": "nonexistent",
+      "path": "/user"
+    }
+  ]
+}
