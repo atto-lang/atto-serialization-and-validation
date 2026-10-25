@@ -59,15 +59,38 @@ Cross-field:
 - one_of_fields
 - custom validator
 
-## Typestate
+## Dynamic validation is not typestate
 
-The library should support a validated wrapper concept so APIs can express that validation has already happened:
+The checked dynamic helpers (`validate_value_checked`,
+`validate_object_checked`, `zorde_parse*`) return ordinary mutable `Value`
+results, not compiler-issued proof. `ValidatedDecodedValue.value` is a normal
+value with a checked-at-decode-time result and a byte count. Any guest can
+construct its own `Value` or metadata holder. Aliased nested storage can
+change after validation. Neither success nor `report_is_valid` supplies
+schema authentication, authorization, immutable ownership, nominal identity,
+or cross-actor/FFI admission. Revalidate at every relevant use/trust boundary;
+freeze/move storage separately before trusting its contents.
 
-```text
-Unvalidated<T> -> validate() -> Result<Valid<T>, ValidationReport>
-```
+Previously the publicly constructible `ValidValue` wrapper misleadingly
+resembled a proof; it has been removed. This intentionally breaks consumers
+using `ValidValue` or `.valid.value`. Use `Value` and `.value` instead.
 
-This mirrors the useful Rust/Garde pattern and avoids accidental double validation at trust boundaries.
+**Not implemented:** future authoritative `Valid<T, SchemaId>` must be
+compiler-minted with inaccessible constructors, no forged casts/subclasses,
+frozen/owned nested graph, schema digest/version/generation binding, and
+lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
+
+## Schema-bound decoder policy
+
+`decode_and_validate_object` is a **strict** JSON trust-boundary helper:
+`duplicate_key_policy` must be `0` (reject), and
+`allow_trailing_data` must be `false`. Any other configuration is refused
+with a decode error before parsing. This avoids first/last-wins policies
+silently discarding duplicate evidence, or a valid JSON prefix being mistaken
+for admission of an entire untrusted message. General codec decode functions
+may continue exposing explicit compatibility policies, but callers must not
+use them as a Zorde security-boundary substitute. The return value remains
+an ordinary mutable `Value`, not an opaque validation proof.
 
 ## Streaming validation
 
@@ -102,7 +125,7 @@ Implemented primitives include:
 - reject-unknown-field object schemas;
 - bounded input object member counts and key bytes, with UTF-8 key validation even in open schemas;
 - fail-fast or bounded error collection;
-- `ValidValue` wrappers through `validate_value_checked` and `validate_object_checked`.
+- plain `Result<Value, ValidationReport>` checked dynamic results; no typestate authority.
 
 Error reports are bounded by `ValidationOptions.max_errors`, and validation errors retain logical path segments without retaining the entire untrusted input payload.
 

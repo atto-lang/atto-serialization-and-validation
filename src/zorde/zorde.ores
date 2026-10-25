@@ -7,7 +7,7 @@
 
 import class Value, Utf8Text, IntParse from '../core/value';
 import fnc parse_int from '../core/value';
-import class ValidationOptions, ValidationReport, ValidationError, PathSegment, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
+import class ValidationOptions, ValidationReport, ValidationError, PathSegment, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
 import fnc default_validation_options, string_rule, number_rule, array_rule, field_rule, object_schema from '../validation/validation';
 import fnc validate_value_checked, validate_object_checked from '../validation/validation';
 import class ZordeScalarRule from './scalar';
@@ -171,7 +171,7 @@ pub fnc zorde_object(
 pub fnc zorde_parse(
   Value value,
   ZordeValueSchema schema
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   return validate_value_checked(
     value,
     schema.rule,
@@ -183,7 +183,7 @@ pub fnc zorde_parse_with(
   Value value,
   ZordeValueSchema schema,
   ValidationOptions options
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   return validate_value_checked(
     value,
     schema.rule,
@@ -194,7 +194,7 @@ pub fnc zorde_parse_with(
 pub fnc zorde_parse_object(
   Value value,
   ZordeObjectSchema schema
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   return validate_object_checked(
     value,
     schema.schema,
@@ -206,7 +206,7 @@ pub fnc zorde_parse_object_with(
   Value value,
   ZordeObjectSchema schema,
   ValidationOptions options
-): Result<ValidValue, ValidationReport> {
+): Result<Value, ValidationReport> {
   return validate_object_checked(
     value,
     schema.schema,
@@ -217,7 +217,7 @@ pub fnc zorde_parse_object_with(
 
 // Integer-exact schema and checked construction for compiler @Min/@Max/@Range
 // lowering. Unlike generic ValueRule numbers, this never converts int64 to
-// floating point. The result is an owned int, not a mutable ValidValue wrapper.
+// floating point. The result is an owned int, not a mutable dynamic Value wrapper.
 pub define class ZordeIntSchema as
   pub val bool has_min;
   pub val int min_value;
@@ -250,7 +250,7 @@ fnc zorde_int_error(String code, String message): ValidationReport {
 
 // Compiler-generated scalar descriptors and dynamic Zorde rules share this
 // checked scalar path. It returns only an exact metric; never a forgeable
-// nominal value or an unsafe mutable ValidValue proof.
+// nominal value or an unsafe dynamic Value proof.
 pub fnc zorde_parse_scalar_metric(
   Value value,
   ZordeScalarRule rule

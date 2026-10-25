@@ -8,7 +8,7 @@ import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
 import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes from '../src/validation/validation';
-import fnc validate_value, validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
+import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 pub fnc run_validation_tests(): void {
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
@@ -36,6 +36,36 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   );
   require_true(checked_json.is_err() == false, "valid JSON payload must cross decode+validation boundary");
+
+  // Schema-bound entry points cannot silently normalize duplicate wire keys.
+  // Ordinary JSON decode may offer these policies for non-security callers.
+  val DecodeOptions first_wins_options = new DecodeOptions(
+    1, false, 128, 64, 64, 64, 64, 16, 16);
+  val DecodeOptions last_wins_options = new DecodeOptions(
+    2, false, 128, 64, 64, 64, 64, 16, 16);
+  val DecodeOptions trailing_options = new DecodeOptions(
+    0, true, 128, 64, 64, 64, 64, 16, 16);
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow first_wins_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse first-wins admission");
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow last_wins_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse last-wins admission");
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow trailing_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse trailing-data policy");
+
+  val List<int> duplicate_wire = new List<int>(
+    123, 34, 97, 34, 58, 49, 44, 34, 97, 34, 58, 50, 125
+  );
+  val ObjectSchema open_schema_for_wire = object_schema(new List<FieldRule>(), false);
+  require_true(decode_and_validate_object(
+    rt borrow duplicate_wire, default_decode_options(),
+    rt borrow open_schema_for_wire, default_validation_options()
+  ).is_err(), "strict schema-bound JSON must reject duplicate keys on the wire");
 
   val ValidationReport invalid = validate_object(
     value_object(members),
@@ -365,5 +395,22 @@ pub fnc run_validation_tests(): void {
   );
   require_true(!report_is_valid(rt borrow too_many_members_report),
     "direct object rejects excessive distinct member count");
+  // Checked dynamic APIs return plain Value, never authoritative proof.
+  val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(2, 2, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(!accepted_dynamic.is_err(), "dynamic checked string accepts valid input");
+  val Result<Value, ValidationReport> denied_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(3, 3, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(denied_dynamic.is_err(), "dynamic checked string rejects invalid input");
+  val Result<Value, ValidationReport> denied_duplicate = validate_object_checked(
+    value_object(duplicate_members), rt borrow schema, default_validation_options()
+  );
+  require_true(denied_duplicate.is_err(), "dynamic checked object rejects duplicate keys");
   return;
 }
