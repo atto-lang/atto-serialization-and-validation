@@ -233,5 +233,24 @@ pub fnc run_zorde_tests(): void {
       "malformed compiler descriptor must fail closed");
   done
 
+  // Public descriptor constructors must not allocate or validate an
+  // attacker-sized exclusion list beyond the same registry/kernel limit.
+  val List<int> over_budget = new List<int>();
+  let int exclusion_index = 1;
+  loop do
+    if exclusion_index > 257 then break; fi
+    over_budget.add(exclusion_index);
+    exclusion_index = exclusion_index + 1;
+  done
+  val ZordeScalarDescriptor refused_descriptor = zorde_scalar_descriptor(
+    1, 2, 1, 0, 512, rt borrow over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow refused_descriptor).is_err(),
+    "direct descriptor helper must reject over-budget exclusion sets");
+  val ZordeScalarDescriptor forged_descriptor = new ZordeScalarDescriptor(
+    1, 2, 1, 0, 512, over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow forged_descriptor).is_err(),
+    "public descriptor construction cannot bypass exclusion validation");
   return;
 }
