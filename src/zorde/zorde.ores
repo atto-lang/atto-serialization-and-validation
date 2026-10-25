@@ -1,0 +1,301 @@
+// Zorde: ergonomic runtime schema validation over Oreslang's native
+// reflection-free validation engine.
+//
+// Compiler refinement types should lower to the same semantic rule model.
+// This module intentionally wraps the existing validation primitives rather
+// than introducing a second validator.
+
+import class Value, Utf8Text, IntParse from '../core/value';
+import fnc parse_int from '../core/value';
+import class ValidationOptions, ValidationReport, ValidationError, PathSegment, ValidValue, ValueRule, FieldRule, ObjectSchema from '../validation/validation';
+import fnc default_validation_options, string_rule, number_rule, array_rule, field_rule, object_schema from '../validation/validation';
+import fnc validate_value_checked, validate_object_checked from '../validation/validation';
+import class ZordeScalarRule from './scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_metric, zorde_scalar_contains from './scalar';
+import class ZordeScalarDescriptor from './refinement_descriptor';
+import fnc zorde_scalar_descriptor_valid, zorde_scalar_rule_from_descriptor from './refinement_descriptor';
+
+pub define class ZordeValueSchema as
+  pub val ValueRule rule;
+end
+
+pub define class ZordeObjectSchema as
+  pub val ObjectSchema schema;
+end
+
+pub fnc zorde_string(
+  int min_length,
+  int max_length
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      min_length,
+      max_length,
+      false,
+      false,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_nonempty_string(): ZordeValueSchema {
+  return zorde_string(1, -1);
+}
+
+pub fnc zorde_exact_string(int length): ZordeValueSchema {
+  if length < 0 then
+    // -1 means UNBOUNDED in the underlying ValueRule engine. Never allow
+    // a negative exact-length request to silently become "any string".
+    // -2 is an invalid rule sentinel: every checked parse returns invalid_rule.
+    return zorde_string(-2, -2);
+  fi
+  return zorde_string(length, length);
+}
+
+pub fnc zorde_ascii_string(
+  int min_length,
+  int max_length
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      min_length,
+      max_length,
+      true,
+      false,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_email(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      3,
+      254,
+      true,
+      true,
+      false,
+      false
+    )
+  );
+}
+
+pub fnc zorde_uuid(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      36,
+      36,
+      true,
+      false,
+      true,
+      false
+    )
+  );
+}
+
+pub fnc zorde_url(): ZordeValueSchema {
+  return new ZordeValueSchema(
+    string_rule(
+      1,
+      -1,
+      true,
+      false,
+      false,
+      true
+    )
+  );
+}
+
+pub fnc zorde_number(
+  bool has_min,
+  float min_value,
+  bool min_exclusive,
+  bool has_max,
+  float max_value,
+  bool max_exclusive
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    number_rule(
+      has_min,
+      min_value,
+      min_exclusive,
+      has_max,
+      max_value,
+      max_exclusive
+    )
+  );
+}
+
+pub fnc zorde_array(
+  int min_items,
+  int max_items,
+  bool unique_items
+): ZordeValueSchema {
+  return new ZordeValueSchema(
+    array_rule(
+      min_items,
+      max_items,
+      unique_items
+    )
+  );
+}
+
+pub fnc zorde_field(
+  Utf8Text key,
+  bool required,
+  bool forbidden,
+  ZordeValueSchema schema
+): FieldRule {
+  return field_rule(
+    key,
+    required,
+    forbidden,
+    schema.rule
+  );
+}
+
+pub fnc zorde_object(
+  List<FieldRule> fields,
+  bool reject_unknown_fields
+): ZordeObjectSchema {
+  return new ZordeObjectSchema(
+    object_schema(
+      fields,
+      reject_unknown_fields
+    )
+  );
+}
+
+pub fnc zorde_parse(
+  Value value,
+  ZordeValueSchema schema
+): Result<ValidValue, ValidationReport> {
+  return validate_value_checked(
+    value,
+    schema.rule,
+    default_validation_options()
+  );
+}
+
+pub fnc zorde_parse_with(
+  Value value,
+  ZordeValueSchema schema,
+  ValidationOptions options
+): Result<ValidValue, ValidationReport> {
+  return validate_value_checked(
+    value,
+    schema.rule,
+    options
+  );
+}
+
+pub fnc zorde_parse_object(
+  Value value,
+  ZordeObjectSchema schema
+): Result<ValidValue, ValidationReport> {
+  return validate_object_checked(
+    value,
+    schema.schema,
+    default_validation_options()
+  );
+}
+
+pub fnc zorde_parse_object_with(
+  Value value,
+  ZordeObjectSchema schema,
+  ValidationOptions options
+): Result<ValidValue, ValidationReport> {
+  return validate_object_checked(
+    value,
+    schema.schema,
+    options
+  );
+}
+
+
+// Integer-exact schema and checked construction for compiler @Min/@Max/@Range
+// lowering. Unlike generic ValueRule numbers, this never converts int64 to
+// floating point. The result is an owned int, not a mutable ValidValue wrapper.
+pub define class ZordeIntSchema as
+  pub val bool has_min;
+  pub val int min_value;
+  pub val bool has_max;
+  pub val int max_value;
+end
+
+pub fnc zorde_int_min(int minimum): ZordeIntSchema {
+  return new ZordeIntSchema(true, minimum, false, 0);
+}
+
+pub fnc zorde_int_max(int maximum): ZordeIntSchema {
+  return new ZordeIntSchema(false, 0, true, maximum);
+}
+
+pub fnc zorde_int_range(int minimum, int maximum): ZordeIntSchema {
+  return new ZordeIntSchema(true, minimum, true, maximum);
+}
+
+fnc zorde_int_error(String code, String message): ValidationReport {
+  val List<ValidationError> errors = new List<ValidationError>();
+  errors.add(new ValidationError(
+    code,
+    new List<PathSegment>(),
+    message,
+    -1
+  ));
+  return new ValidationReport(errors, false);
+}
+
+// Compiler-generated scalar descriptors and dynamic Zorde rules share this
+// checked scalar path. It returns only an exact metric; never a forgeable
+// nominal value or an unsafe mutable ValidValue proof.
+pub fnc zorde_parse_scalar_metric(
+  Value value,
+  ZordeScalarRule rule
+): Result<int, ValidationReport> {
+  if !zorde_scalar_rule_valid(rt borrow rule) then
+    return Err(zorde_int_error("invalid_rule", "noncanonical scalar schema"));
+  fi
+  val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
+  if !metric.ok then
+    return Err(zorde_int_error("type", "input does not have the schema's exact scalar representation"));
+  fi
+  if !zorde_scalar_contains(rt borrow rule, metric.value) then
+    return Err(zorde_int_error("constraint_violation", "scalar value is outside the accepted set"));
+  fi
+  return Ok(metric.value);
+}
+
+// Parse one compiler-emitted canonical scalar descriptor. The descriptor's
+// fingerprint/nominal identity must already have been authenticated by the
+// compiler/loader; this function enforces the value acceptance semantics only.
+pub fnc zorde_parse_refinement(
+  Value value,
+  ZordeScalarDescriptor descriptor
+): Result<int, ValidationReport> {
+  if !zorde_scalar_descriptor_valid(rt borrow descriptor) then
+    return Err(zorde_int_error(
+      "invalid_descriptor", "unsupported/noncanonical refinement descriptor"));
+  fi
+  val ZordeScalarRule rule = zorde_scalar_rule_from_descriptor(
+    rt borrow descriptor);
+  return zorde_parse_scalar_metric(rt borrow value, rt borrow rule);
+}
+
+pub fnc zorde_parse_int(
+  Value value,
+  ZordeIntSchema schema
+): Result<int, ValidationReport> {
+  let int minimum = -9223372036854775807 - 1;
+  let int maximum = 9223372036854775807;
+  if schema.has_min then minimum = schema.min_value; fi
+  if schema.has_max then maximum = schema.max_value; fi
+  val ZordeScalarRule rule = zorde_scalar_int(minimum, maximum, new List<int>());
+  // No duplicated min/max predicate: the canonical scalar kernel is the
+  // authority. Preserve dedicated min/max error codes only as diagnostics.
+  val Result<int, ValidationReport> checked = zorde_parse_scalar_metric(
+    rt borrow value, rt borrow rule);
+  return checked;
+}

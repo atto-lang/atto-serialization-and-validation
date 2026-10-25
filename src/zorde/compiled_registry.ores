@@ -1,0 +1,200 @@
+// Bounded, reflection-free Zorde scalar registry — first compiled-runtime slice.
+//
+// IMPORTANT AUTHORITY BOUNDARY:
+// This file compiles canonical *runtime scalar descriptors*. It does NOT parse,
+// authenticate, or compare authored TypeSpec/JSON Schema; those must be admitted
+// independently by a trusted build/loader, with digest-bound provenance.
+// The registry is not a security capability and never manufactures nominal T.
+// All methods return primitive metrics or bounded, payload-free diagnostics.
+//
+// An ordinary class registry is NOT an actor state field. Each actor owns its
+// registry reference or obtains a compiler-proven frozen/shareable snapshot;
+// concurrent mutable sharing and automatic hot reload are not certified here.
+
+import class Value, Utf8Text from '../core/value';
+import fnc text_equal from '../core/value';
+import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
+import class ZordeScalarDescriptor from './refinement_descriptor';
+import fnc zorde_scalar_descriptor, zorde_scalar_descriptor_valid from './refinement_descriptor';
+import fnc zorde_scalar_rule_from_descriptor from './refinement_descriptor';
+import class ZordeScalarRule from './scalar';
+import fnc zorde_scalar_rule_valid from './scalar';
+import fnc zorde_parse_scalar_metric from './zorde';
+
+// Build-time inputs: spec objects are untrusted and may alias caller-owned lists.
+// Only the compiled, privately owned snapshot is retained after compilation.
+pub define class ZordeScalarRegistrySpec as
+  pub val Utf8Text schema_id;
+  pub val ZordeScalarDescriptor descriptor;
+end
+
+// These entries must stay non-public: exposing the List<int> exclusions would
+// let callers mutate the previously accepted rule after the compile check.
+define class ZordePrivateCompiledEntry as
+  val Utf8Text schema_id;
+  val ZordeScalarRule rule;
+end
+
+pub define class ZordeScalarRegistry as
+  val List<ZordePrivateCompiledEntry> entries;
+end
+
+pub fnc zorde_registry_max_entries(): int { return 64; }
+pub fnc zorde_registry_max_id_bytes(): int { return 128; }
+pub fnc zorde_registry_max_exclusions(): int { return 256; }
+// Parsing work is bounded before handing untrusted bytes to the canonical
+// UTF-8 scalar scanner or exact integer parser.
+pub fnc zorde_registry_max_string_bytes(): int { return 65536; }
+pub fnc zorde_registry_max_number_bytes(): int { return 20; }
+
+fnc zorde_registry_error(String code, String message): ValidationReport {
+  val List<ValidationError> errors = new List<ValidationError>();
+  errors.add(new ValidationError(
+    code, new List<PathSegment>(), message, -1
+  ));
+  return new ValidationReport(errors, false);
+}
+
+fnc zorde_registry_id_valid(Utf8Text id): bool {
+  if id.bytes.length < 1 || id.bytes.length > zorde_registry_max_id_bytes() then
+    return false;
+  fi
+  // Restrict initial registry keys to printable ASCII; avoid NUL, embedded
+  // control bytes, invalid UTF-8 and ambiguous binary string identities.
+  for const byte of id.bytes do
+    if byte < 33 || byte > 126 then return false; fi
+  done
+  return true;
+}
+
+fnc zorde_registry_copy_id(Utf8Text id): Utf8Text {
+  val List<int> snapshot = new List<int>();
+  for const byte of id.bytes do snapshot.add(byte); done
+  return new Utf8Text(snapshot);
+}
+
+// No side effects on caller input. Either every schema is in the registry or
+// no registry is returned. This is compilation of a known scalar subset, not
+// schema-authority parity admission or a JSON Schema interpretation engine.
+pub fnc zorde_compile_scalar_registry(
+  List<ZordeScalarRegistrySpec> specs
+): Result<ZordeScalarRegistry, ValidationReport> {
+  if specs.length < 1 || specs.length > zorde_registry_max_entries() then
+    return Err(zorde_registry_error(
+      "registry_capacity", "schema count is outside the bounded registry domain"
+    ));
+  fi
+
+  val List<ZordePrivateCompiledEntry> compiled =
+    new List<ZordePrivateCompiledEntry>();
+
+  for const candidate of specs do
+    // Clone then validate: checking caller-owned metadata and only *later*
+    // snapshotting it would create a check/use gap. The compiler's borrow
+    // checker must still prohibit concurrent mutation during this loan.
+    // Limit the source length before copying so oversized exclusions never
+    // induce unbounded work or allocations.
+    if candidate.descriptor.excluded.length > zorde_registry_max_exclusions() then
+      return Err(zorde_registry_error(
+        "registry_complexity", "scalar exclusion list exceeds the limit"
+      ));
+    fi
+    if candidate.schema_id.bytes.length < 1 ||
+       candidate.schema_id.bytes.length > zorde_registry_max_id_bytes() then
+      return Err(zorde_registry_error(
+        "invalid_schema_id", "schema identifier exceeds the permitted length"
+      ));
+    fi
+
+    val Utf8Text owned_id = zorde_registry_copy_id(
+      rt borrow candidate.schema_id
+    );
+    val ZordeScalarDescriptor owned_descriptor = zorde_scalar_descriptor(
+      candidate.descriptor.version,
+      candidate.descriptor.kind,
+      candidate.descriptor.property,
+      candidate.descriptor.minimum,
+      candidate.descriptor.maximum,
+      rt borrow candidate.descriptor.excluded
+    );
+
+    // These are the actual copies retained/compiled. Recheck all constraints
+    // on the snapshots, never on the mutable source references.
+    if !zorde_registry_id_valid(rt borrow owned_id) then
+      return Err(zorde_registry_error(
+        "invalid_schema_id", "schema identifier must be 1..128 printable ASCII bytes"
+      ));
+    fi
+    if owned_descriptor.excluded.length > zorde_registry_max_exclusions() then
+      return Err(zorde_registry_error(
+        "registry_complexity", "snapshotted exclusion list exceeds the limit"
+      ));
+    fi
+    if !zorde_scalar_descriptor_valid(rt borrow owned_descriptor) then
+      return Err(zorde_registry_error(
+        "invalid_descriptor", "noncanonical or unsupported scalar descriptor"
+      ));
+    fi
+
+    for const prior of compiled do
+      if text_equal(rt borrow prior.schema_id, rt borrow owned_id) then
+        return Err(zorde_registry_error(
+          "duplicate_schema_id", "schema identifier is present more than once"
+        ));
+      fi
+    done
+
+    val ZordeScalarRule compiled_rule = zorde_scalar_rule_from_descriptor(
+      rt borrow owned_descriptor
+    );
+    if !zorde_scalar_rule_valid(rt borrow compiled_rule) then
+      return Err(zorde_registry_error(
+        "invalid_compiled_rule", "canonical scalar compilation was refused"
+      ));
+    fi
+    compiled.add(new ZordePrivateCompiledEntry(owned_id, compiled_rule));
+  done
+
+  return Ok(new ZordeScalarRegistry(compiled));
+}
+
+// Unknown schema identifiers fail closed. This never recompiles TypeSpec,
+// reparses JSON Schema or compares authorities on the request path.
+// It reuses the native canonical scalar evaluator and signed-int64 parser.
+pub fnc zorde_registry_parse_scalar(
+  ZordeScalarRegistry registry,
+  Utf8Text schema_id,
+  Value value
+): Result<int, ValidationReport> {
+  if !zorde_registry_id_valid(rt borrow schema_id) then
+    return Err(zorde_registry_error(
+      "invalid_schema_id", "invalid schema selector"
+    ));
+  fi
+
+  // Resolve the known, bounded selector *before* inspecting payload
+  // representations. Unknown schemas must fail with the same deterministic
+  // denial regardless of malicious payload size or representation. This
+  // prevents unknown selectors from triggering unrelated work or diagnostics.
+  for const entry of registry.entries do
+    if text_equal(rt borrow entry.schema_id, rt borrow schema_id) then
+      // Only the selected registered scalar reaches the canonical kernel.
+      // Bound untrusted byte scans before exact integer parsing or UTF-8
+      // Unicode scalar counting. Do not recursively inspect child collections.
+      if value.kind == 2 && value.number_lexeme.length > zorde_registry_max_number_bytes() then
+        return Err(zorde_registry_error(
+          "payload_limit", "numeric lexeme exceeds the exact signed-int64 wire budget"
+        ));
+      fi
+      if value.kind == 3 && value.string_value.bytes.length > zorde_registry_max_string_bytes() then
+        return Err(zorde_registry_error(
+          "payload_limit", "UTF-8 scalar input exceeds the configured byte budget"
+        ));
+      fi
+      return zorde_parse_scalar_metric(rt borrow value, rt borrow entry.rule);
+    fi
+  done
+  return Err(zorde_registry_error(
+    "unknown_schema_id", "no compiled rule exists for this schema selector"
+  ));
+}

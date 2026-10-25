@@ -177,3 +177,25 @@ A format is not ready for std-lib/core migration until it has:
 8. add YAML only with alias/tag/cycle limits designed first;
 9. move proven primitives into core/std and leave this repository as a
    compatibility, conformance, fuzz, benchmark, and incubation suite.
+
+## Zorde is a stdlib/core capability
+
+The canonical Oreslang `Zorde` validation facade belongs in `std/zorde`.
+Core owns normalized refinement descriptors, exact signed-int64 interval checks,
+Unicode scalar counting, checked construction and stable schema identity.
+Zorde owns schema composition and validated decoding, while JSON/MessagePack/CBOR/
+Protobuf remain ordinary adapters that reuse core predicates.
+
+The initial standard-library scalar module `stdlib/zorde.ores` in
+`oreslang-source.java` is mirrored byte-for-byte here as
+`src/zorde/stdlib.ores`. This is one source implementation, not independently
+designed competing validation engines. These pure integer predicates are only
+the stdlib seed; the current native dynamic ValueRule validator and typed schema
+API remain incubation code until ownership, exact int64 runtime checks and
+cross-backend tests pass.
+
+Compiler annotations `@MinLength(N)`, `@MaxLength(N)`, `@Length(min=,max=,eq=)`,
+`@Size(min=,max=)`, `@NotEmpty`, `@Min(N)`, `@Max(N)` and
+`@Range(min=,max=)` map to the same built-in `length/value gte/lte/eq/gt`
+predicates as `with` forms. Length uses Unicode scalar counts. Annotations
+must fail closed at unimplemented field/parameter/return/actor boundaries.

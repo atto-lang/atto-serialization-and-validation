@@ -1,0 +1,9 @@
+// Focused native Zorde scalar/precision suite, runnable independently of codecs.
+// ORESLANG_BIN=... ./scripts/test-zorde-scalars.sh
+import fnc run_zorde_tests from './zorde_test';
+
+pub fnc main(): void {
+  run_zorde_tests();
+  stdio.stdout.println("native Zorde scalar/precision tests passed");
+  return;
+}
