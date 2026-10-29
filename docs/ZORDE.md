@@ -18,14 +18,15 @@ Oreslang refinements have two enforcement phases:
    command-line input, FFI, dynamic maps, deserialization, and other dynamic
    or untrusted values.
 
-The long-term goal is sound validated typestate. **The current ValidValue
-facade is not yet a proof-carrying immutable refinement**: a Value tree may
-contain mutable arrays, maps, or nested objects, and a schema holds mutable
-field collections. Until the ownership/borrow checker prevents post-validation
-mutation through all aliases (or the validator returns an owned, deeply frozen
-snapshot), do not use ValidValue to bypass validation at later trust boundaries.
-Revalidate dynamically sourced or mutable values at each relevant boundary.
-Immutable values with a proven invariant need not be repeatedly checked.
+The long-term goal is sound validated typestate. **The current dynamic
+facade returns ordinary `Result<Value, ValidationReport>`, NOT a
+`Valid<T>` token or an authoritative compiler proof.** A Value tree and
+its nested collections may remain mutable. Unless the compiler proves
+stable ownership and no invariant-breaking aliases (or validation creates
+a deeply frozen owned snapshot), a successful dynamic result must never
+be reused as a trusted proof at another boundary. Revalidate mutable
+dynamically sourced values as appropriate; immutable compiler-proven
+values need no redundant validation.
 
     type NonEmpty = string with length gt 0;
     type Username = string with length gte 3 and length lte 32;
@@ -34,7 +35,7 @@ Immutable values with a proven invariant need not be repeatedly checked.
     const NonEmpty b = "";       // compile-time error
 
     val ZordeValueSchema schema = zorde_nonempty_string();
-    val Result<ValidValue, ValidationReport> checked =
+    val Result<Value, ValidationReport> checked =
       zorde_parse(raw_value, schema);
 
 The compiler integration should generate the Zorde schema from the normalized
