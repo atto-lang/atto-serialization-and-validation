@@ -21,6 +21,15 @@ Each validation error should carry:
 
 Do not retain entire untrusted payloads in error objects.
 
+## Restricted email shape admission
+
+`is_email` and `zorde_email()` recognize a conservative ASCII dot-atom
+local part and DNS-like hostname labels, each limited to 63 bytes. Dot atoms
+must not contain unsupported punctuation or leading, trailing or repeated
+dots. Quoted local parts, internationalized mailboxes and complete RFC email
+syntax are out of scope. Validation is **not** proof of mailbox ownership,
+deliverability or authorization.
+
 ## Core rules
 
 Presence:
