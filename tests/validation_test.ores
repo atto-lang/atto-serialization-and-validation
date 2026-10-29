@@ -424,6 +424,9 @@ pub fnc run_validation_tests(): void {
   require_true(validate_value_checked(
     invalid_discriminant, any_rule(), default_validation_options()
   ).is_err(), "checked any_rule rejects unknown public Value kind");
+  require_true(!report_is_valid(validate_value(
+    invalid_discriminant, any_rule(), default_validation_options()
+  )), "report-only any_rule also rejects a forged wire discriminant");
 
   val List<Value> invalid_nested_items = new List<Value>();
   invalid_nested_items.add(value_int(1));
