@@ -9,6 +9,7 @@ import fnc parse_int from '../core/value';
 import fnc utf8_scalar_count from '../core/utf8_scalar';
 import class ZordeCoreInterval from './scalar_core';
 import fnc zorde_core_interval, zorde_core_interval_valid, zorde_core_interval_contains from './scalar_core';
+import fnc zorde_core_max_scalar_string_bytes, zorde_core_max_scalar_number_bytes from './scalar_core';
 
 pub define class ZordeScalarRule as
   // 2 = exact int64, 3 = UTF-8 string whose length uses Unicode scalars.
@@ -38,8 +39,18 @@ pub fnc zorde_scalar_contains(ZordeScalarRule rule, int metric): bool {
 pub fnc zorde_scalar_metric(Value value, ZordeScalarRule rule): IntParse {
   if !zorde_scalar_rule_valid(rt borrow rule) then return new IntParse(false, 0); fi
   if value.kind != rule.kind then return new IntParse(false, 0); fi
-  if rule.kind == 2 then return parse_int(value); fi
+  if rule.kind == 2 then
+    if value.number_lexeme.length > zorde_core_max_scalar_number_bytes() then
+      return new IntParse(false, 0);
+    fi
+    return parse_int(value);
+  fi
 
+  // Direct acceptance and descriptor paths must enforce the same budget as
+  // registry lookups before invoking the Unicode scalar scanner.
+  if value.string_value.bytes.length > zorde_core_max_scalar_string_bytes() then
+    return new IntParse(false, 0);
+  fi
   // Unicode scalar length is shared with compiler refinements and codecs.
   val int count = utf8_scalar_count(value.string_value.bytes);
   if count < 0 then return new IntParse(false, 0); fi
