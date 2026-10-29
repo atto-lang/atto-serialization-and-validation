@@ -252,5 +252,31 @@ pub fnc run_zorde_tests(): void {
   require_true(zorde_parse_refinement(value_int(258),
     rt borrow forged_descriptor).is_err(),
     "public descriptor construction cannot bypass exclusion validation");
+  // A registry is optional: standalone Zorde parsing still has to bound
+  // attacker-controlled wire bytes and return a denial, never a metric.
+  val List<int> oversized_string = new List<int>();
+  let int payload_index = 0;
+  loop do
+    if payload_index >= 65537 then break; fi
+    oversized_string.add(97);
+    payload_index = payload_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_string(new Utf8Text(oversized_string)),
+    zorde_scalar_string(0, 65537, new List<int>())
+  ).is_err(), "direct Zorde parse must reject a 65537-byte string");
+
+  val List<int> oversized_number = new List<int>();
+  payload_index = 0;
+  loop do
+    if payload_index >= 21 then break; fi
+    oversized_number.add(49);
+    payload_index = payload_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_number_lexeme(oversized_number),
+    zorde_scalar_int(-9223372036854775807 - 1,
+      9223372036854775807, new List<int>())
+  ).is_err(), "direct Zorde parse must reject a 21-byte int64 lexeme");
   return;
 }
