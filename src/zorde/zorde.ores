@@ -14,6 +14,7 @@ import class ZordeScalarRule from './scalar';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_metric, zorde_scalar_contains from './scalar';
 import class ZordeScalarDescriptor from './refinement_descriptor';
 import fnc zorde_scalar_descriptor_valid, zorde_scalar_rule_from_descriptor from './refinement_descriptor';
+import fnc zorde_core_max_scalar_string_bytes, zorde_core_max_scalar_number_bytes from './scalar_core';
 
 pub define class ZordeValueSchema as
   pub val ValueRule rule;
@@ -257,6 +258,15 @@ pub fnc zorde_parse_scalar_metric(
 ): Result<int, ValidationReport> {
   if !zorde_scalar_rule_valid(rt borrow rule) then
     return Err(zorde_int_error("invalid_rule", "noncanonical scalar schema"));
+  fi
+  // Enforce bounded input here as well, including non-registry callers.
+  // Keep distinct payload_limit diagnostics rather than misreporting a
+  // too-large but otherwise valid representation as a type mismatch.
+  if value.kind == 2 && value.number_lexeme.length > zorde_core_max_scalar_number_bytes() then
+    return Err(zorde_int_error("payload_limit", "exact int64 lexeme exceeds the byte budget"));
+  fi
+  if value.kind == 3 && value.string_value.bytes.length > zorde_core_max_scalar_string_bytes() then
+    return Err(zorde_int_error("payload_limit", "UTF-8 string exceeds the byte budget"));
   fi
   val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
   if !metric.ok then
