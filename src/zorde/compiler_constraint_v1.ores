@@ -88,6 +88,11 @@ pub fnc zorde_compiler_i64_descriptor_valid(
     return false;
   fi
   if !descriptor.has_min && !descriptor.has_max then return false; fi
+  // Canonical projection: a disabled predicate must not carry an ignored
+  // operand. Otherwise two public descriptors can appear equivalent while
+  // containing different latent constraints or misleading diagnostics.
+  if !descriptor.has_min && descriptor.minimum != 0 then return false; fi
+  if !descriptor.has_max && descriptor.maximum != 0 then return false; fi
   if descriptor.has_min && descriptor.has_max &&
      descriptor.minimum > descriptor.maximum then
     return false;
