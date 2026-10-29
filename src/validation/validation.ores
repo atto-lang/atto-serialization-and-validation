@@ -898,6 +898,13 @@ fnc validate_rule_at(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  // Any-kind rules must not admit a caller-forged discriminant. A malformed
+  // Value is not a valid wire value even when no schema field is constrained.
+  if value.kind < 0 || value.kind > 8 then
+    add_error(report, options, "invalid_value_kind", path,
+      "value has an unsupported wire kind");
+    return;
+  fi
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
