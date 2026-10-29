@@ -27,6 +27,14 @@ pub define class ZordeCompilerI64ConstraintV1 as
   pub val int maximum;
 end
 
+// Internal non-authoritative projection. A single decoded i64 and its
+// diagnostic travel together; no public class/constructor or guest proof.
+define class ZordePrivateCompilerI64CheckV1 as
+  val bool accepted;
+  val int value;
+  val ValidationReport report;
+end
+
 fnc v1_schema_id(): Utf8Text {
   // ores.type-constraint.v1
   return new Utf8Text(new List<int>(
@@ -114,18 +122,26 @@ fnc v1_ok(): ValidationReport {
   return new ValidationReport(new List<ValidationError>(), false);
 }
 
+fnc v1_rejected(String code): ZordePrivateCompilerI64CheckV1 {
+  return new ZordePrivateCompilerI64CheckV1(false, 0, v1_report(code));
+}
+
+fnc v1_accepted(int value): ZordePrivateCompilerI64CheckV1 {
+  return new ZordePrivateCompilerI64CheckV1(true, value, v1_ok());
+}
+
 // Report-only bounded evaluation of canonical min/max semantics. The
 // expected identity and fingerprint MUST come from a trusted compiler-owned
 // catalog; ordinary callers can provide matching strings, but that cannot
 // mint a validated alias or make a registry trusted.
-pub fnc zorde_check_compiler_i64_v1(
+fnc checked_compiler_i64_once_v1(
   Value value,
   ZordeCompilerI64ConstraintV1 descriptor,
   Utf8Text expected_qualified_type,
   Utf8Text expected_fingerprint
-): ValidationReport {
+): ZordePrivateCompilerI64CheckV1 {
   if !zorde_compiler_i64_descriptor_valid(rt borrow descriptor) then
-    return v1_report("CONSTRAINT_DESCRIPTOR_INVALID");
+    return v1_rejected("CONSTRAINT_DESCRIPTOR_INVALID");
   fi
   if !valid_qualified_type(rt borrow expected_qualified_type) ||
      !valid_sha256_hex(rt borrow expected_fingerprint) ||
@@ -133,24 +149,39 @@ pub fnc zorde_check_compiler_i64_v1(
         rt borrow expected_qualified_type) ||
      !text_equal(rt borrow descriptor.fingerprint,
         rt borrow expected_fingerprint) then
-    return v1_report("CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH");
+    return v1_rejected("CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH");
   fi
   // Reject over-budget wire lexemes before scanning/conversion; no float.
   if value.kind != 2 ||
      value.number_lexeme.length > zorde_registry_max_number_bytes() then
-    return v1_report("CONSTRAINT_I64_INPUT_INVALID");
+    return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
   fi
   val IntParse decoded = parse_int(rt borrow value);
   if !decoded.ok then
-    return v1_report("CONSTRAINT_I64_INPUT_INVALID");
+    return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
   fi
   if descriptor.has_min && decoded.value < descriptor.minimum then
-    return v1_report("ORES_CONSTRAINT_MIN_INCLUSIVE_I64");
+    return v1_rejected("ORES_CONSTRAINT_MIN_INCLUSIVE_I64");
   fi
   if descriptor.has_max && decoded.value > descriptor.maximum then
-    return v1_report("ORES_CONSTRAINT_MAX_INCLUSIVE_I64");
+    return v1_rejected("ORES_CONSTRAINT_MAX_INCLUSIVE_I64");
   fi
-  return v1_ok();
+  return v1_accepted(decoded.value);
+}
+
+// One canonical single-pass evaluation; the report remains caller-
+// constructible diagnostic data and must never mint a constrained alias.
+pub fnc zorde_check_compiler_i64_v1(
+  Value value,
+  ZordeCompilerI64ConstraintV1 descriptor,
+  Utf8Text expected_qualified_type,
+  Utf8Text expected_fingerprint
+): ValidationReport {
+  val ZordePrivateCompilerI64CheckV1 checked = checked_compiler_i64_once_v1(
+    rt borrow value, rt borrow descriptor,
+    rt borrow expected_qualified_type, rt borrow expected_fingerprint
+  );
+  return checked.report;
 }
 
 // Useful for a caller that needs an exact owned int metric, *not* an alias.
@@ -161,12 +192,12 @@ pub fnc zorde_parse_compiler_i64_v1(
   Utf8Text expected_qualified_type,
   Utf8Text expected_fingerprint
 ): Result<int, ValidationReport> {
-  val ValidationReport checked = zorde_check_compiler_i64_v1(
+  val ZordePrivateCompilerI64CheckV1 checked = checked_compiler_i64_once_v1(
     rt borrow value, rt borrow descriptor,
     rt borrow expected_qualified_type, rt borrow expected_fingerprint
   );
-  if !report_is_valid(rt borrow checked) then return Err(checked); fi
-  val IntParse parsed = parse_int(rt borrow value);
-  if !parsed.ok then return Err(v1_report("CONSTRAINT_I64_INPUT_INVALID")); fi
-  return Ok(parsed.value);
+  if !checked.accepted then return Err(checked.report); fi
+  // The exact number validated above is the exact number returned; never
+  // parse a mutable wire buffer twice and risk check/use divergence.
+  return Ok(checked.value);
 }
