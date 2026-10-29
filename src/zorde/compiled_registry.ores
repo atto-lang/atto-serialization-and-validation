@@ -19,7 +19,8 @@ import fnc zorde_scalar_descriptor, zorde_scalar_descriptor_valid from './refine
 import fnc zorde_scalar_rule_from_descriptor from './refinement_descriptor';
 import class ZordeScalarRule from './scalar';
 import fnc zorde_core_max_exclusions from './scalar_core';
-import fnc zorde_scalar_rule_valid from './scalar';
+import fnc zorde_scalar_rule_valid, zorde_scalar_input_over_budget from './scalar';
+import fnc zorde_scalar_max_number_bytes, zorde_scalar_max_string_bytes from './scalar';
 import fnc zorde_parse_scalar_metric from './zorde';
 
 // Build-time inputs: spec objects are untrusted and may alias caller-owned lists.
@@ -45,8 +46,8 @@ pub fnc zorde_registry_max_id_bytes(): int { return 128; }
 pub fnc zorde_registry_max_exclusions(): int { return zorde_core_max_exclusions(); }
 // Parsing work is bounded before handing untrusted bytes to the canonical
 // UTF-8 scalar scanner or exact integer parser.
-pub fnc zorde_registry_max_string_bytes(): int { return 65536; }
-pub fnc zorde_registry_max_number_bytes(): int { return 20; }
+pub fnc zorde_registry_max_string_bytes(): int { return zorde_scalar_max_string_bytes(); }
+pub fnc zorde_registry_max_number_bytes(): int { return zorde_scalar_max_number_bytes(); }
 
 fnc zorde_registry_error(String code, String message): ValidationReport {
   val List<ValidationError> errors = new List<ValidationError>();
@@ -182,14 +183,9 @@ pub fnc zorde_registry_parse_scalar(
       // Only the selected registered scalar reaches the canonical kernel.
       // Bound untrusted byte scans before exact integer parsing or UTF-8
       // Unicode scalar counting. Do not recursively inspect child collections.
-      if value.kind == 2 && value.number_lexeme.length > zorde_registry_max_number_bytes() then
+      if zorde_scalar_input_over_budget(rt borrow value) then
         return Err(zorde_registry_error(
-          "payload_limit", "numeric lexeme exceeds the exact signed-int64 wire budget"
-        ));
-      fi
-      if value.kind == 3 && value.string_value.bytes.length > zorde_registry_max_string_bytes() then
-        return Err(zorde_registry_error(
-          "payload_limit", "UTF-8 scalar input exceeds the configured byte budget"
+          "payload_limit", "scalar input exceeds the configured byte budget"
         ));
       fi
       return zorde_parse_scalar_metric(rt borrow value, rt borrow entry.rule);
