@@ -206,10 +206,13 @@ pub fnc run_zorde_compiler_constraint_v1_tests(): void {
   val Result<int, ValidationReport> stable_metric = zorde_parse_compiler_i64_v1(
     rt borrow raw_alias, rt borrow code,
     code_name(), canonical_fingerprint());
-  require_true(!stable_metric.is_err() && stable_metric.unwrap() == 3,
+  require_true(!stable_metric.is_err(),
+    "single-parse checked primitive is accepted before source mutation");
+  val int captured_metric = stable_metric.unwrap();
+  require_true(captured_metric == 3,
     "single-parse checked metric equals the originally parsed integer");
   mutable_wire.add(54);
-  require_true(stable_metric.unwrap() == 3,
+  require_true(captured_metric == 3,
     "post-check wire alias mutation cannot change captured int metric");
   require_true(zorde_parse_compiler_i64_v1(
     raw_alias, code, code_name(), canonical_fingerprint()).is_err(),
