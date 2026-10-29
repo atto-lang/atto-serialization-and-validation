@@ -12,6 +12,7 @@ import fnc default_validation_options, string_rule, number_rule, array_rule, fie
 import fnc validate_value_checked, validate_object_checked from '../validation/validation';
 import class ZordeScalarRule from './scalar';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_metric, zorde_scalar_contains from './scalar';
+import fnc zorde_scalar_input_over_budget from './scalar';
 import class ZordeScalarDescriptor from './refinement_descriptor';
 import fnc zorde_scalar_descriptor_valid, zorde_scalar_rule_from_descriptor from './refinement_descriptor';
 
@@ -257,6 +258,11 @@ pub fnc zorde_parse_scalar_metric(
 ): Result<int, ValidationReport> {
   if !zorde_scalar_rule_valid(rt borrow rule) then
     return Err(zorde_int_error("invalid_rule", "noncanonical scalar schema"));
+  fi
+  // A public direct parse must enforce the registry's byte budget before
+  // any UTF-8 scan or exact numeric parsing, with payload-free diagnostics.
+  if zorde_scalar_input_over_budget(rt borrow value) then
+    return Err(zorde_int_error("payload_limit", "scalar input exceeds the byte budget"));
   fi
   val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
   if !metric.ok then
