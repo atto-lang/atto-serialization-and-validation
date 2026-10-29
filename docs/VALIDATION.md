@@ -91,8 +91,9 @@ Oversized or invalid trees return a payload-free `invalid_value_tree`
 `ValidationReport` and never return `Ok`.
 
 The walk checks wire kinds (0..8), numeric JSON lexemes, UTF-8 strings and
-object keys, duplicate object keys at every depth, child arrays, object values,
-and both map keys and values. It does **not** recursively apply an arbitrary
+object keys, **0..255 octets for raw binary and extension payloads**, duplicate
+object keys at every depth, child arrays, object values, and both map keys
+and values. It does **not** recursively apply an arbitrary
 object or element schema, authenticate an authoring authority or freeze the
 returned mutable `Value`. Higher-level typed schema validation and
 immutable compiler-minted `Valid<T, SchemaId>` remain separate release gates.
