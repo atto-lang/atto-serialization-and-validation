@@ -1371,9 +1371,13 @@ fnc checked_value_tree_valid(Value root): bool {
     fi
 
     if value.kind == 8 then
-      // Check before multiplication to avoid an untrusted size overflowing
-      // the remaining-capacity arithmetic.
-      if value.map_value.length > (max_checked_value_nodes() - pending.length) / 2 then
+      // Keep arithmetic integer-exact: in Oreslang '/' is real division,
+      // and a hostile length must never overflow the remaining node budget.
+      if value.map_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if value.map_value.length >
+         max_checked_value_nodes() - pending.length - value.map_value.length then
         return false;
       fi
       if depth >= max_checked_value_depth() && value.map_value.length > 0 then
