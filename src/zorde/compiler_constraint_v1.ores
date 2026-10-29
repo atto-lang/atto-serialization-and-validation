@@ -185,7 +185,7 @@ pub fnc zorde_check_compiler_i64_v1(
 }
 
 // Useful for a caller that needs an exact owned int metric, *not* an alias.
-// Re-parse is bounded to <=20 bytes; provenance is NOT attached to this int.
+// Parsing occurs once, with <=20 wire bytes; no authority attaches to int.
 pub fnc zorde_parse_compiler_i64_v1(
   Value value,
   ZordeCompilerI64ConstraintV1 descriptor,
