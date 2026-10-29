@@ -160,6 +160,41 @@ pub fnc run_zorde_tests(): void {
     value_int(443), rt borrow scalar_one
   ).is_err(), "wrong scalar-kind parse must return Err");
 
+  // Direct Result-based admission must share the compiled registry limits.
+  // This checks the public parser paths, not just the registry selector.
+  val List<int> overlong_scalar_integer = new List<int>();
+  let int direct_budget_index = 0;
+  loop do
+    if direct_budget_index >= 21 then break; fi
+    overlong_scalar_integer.add(49);
+    direct_budget_index = direct_budget_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_number_lexeme(overlong_scalar_integer),
+    zorde_scalar_int(-9223372036854775807 - 1,9223372036854775807,
+      new List<int>())
+  ).is_err(), "direct scalar Result rejects over-budget numeric lexeme");
+  require_true(zorde_parse_int(
+    value_number_lexeme(overlong_scalar_integer),
+    zorde_int_range(-9223372036854775807 - 1,9223372036854775807)
+  ).is_err(), "direct int Result cannot bypass scalar input budget");
+
+  val List<int> oversized_direct_text = new List<int>();
+  direct_budget_index = 0;
+  loop do
+    if direct_budget_index >= 65537 then break; fi
+    oversized_direct_text.add(97);
+    direct_budget_index = direct_budget_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_string(new Utf8Text(oversized_direct_text)),
+    zorde_scalar_string(0,65537,new List<int>())
+  ).is_err(), "direct string Result refuses 65537 bytes");
+  require_true(zorde_parse_refinement(
+    value_string(new Utf8Text(oversized_direct_text)),
+    zorde_scalar_descriptor(1,3,2,0,65537,new List<int>())
+  ).is_err(), "compiler descriptor runtime adapter cannot bypass byte budget");
+
   // Exact signed-int64 Zorde checks share @Min/@Max/@Range semantics.
   val ZordeIntSchema ports = zorde_int_range(1, 65535);
   val Result<int, ValidationReport> good_port = zorde_parse_int(value_int(443), rt borrow ports);
