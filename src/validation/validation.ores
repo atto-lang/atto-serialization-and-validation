@@ -478,6 +478,16 @@ pub fnc is_uuid(Utf8Text text): bool {
   return true;
 }
 
+// Restricted ASCII dot-atom (not quoted-string or internationalized mailboxes).
+fnc is_email_atext(int byte): bool {
+  if is_ascii_letter_or_digit(byte) then return true; fi
+  return byte == 33 || byte == 35 || byte == 36 || byte == 37 ||
+         byte == 38 || byte == 39 || byte == 42 || byte == 43 ||
+         byte == 45 || byte == 47 || byte == 61 || byte == 63 ||
+         byte == 94 || byte == 95 || byte == 96 || byte == 123 ||
+         byte == 124 || byte == 125 || byte == 126;
+}
+
 pub fnc is_email(Utf8Text text): bool {
   if !is_ascii(text) then
     return false;
@@ -517,17 +527,17 @@ pub fnc is_email(Utf8Text text): bool {
     return false;
   fi
 
-  if text.bytes[0] == 46 || text.bytes[at - 1] == 46 then
-    return false;
-  fi
-
-  // Basic local-part shape: no consecutive dots.
-  i = 1;
+  // Accept only an unquoted ASCII dot-atom: unsupported punctuation
+  // must not acquire email shape validity.
+  i = 0;
   loop do
-    if i >= at then
-      break;
-    fi
-    if text.bytes[i] == 46 && text.bytes[i - 1] == 46 then
+    if i >= at then break; fi
+    let int byte = text.bytes[i];
+    if byte == 46 then
+      if i == 0 || i == at - 1 || (i > 0 && text.bytes[i - 1] == 46) then
+        return false;
+      fi
+    elseif !is_email_atext(byte) then
       return false;
     fi
     i = i + 1;
@@ -548,7 +558,7 @@ pub fnc is_email(Utf8Text text): bool {
     let int byte = at_end ? 46 : text.bytes[i];
 
     if byte == 46 {
-      if i == label_start {
+      if i == label_start || i - label_start > 63 {
         return false;
       } fi
       if text.bytes[label_start] == 45 || text.bytes[i - 1] == 45 {
