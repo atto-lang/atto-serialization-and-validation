@@ -18,7 +18,7 @@ import class ZordeScalarDescriptor from './refinement_descriptor';
 import fnc zorde_scalar_descriptor, zorde_scalar_descriptor_valid from './refinement_descriptor';
 import fnc zorde_scalar_rule_from_descriptor from './refinement_descriptor';
 import class ZordeScalarRule from './scalar';
-import fnc zorde_core_max_exclusions from './scalar_core';
+import fnc zorde_core_max_exclusions, zorde_core_max_scalar_string_bytes, zorde_core_max_scalar_number_bytes from './scalar_core';
 import fnc zorde_scalar_rule_valid from './scalar';
 import fnc zorde_parse_scalar_metric from './zorde';
 
@@ -45,8 +45,8 @@ pub fnc zorde_registry_max_id_bytes(): int { return 128; }
 pub fnc zorde_registry_max_exclusions(): int { return zorde_core_max_exclusions(); }
 // Parsing work is bounded before handing untrusted bytes to the canonical
 // UTF-8 scalar scanner or exact integer parser.
-pub fnc zorde_registry_max_string_bytes(): int { return 65536; }
-pub fnc zorde_registry_max_number_bytes(): int { return 20; }
+pub fnc zorde_registry_max_string_bytes(): int { return zorde_core_max_scalar_string_bytes(); }
+pub fnc zorde_registry_max_number_bytes(): int { return zorde_core_max_scalar_number_bytes(); }
 
 fnc zorde_registry_error(String code, String message): ValidationReport {
   val List<ValidationError> errors = new List<ValidationError>();
