@@ -227,6 +227,19 @@ The compiler, Zorde, serializers, actor admission, and hot-reload verifier
 should consume the same fingerprint rather than maintaining parallel notions
 of validity.
 
+## Direct scalar input work budgets
+
+Direct `zorde_scalar_accepts`, `zorde_parse_scalar_metric`,
+`zorde_parse_refinement`, and bare-metal `zorde_core_utf8_accepts` now
+share the compiled registry's fail-closed scalar input budget:
+**20 bytes for exact signed-int64 lexemes** and **65,536 bytes for
+UTF-8 string input**. Reject oversized inputs *before* integer conversion
+or Unicode scanning. The limits constrain the directly supplied scalar
+representation, not an entire decoded document or aggregate actor mailbox.
+Use separate ingress, structural-depth, and per-message quotas for those
+larger trust boundaries. A successful dynamic `Result` is still not an
+immutable nominal type proof.
+
 ## Security gates still pending
 
 - **Typestate/alias stability:** Validation of a mutable Value or ObjectSchema
