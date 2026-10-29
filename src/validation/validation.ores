@@ -602,55 +602,158 @@ fnc starts_with_ascii(Utf8Text text, List<int> prefix): bool {
 }
 
 pub fnc is_url(Utf8Text text): bool {
-  if !is_ascii(text) then
+  // Restricted ASCII absolute HTTP(S) shape, NOT DNS, WHATWG normalization,
+  // destination authorization or a general-purpose URL parser.
+  if text.bytes.length > 8192 || !is_ascii(text) then
     return false;
   fi
 
   let int host_start = -1;
-
   if starts_with_ascii(
-    text,
-    new List<int>(104, 116, 116, 112, 58, 47, 47)
+    text, new List<int>(104, 116, 116, 112, 58, 47, 47)
   ) then
     host_start = 7;
   elseif starts_with_ascii(
-    text,
-    new List<int>(104, 116, 116, 112, 115, 58, 47, 47)
+    text, new List<int>(104, 116, 116, 112, 115, 58, 47, 47)
   ) then
     host_start = 8;
   else
     return false;
   fi
 
-  if host_start >= text.bytes.length then
-    return false;
-  fi
+  let int n = text.bytes.length;
+  if host_start >= n then return false; fi
 
-  // The basic validator intentionally handles only absolute HTTP(S) URLs.
-  // Reject whitespace/control bytes and require a non-empty authority before
-  // path/query/fragment delimiters. Full RFC 3986 normalization is out of scope.
-  let bool saw_authority = false;
-  let int i = host_start;
-
+  // Authority terminates at the first / ? or #. Never reinterpret \
+  // as a path separator. Userinfo is unsupported by this restricted API.
+  let int authority_end = host_start;
   loop do
-    if i >= text.bytes.length then
-      break;
+    if authority_end >= n then break; fi
+    let int byte = text.bytes[authority_end];
+    if byte == 47 || byte == 63 || byte == 35 then break; fi
+    if byte <= 32 || byte >= 127 || byte == 64 || byte == 92 then
+      return false;
     fi
+    authority_end = authority_end + 1;
+  done
+  if authority_end == host_start then return false; fi
 
-    let int byte = text.bytes[i];
-    if byte <= 32 || byte == 127 then
+  let int port_start = -1;
+  let int host_end = authority_end;
+
+  if text.bytes[host_start] == 91 then
+    // Explicitly support hexadecimal IPv6 literals only: no zone IDs,
+    // IPv4-mapped dotted suffixes, or alternate host normalization.
+    let int close = host_start + 1;
+    loop do
+      if close >= authority_end || text.bytes[close] == 93 then break; fi
+      close = close + 1;
+    done
+    if close >= authority_end then return false; fi
+
+    let int groups = 0;
+    let int digits = 0;
+    let bool compressed = false;
+    let int i = host_start + 1;
+    loop do
+      if i >= close then break; fi
+      let int byte = text.bytes[i];
+      if is_hex(byte) then
+        digits = digits + 1;
+        if digits > 4 then return false; fi
+        i = i + 1;
+      elseif byte == 58 then
+        if i + 1 < close && text.bytes[i + 1] == 58 then
+          if compressed then return false; fi
+          if digits > 0 then
+            groups = groups + 1;
+            digits = 0;
+          elseif i != host_start + 1 then
+            return false;
+          fi
+          compressed = true;
+          i = i + 2;
+          if i < close && text.bytes[i] == 58 then return false; fi
+        else
+          if digits == 0 || i + 1 >= close then return false; fi
+          groups = groups + 1;
+          digits = 0;
+          i = i + 1;
+        fi
+      else
+        return false;
+      fi
+    done
+    if digits > 0 then groups = groups + 1; fi
+    // A double colon must replace at least one omitted 16-bit group.
+    if (compressed && groups >= 8) || (!compressed && groups != 8) then
       return false;
     fi
 
-    if byte == 47 || byte == 63 || byte == 35 then
-      break;
+    host_end = close + 1;
+    if host_end < authority_end then
+      if text.bytes[host_end] != 58 then return false; fi
+      port_start = host_end + 1;
     fi
+  else
+    // Conservative DNS / IPv4-like syntax: no raw IPv6, userinfo,
+    // percent escapes, empty labels, underscores or deceptive host suffixes.
+    let int i = host_start;
+    let int label_start = host_start;
+    loop do
+      if i >= authority_end then break; fi
+      let int byte = text.bytes[i];
+      if byte == 58 then
+        host_end = i;
+        port_start = i + 1;
+        break;
+      fi
+      if byte == 46 then
+        if i == label_start || i - label_start > 63 ||
+           text.bytes[i - 1] == 45 then return false; fi
+        label_start = i + 1;
+      elseif (byte >= 65 && byte <= 90) ||
+             (byte >= 97 && byte <= 122) ||
+             (byte >= 48 && byte <= 57) then
+        // Valid conservative hostname character.
+      elseif byte == 45 then
+        if i == label_start then return false; fi
+      else
+        return false;
+      fi
+      i = i + 1;
+    done
+    if host_end == host_start || host_end == label_start ||
+       host_end - label_start > 63 ||
+       host_end - host_start > 253 ||
+       text.bytes[host_end - 1] == 45 then return false; fi
+  fi
 
-    saw_authority = true;
-    i = i + 1;
+  if port_start >= 0 then
+    if port_start >= authority_end ||
+       authority_end - port_start > 5 then return false; fi
+    let int port = 0;
+    let int i = port_start;
+    loop do
+      if i >= authority_end then break; fi
+      let int byte = text.bytes[i];
+      if byte < 48 || byte > 57 then return false; fi
+      port = (port * 10) + (byte - 48);
+      if port > 65535 then return false; fi
+      i = i + 1;
+    done
+    if port == 0 then return false; fi
+  fi
+
+  // Reject ambiguous backslash/control bytes in path/query/fragment too.
+  let int suffix = authority_end;
+  loop do
+    if suffix >= n then break; fi
+    let int byte = text.bytes[suffix];
+    if byte <= 32 || byte == 92 || byte == 127 then return false; fi
+    suffix = suffix + 1;
   done
-
-  return saw_authority;
+  return true;
 }
 
 // Validation is a boundary even for programmatically built Value lexemes.

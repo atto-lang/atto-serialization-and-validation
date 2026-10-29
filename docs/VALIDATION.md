@@ -30,6 +30,19 @@ dots. Quoted local parts, internationalized mailboxes and complete RFC email
 syntax are out of scope. Validation is **not** proof of mailbox ownership,
 deliverability or authorization.
 
+## Restricted HTTP(S) URL authority admission
+
+The `is_url`/`zorde_url` checker recognizes only an explicitly
+restricted ASCII absolute HTTP(S) URL shape. It rejects userinfo,
+backslashes, ambiguous/empty authority, malformed DNS-like host labels,
+noncanonical bracketed IPv6, unsupported IPv6 zone or dotted tails, and
+non-numeric/zero/out-of-range ports. Host labels have a 63-byte limit,
+DNS-like hostnames a 253-byte limit, and total input a 8,192-byte limit.
+Any syntactically accepted URL remains untrusted: this is not a complete
+RFC 3986/WHATWG parser, IP address authorization, DNS pinning, or SSRF
+protection. Consumers must apply separate URL normalization, destination
+allowlists and post-DNS resolution IP/routing policies.
+
 ## Core rules
 
 Presence:
