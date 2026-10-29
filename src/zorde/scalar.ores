@@ -10,6 +10,21 @@ import fnc utf8_scalar_count from '../core/utf8_scalar';
 import class ZordeCoreInterval from './scalar_core';
 import fnc zorde_core_interval, zorde_core_interval_valid, zorde_core_interval_contains from './scalar_core';
 
+// Shared request-bound byte budgets for ALL dynamic scalar adapters.
+// The compiled registry and direct APIs must never diverge on work limits.
+pub fnc zorde_scalar_max_number_bytes(): int { return 20; }
+pub fnc zorde_scalar_max_string_bytes(): int { return 65536; }
+
+pub fnc zorde_scalar_input_over_budget(Value value): bool {
+  if value.kind == 2 then
+    return value.number_lexeme.length > zorde_scalar_max_number_bytes();
+  fi
+  if value.kind == 3 then
+    return value.string_value.bytes.length > zorde_scalar_max_string_bytes();
+  fi
+  return false;
+}
+
 pub define class ZordeScalarRule as
   // 2 = exact int64, 3 = UTF-8 string whose length uses Unicode scalars.
   pub val int kind;
@@ -38,6 +53,11 @@ pub fnc zorde_scalar_contains(ZordeScalarRule rule, int metric): bool {
 pub fnc zorde_scalar_metric(Value value, ZordeScalarRule rule): IntParse {
   if !zorde_scalar_rule_valid(rt borrow rule) then return new IntParse(false, 0); fi
   if value.kind != rule.kind then return new IntParse(false, 0); fi
+  // Direct scalar checks (including refinement and boolean acceptance)
+  // must not bypass the same limits enforced by registry-based admission.
+  if zorde_scalar_input_over_budget(rt borrow value) then
+    return new IntParse(false, 0);
+  fi
   if rule.kind == 2 then return parse_int(value); fi
 
   // Unicode scalar length is shared with compiler refinements and codecs.
