@@ -55,6 +55,14 @@ authentication receipt.
   the compiled registry's 20-byte number budget before parsing.
 - Evaluate min then max in deterministic order using **signed i64 comparisons**,
   never generic floating-point `number_rule`.
+- **Parse the wire integer exactly once per invocation**, then carry its
+  parsed scalar and report together in a private intermediate record. Checked
+  parsing returns the exact scalar that was compared against min/max; it
+  never checks a mutable byte list and reparses that list into an unrelated
+  result. Caller mutations after validation do not mutate an already
+  returned primitive, but they invalidate any assumption about the source
+  `Value` (which must be validated anew). This is not a transitive
+  immutable snapshot or a privileged `Valid<T>` witness.
 - Return one bounded error with no value, payload, alias path or source text
   embedded. Successful `Result<int>` carries no validation provenance.
 
