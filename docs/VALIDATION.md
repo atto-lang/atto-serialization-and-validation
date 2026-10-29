@@ -30,6 +30,16 @@ dots. Quoted local parts, internationalized mailboxes and complete RFC email
 syntax are out of scope. Validation is **not** proof of mailbox ownership,
 deliverability or authorization.
 
+## Direct validator request-work budgets
+
+Standalone `is_email` and `is_url` calls first reject over-budget byte
+sequences (**254** and **8,192 bytes** respectively), before any full-buffer
+ASCII scan. This is required even for caller-created dynamic values that
+have bypassed document decoder/graph preflight budgets. Checks are deliberately
+sequential, not dependent on compiler short-circuit evaluation.
+The limits are request-work bounds, not sender identity, URL destination
+authorization, DNS validation, or immutable type proofs.
+
 ## Restricted HTTP(S) URL authority admission
 
 The `is_url`/`zorde_url` checker recognizes only an explicitly

@@ -489,11 +489,13 @@ fnc is_email_atext(int byte): bool {
 }
 
 pub fnc is_email(Utf8Text text): bool {
-  if !is_ascii(text) then
+  // A direct call can bypass outer document ingress bounds. Reject by
+  // byte count before the ASCII scan; do not trust eager boolean evaluation
+  // or assumed short-circuit behavior as a request-work budget.
+  if text.bytes.length < 3 || text.bytes.length > 254 then
     return false;
   fi
-
-  if text.bytes.length < 3 || text.bytes.length > 254 then
+  if !is_ascii(text) then
     return false;
   fi
 
@@ -604,9 +606,10 @@ fnc starts_with_ascii(Utf8Text text, List<int> prefix): bool {
 pub fnc is_url(Utf8Text text): bool {
   // Restricted ASCII absolute HTTP(S) shape, NOT DNS, WHATWG normalization,
   // destination authorization or a general-purpose URL parser.
-  if text.bytes.length > 8192 || !is_ascii(text) then
-    return false;
-  fi
+  // Separate the guard from the scan: even if || operands are eager,
+  // over-budget caller-created buffers must never be fully traversed.
+  if text.bytes.length > 8192 then return false; fi
+  if !is_ascii(text) then return false; fi
 
   let int host_start = -1;
   if starts_with_ascii(

@@ -157,6 +157,20 @@ pub fnc run_validation_tests(): void {
   require_true(!is_email(new Utf8Text(domain_label_64)),
     "64-byte DNS-like label is rejected");
 
+  // Direct API work budgets: reject oversized buffers before any ASCII scan.
+  val List<int> over_email = new List<int>(97,64,98,46,99,111,109);
+  email_index = 0;
+  loop do
+    if email_index >= 248 then break; fi
+    over_email.add(97);
+    email_index = email_index + 1;
+  done
+  require_true(!is_email(new Utf8Text(over_email)),
+    "255-byte direct email input must fail the pre-scan byte gate");
+  over_email.add(255);
+  require_true(!is_email(new Utf8Text(over_email)),
+    "oversized non-ASCII email input cannot bypass the byte gate");
+
   let List<WireMember> duplicate_members = new List<WireMember>();
   duplicate_members.push(new WireMember(rt borrow username_key, value_int(1)));
   duplicate_members.push(new WireMember(rt borrow username_key, value_int(2)));
@@ -503,6 +517,24 @@ pub fnc run_validation_tests(): void {
     url_bytes = url_bytes + 1;
   done
   require_true(!is_url(new Utf8Text(oversized_url)), "URL above 8192-byte bound must reject");
+
+  // A 8192-byte ASCII HTTP URL is accepted; 8193 is refused before
+  // any O(n) ASCII validation, irrespective of boolean evaluation semantics.
+  val List<int> boundary_url = new List<int>(104,116,116,112,58,47,47,97,47);
+  url_bytes = 0;
+  loop do
+    if url_bytes >= 8183 then break; fi
+    boundary_url.add(120);
+    url_bytes = url_bytes + 1;
+  done
+  require_true(is_url(new Utf8Text(boundary_url)),
+    "exactly 8192-byte valid URL shape remains accepted");
+  boundary_url.add(120);
+  require_true(!is_url(new Utf8Text(boundary_url)),
+    "8193-byte URL input must fail before its ASCII scan");
+  boundary_url.add(255);
+  require_true(!is_url(new Utf8Text(boundary_url)),
+    "oversized non-ASCII URL input fails the same byte gate");
 
   // IPv6 literal group validation and total DNS authority bounds.
   require_true(is_url(new Utf8Text(new List<int>(104, 116, 116, 112, 58, 47, 47, 91, 58, 58, 93))), "URL IPv6/host case 1");
