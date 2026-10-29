@@ -1341,6 +1341,11 @@ fnc checked_value_tree_valid(Value root): bool {
         return false;
       fi
       inspected_bytes = inspected_bytes + value.bytes_value.length;
+      // The public Value constructor accepts List<int>, not a byte-specific
+      // type. Never allow out-of-octet numbers in raw bytes/extensions.
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
     fi
 
     if value.kind == 5 then
