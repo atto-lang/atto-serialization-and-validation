@@ -196,6 +196,24 @@ pub fnc run_zorde_compiler_constraint_v1_tests(): void {
   require_true(zorde_parse_compiler_i64_v1(
     value_int(6), code, code_name(), canonical_fingerprint()).is_err(),
     "out-of-range Result cannot mint scalar value");
+
+  // A caller can mutate its wire buffer after validation. The returned
+  // primitive is the value verified in the single parse, and it stays 3;
+  // the aliased dynamic Value is NOT a frozen/nominal proof and must be
+  // checked again against its new source contents.
+  val List<int> mutable_wire = new List<int>(51);
+  val Value raw_alias = value_number_lexeme(mutable_wire);
+  val Result<int, ValidationReport> stable_metric = zorde_parse_compiler_i64_v1(
+    rt borrow raw_alias, rt borrow code,
+    code_name(), canonical_fingerprint());
+  require_true(!stable_metric.is_err() && stable_metric.unwrap() == 3,
+    "single-parse checked metric equals the originally parsed integer");
+  mutable_wire.add(54);
+  require_true(stable_metric.unwrap() == 3,
+    "post-check wire alias mutation cannot change captured int metric");
+  require_true(zorde_parse_compiler_i64_v1(
+    raw_alias, code, code_name(), canonical_fingerprint()).is_err(),
+    "a changed mutable wire buffer requires new validation");
   stdio.stdout.println("zorde compiler i64 descriptor v1 report-only tests passed");
   return;
 }
