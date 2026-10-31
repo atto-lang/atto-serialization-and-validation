@@ -6,6 +6,12 @@ on:
   push:
     paths:
       - '.github/workflows/zorde-source-org-runner-diagnostic.yml'
+  pull_request:
+    paths:
+      - '.github/workflows/zorde-source-org-runner-diagnostic.yml'
+      - 'src/protobuf/**'
+      - 'tests/protobuf*'
+      - 'scripts/test-zorde-registry-source-local.sh'
 permissions: {}
 jobs:
   source-org-runner-allocation:
