@@ -43,7 +43,9 @@ descriptor alongside the compiled Zorde registry.
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
 - The Zorde report layer checks manually constructed messages for aggregate
-  payload and length-delimited budgets as well as field-count limits. It does
+  payload and length-delimited budgets as well as field-count limits. For
+  a constructed logical signed varint, the budget counts its actual 1–9 wire
+  bytes even though the constructor's raw payload list is empty. It does
   **not** claim full encoded-size accounting: the actual encoder enforces the
   full max-output-byte bound including tags and length prefixes.
 
