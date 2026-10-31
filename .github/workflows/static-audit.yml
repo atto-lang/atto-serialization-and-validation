@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'harden/**'
+      - 'hardening/**'
   pull_request:
   workflow_dispatch:
 
@@ -23,3 +24,5 @@ jobs:
         run: cargo test --all-targets
       - name: Audit Oreslang source invariants
         run: cargo run --quiet --bin audit
+      - name: Protobuf peer-contract drift preflight (static only)
+        run: node scripts/test-protobuf-contracts.mjs
