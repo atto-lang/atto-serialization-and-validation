@@ -64,6 +64,14 @@ The validator now also rejects **all ordinary untracked files** and
 **ignored untracked files**, not only modified tracked blobs. A focused
 source-free negative fixture checks the ordinary-untracked denial before
 native source scripts are admitted.
+The verifier additionally **refuses every tracked Git symlink** (Git mode
+`120000`) because the approved Git blob attests the symlink target
+*pathname*, not the potentially external target file bytes. A separate
+disposable Git fixture verifies that an approved-tree-consistent source
+symlink is denied. Current PR source tree has no tracked symlinks. The
+policy intentionally favors fail-closed evidence over transparent resolution
+of symlinks; a future legitimate symlink dependency must be converted to
+ordinary reviewed tracked files or explicitly redesigned and audited.
 **Only after this passes** may `test-runner.sh` or any other checked-out
 source scripts run. That ordering is essential for a private ephemeral
 runner. The workflow source and selected commit still require independent

@@ -128,6 +128,31 @@ printf 'synthetic ignored material\n' > "$src/injected.generated-ignored"
 expect_refusal ignored-untracked 'source bytes differ from reviewed Git tree'
 rm "$src/injected.generated-ignored"
 
+# A *tracked* source symlink is a separate confidentiality hazard: its Git
+# blob attests only the target pathname, not the bytes reached at runtime.
+# Use a standalone disposable Git fixture, never a source-org transfer.
+linked_src="$tmp/tracked-symlink-source"
+mkdir -p "$linked_src"
+printf 'ordinary tracked bytes\n' > "$linked_src/fixture.ores"
+ln -s ../external-unreviewed-guest "$linked_src/escape.ores"
+git -C "$linked_src" init -q
+git -C "$linked_src" config user.name 'Zorde tracked symlink contract'
+git -C "$linked_src" config user.email 'zorde-contract@example.invalid'
+git -C "$linked_src" add .
+git -C "$linked_src" commit -qm 'synthetic tracked symlink'
+linked_head="$(git -C "$linked_src" rev-parse HEAD)"
+linked_tree="$(git -C "$linked_src" rev-parse 'HEAD^{tree}')"
+if (cd "$linked_src" && python3 "$root/scripts/verify-zorde-checkout.py" \
+    "$linked_head" "$linked_tree") >"$tmp/check-output" 2>&1; then
+  echo 'tracked source symlink was wrongly admitted by physical verifier' >&2
+  exit 1
+fi
+grep -Fq 'tracked symlinks are forbidden in source-local native evidence' "$tmp/check-output" ||
+  { cat "$tmp/check-output" >&2; exit 1; }
+[[ ! -e "$out/zorde-registry-native-receipt.json" ]] ||
+  { echo 'tracked symlink denial emitted a native receipt' >&2; exit 1; }
+count=$((count + 1))
+
 # An untracked directory symlink can redirect a tracked child to external
 # storage containing identical bytes. Test the physical attester directly:
 # git status may reject the symlink first, but the attester must also refuse.
