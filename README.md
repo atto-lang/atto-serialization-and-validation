@@ -66,7 +66,8 @@ The repository now contains the native Oreslang implementation on `main`; this h
 - `src/json/channel.ores` — native `Future`/`async` channel adapter using `nb readch`; only byte data crosses the channel boundary.
 - `src/messagepack/messagepack.ores` — native MessagePack signed-int64/bounded-uint64/string/binary/array/general-map/extension encode/decode.
 - `src/cbor/cbor.ores` — native definite-length CBOR signed-int64/bounded-uint64/text/bytes/array/general-map/bool/null encode/decode.
-- `src/protobuf/wire.ores` — native Protobuf field-key/varint/fixed32/fixed64/length-delimited wire encode/decode with exact raw uint64-varint unknown-field preservation.
+- `src/protobuf/wire.ores` — native Protobuf field-key/varint/fixed32/fixed64/length-delimited wire encode/decode with exact raw uint64-varint unknown-field preservation. New constructor snapshots and output preflight are under review.
+- `src/protobuf/zorde.ores` — report-only schema-field admission with bounded budgets and explicit unknown field policy, not a typed proof.
 - `src/validation/validation.ores` — reflection-free validation rules, bounded error collection, object schemas, type/length/item/numeric checks, ASCII/email/UUID/URL checks, uniqueness, unknown-field policy, and `ValidValue` typestate wrappers.
 - `src/schema/metadata.ores` + `src/schema/object_codec.ores` — compiler-generated static field metadata and metadata-driven validated JSON object projection.
 - native Oreslang tests under `tests/`.
@@ -103,6 +104,10 @@ Exact wire semantics are preferred over lossy coercion. The current baseline the
 Protobuf wire-type-0 values above signed `int` are still accepted and preserved as exact raw varint bytes so unknown fields round-trip without narrowing.
 
 These cases return explicit codec errors rather than silently narrowing values. Generated typed codec support can extend them as exact unsigned-64 and float-bit primitives become available.
+
+## Protobuf interoperability trust boundaries
+
+[Protobuf wire + Zorde + WIT + TypeSpec/JSON Schema contract](docs/PROTOBUF-WIRE-ZORDE-INTEROP.md) records the independent JSON-envelope authorities, proposed WIT ABI, reserved descriptor tags, mutable ownership limitations, and required source-local conformance gates. All new native/contract tests are authored but remain **unexecuted** until actual runner receipts are available.
 
 ## Running native tests
 
