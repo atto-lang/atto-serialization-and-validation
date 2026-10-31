@@ -44,6 +44,14 @@ pub fnc run_protobuf_tests(): void {
   val List<ProtoField> field_two = fields_with_number(roundtrip, 2);
   require_int(field_two.length, 1, "Protobuf field lookup");
   require_int(field_two[0].payload.length, 2, "Protobuf length-delimited payload");
+  // A field-number lookup must not hand out the exact nested mutable payload
+  // inside the message; callers can modify returned bytes independently.
+  field_two[0].payload.add(77);
+  require_int(field_two[0].payload.length, 3,
+    "field lookup returns a mutable local copy");
+  require_int(roundtrip.fields[1].payload.length, 2,
+    "field lookup mutation must not corrupt original message");
+
 
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
