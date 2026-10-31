@@ -221,6 +221,50 @@ reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
 reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
   'EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE"',
   'EXPECTED_SOURCE_TREE="$GITHUB_SHA"')));
+
+// A private, trusted self-hosted worker must not execute checkout-provided
+// test scripts before it proves the exact admin-approved physical source tree.
+// This is a narrow workflow source mutation guard, NOT runner evidence.
+function preexecutionAttestationGuard(w) {
+  const nativeJob=w.indexOf('  zorde-native-source-local:');
+  const snapshot=w.indexOf('      - name: Reject unapproved source snapshot before checkout',nativeJob);
+  const checkout=w.indexOf('      - uses: actions/checkout@',snapshot);
+  const physical=w.indexOf('      - name: Verify exact physical checkout before source execution',checkout);
+  const scripts=w.indexOf('      - name: Verify shell syntax and source-free refusal contracts',physical);
+  const execute=w.indexOf('      - name: Run actual compiler and privacy diagnostics',scripts);
+  assert.ok(nativeJob>=0 && snapshot>nativeJob && checkout>snapshot &&
+    physical>checkout && scripts>physical && execute>scripts,
+    'physical checkout admission must precede any source-local script invocation');
+  const verify=w.slice(physical,scripts);
+  assert.ok(verify.includes('test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"'),
+    'unreviewed dispatch commit must reject');
+  assert.ok(verify.includes('git rev-parse \'HEAD^{tree}\''),
+    'root tree identity must reject stale branch');
+  assert.ok(verify.includes('git show HEAD:scripts/verify-zorde-checkout.py |'),
+    'physical verifier must match source-approved blob');
+  assert.ok(verify.includes('cmp - scripts/verify-zorde-checkout.py'),
+    'physical verifier must be byte-compared before executing');
+  assert.ok(verify.includes('env -i PATH=/usr/bin:/bin'),
+    'checkout attestation must scrub inherited environment');
+  assert.ok(verify.includes('/usr/bin/python3 -I -S scripts/verify-zorde-checkout.py'),
+    'physical Git blob verifier must run before source checks');
+}
+preexecutionAttestationGuard(nativeWorkflow);
+checks++;
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  '      - name: Verify exact physical checkout before source execution',
+  '      - name: Removed source attestation')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  '      - name: Verify shell syntax and source-free refusal contracts',
+  '      - name: Verify exact physical checkout before source execution - changed label\n      - name: Verify shell syntax and source-free refusal contracts')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'git show HEAD:scripts/verify-zorde-checkout.py |',
+  'git show HEAD:scripts/other.py |')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'cmp - scripts/verify-zorde-checkout.py','cat > /dev/null')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'env -i PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC',
+  'env PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
