@@ -63,7 +63,9 @@ descriptor alongside the compiled Zorde registry.
 
 `zorde_validate_protobuf_wire(message, rules, decodeOptions, rejectUnknown)`
 returns a bounded `ValidationReport` (up to 64 issues; `truncated` on overflow)
-with no typed value or security capability. Each `ProtoZordeFieldRule`
+with no typed value or security capability. Once a 65th issue marks the report
+truncated, both the field and required-descriptor walks stop immediately;
+this caps *post-overflow* work, not all scanning of otherwise-valid inputs. Each `ProtoZordeFieldRule`
 specifies field number, wire type, required, maximum occurrences, maximum
 payload bytes. It rejects duplicate descriptors, implementation-reserved
 descriptor tags, malformed field shapes and resource-policy inconsistencies.
