@@ -37,7 +37,9 @@ descriptor alongside the compiled Zorde registry.
 - Raw constructors now snapshot the caller's `List<int>`; mutation of the
   caller's original buffer cannot change those constructed field bytes. **But**
   `ProtoField.payload`, `ProtoMessage.fields`, and all nested lists remain
-  mutable values; copying one constructor list is NOT transitive immutability.
+  mutable values. `fields_with_number` now returns flat per-field snapshots
+  with independent payload lists, but `ProtoMessage` may still be constructed
+  with aliased mutable field lists. These copies are NOT transitive immutability.
   No cross-actor sharing/proof is authorized by this change.
 - The encoder preflights payload byte validity and available output budget
   before appending payload bytes. A failed encode returns an error, no
