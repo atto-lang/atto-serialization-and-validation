@@ -115,6 +115,35 @@ pub fnc run_protobuf_tests(): void {
   require_true(input_limited.is_err(), "Protobuf max_input_bytes must fail closed");
 
 
+  // Field 16 has a two-byte key (128,1); value 16384 needs three
+  // varint bytes (128,128,1). Exercises quotient/remainder lowering
+  // without the deprecated modulo operator on all supported backends.
+  val List<ProtoField> multi_key_fields = new List<ProtoField>();
+  multi_key_fields.add(proto_varint(16, 16384));
+  val Result<List<int>, ProtoError> multi_key_encoded = encode_message(
+    new ProtoMessage(multi_key_fields), default_proto_encode_options()
+  );
+  require_true(!multi_key_encoded.is_err(), "two-byte Protobuf tag must encode");
+  val List<int> multi_key_wire = multi_key_encoded.unwrap();
+  val List<int> multi_key_expected = new List<int>(128, 1, 128, 128, 1);
+  require_int(multi_key_wire.length, multi_key_expected.length,
+    "multi-byte tag and varint encoded length");
+  let int k = 0;
+  loop do
+    if k >= multi_key_expected.length then
+      break;
+    fi
+    require_int(multi_key_wire[k], multi_key_expected[k],
+      "exact multi-byte tag/value wire bytes");
+    k = k + 1;
+  done
+  val Result<ProtoMessage, ProtoError> multi_key_decoded = decode_message(
+    multi_key_wire, default_proto_decode_options()
+  );
+  require_true(!multi_key_decoded.is_err(), "multi-byte tag/value must decode");
+  require_int(multi_key_decoded.unwrap().fields[0].field_number, 16,
+    "multi-byte field key must preserve numeric field number");
+
   // Constructor byte lists are snapshots, not aliases of mutable caller input.
   val List<int> mutable_source = new List<int>(3, 7, 9, 11);
   val ProtoField copied_fixed = proto_fixed32(4, mutable_source);
