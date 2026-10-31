@@ -64,6 +64,19 @@ pub fnc run_protobuf_zorde_tests(): void {
   require_true(too_short_fixed.errors[0].code == "invalid_rule",
     "fixed32 field budget less than four bytes must reject as rule");
 
+  // A logical proto_varint has no raw payload bytes yet. Its encoded size
+  // still counts toward the Zorde budget (e.g., 128 needs two bytes).
+  val List<ProtoZordeFieldRule> tiny_varint_rules = new List<ProtoZordeFieldRule>();
+  tiny_varint_rules.add(new ProtoZordeFieldRule(1, 0, true, 1, 1));
+  val List<ProtoField> big_varint_fields = new List<ProtoField>();
+  big_varint_fields.add(proto_varint(1, 128));
+  val ValidationReport big_varint = zorde_validate_protobuf_wire(
+    new ProtoMessage(big_varint_fields), tiny_varint_rules,
+    default_proto_decode_options(), true
+  );
+  require_true(big_varint.errors[0].code == "out-of-range",
+    "logical varint encoded size must count against field budget");
+
   val List<ProtoField> repeated = new List<ProtoField>();
   repeated.add(proto_varint(1, 1));
   repeated.add(proto_varint(1, 2));
