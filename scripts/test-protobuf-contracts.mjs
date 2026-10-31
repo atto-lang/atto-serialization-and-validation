@@ -7,7 +7,7 @@ import {readFileSync} from 'node:fs';
 const tsp=readFileSync('contracts/protobuf/main.tsp','utf8');
 const wit=readFileSync('wit/protobuf-wire.wit','utf8');
 const wire=readFileSync('src/protobuf/wire.ores','utf8');
-assert.ok(!wire.split('\\n').some(line => !line.trimStart().startsWith('//') && /\\s%\\s/.test(line)),
+assert.ok(!wire.split('\n').some(line => !line.trimStart().startsWith('//') && /\s%\s/.test(line)),
   'Protobuf guest source must not reintroduce deprecated modulo syntax');
 const schema=JSON.parse(readFileSync('contracts/protobuf/authored.schema.json','utf8'));
 function canonical(s) {
