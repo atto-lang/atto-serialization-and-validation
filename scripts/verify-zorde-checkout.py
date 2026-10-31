@@ -87,6 +87,13 @@ def verify(expected_commit: str, expected_tree: str) -> None:
                         "--exclude-standard", "-z")
     if ignored:
         fail("ignored untracked files exist in source checkout")
+    # This verifier is run before any checked-out script on the trusted
+    # worker. Ordinary untracked files may influence import discovery or tools
+    # even when all tracked blobs match. The later shell status check is
+    # defense in depth, not a substitute for this pre-execution refusal.
+    untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")
+    if untracked:
+        fail("untracked files exist in source checkout")
     entries = git_bytes("ls-tree", "-rz", "--full-tree", "HEAD").split(b"\0")
     total = 0
     count = 0
