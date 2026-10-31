@@ -515,6 +515,25 @@ pub fnc proto_wire_field_valid(ProtoField field): bool {
   return false;
 }
 
+// Exact size of an unsigned integer's canonical Protobuf varint form.
+// This is a byte-count helper, not a lossy conversion to another number type.
+pub fnc proto_unsigned_varint_size(int value): int {
+  if value < 0 then
+    return -1;
+  fi
+
+  let int remaining = value;
+  let int count = 1;
+  loop do
+    if remaining < 128 then
+      break;
+    fi
+    remaining = remaining / 128;
+    count = count + 1;
+  done
+  return count;
+}
+
 // Count the actual wire-value payload bytes even for a constructed logical
 // signed varint whose raw payload list is empty. Used by bounded Zorde checks.
 pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
@@ -525,16 +544,32 @@ pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
     return -1;
   fi
 
-  let int value = field.varint_value;
-  let int count = 1;
-  loop do
-    if value < 128 then
-      break;
-    fi
-    value = value / 128;
-    count = count + 1;
-  done
-  return count;
+  return proto_unsigned_varint_size(field.varint_value);
+}
+
+// Size of a field after re-encoding, including its key and any type-2 length
+// prefix. This is intentionally a CANONICAL RE-ENCODING measurement. An
+// incoming message could have overlong key/length prefixes, and that original
+// byte count is unavailable once the decoder has discarded those prefixes.
+// Do not use this to certify signatures over the original byte stream.
+pub fnc proto_field_canonical_wire_bytes(ProtoField field): int {
+  if !proto_wire_field_valid(field) then
+    return -1;
+  fi
+
+  val int key_bytes = proto_unsigned_varint_size(
+    field.field_number * 8 + field.wire_type
+  );
+  val int value_bytes = proto_field_payload_wire_bytes(field);
+  if key_bytes < 0 || value_bytes < 0 then
+    return -1;
+  fi
+
+  if field.wire_type == 2 then
+    val int length_bytes = proto_unsigned_varint_size(value_bytes);
+    return key_bytes + length_bytes + value_bytes;
+  fi
+  return key_bytes + value_bytes;
 }
 
 fnc encode_field(
