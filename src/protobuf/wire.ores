@@ -515,6 +515,28 @@ pub fnc proto_wire_field_valid(ProtoField field): bool {
   return false;
 }
 
+// Count the actual wire-value payload bytes even for a constructed logical
+// signed varint whose raw payload list is empty. Used by bounded Zorde checks.
+pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
+  if field.wire_type != 0 || field.payload.length > 0 then
+    return field.payload.length;
+  fi
+  if !field.varint_fits_int || field.varint_value < 0 then
+    return -1;
+  fi
+
+  let int value = field.varint_value;
+  let int count = 1;
+  loop do
+    if value < 128 then
+      break;
+    fi
+    value = value / 128;
+    count = count + 1;
+  done
+  return count;
+}
+
 fnc encode_field(
   ProtoWriter mut writer,
   ProtoField field
