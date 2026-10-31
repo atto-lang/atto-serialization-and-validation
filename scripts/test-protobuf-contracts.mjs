@@ -351,8 +351,9 @@ function originalWireAdmissionGuard(z,t) {
     t.includes('overlong_key') && t.includes('overlong_length') &&
     t.includes('key_over_original_limit') &&
     t.includes('length_over_original_limit') &&
-    t.includes('malformed_input') && t.includes('rejected_unknown_input'),
-    'native guest fixtures must cover nonminimal prefixes and raw errors');
+    t.includes('malformed_input') && t.includes('rejected_unknown_input') &&
+    t.includes('raw_before_mutation') && t.includes('raw_after_mutation'),
+    'native guest fixtures must cover nonminimal prefixes, mutation, and raw errors');
 }
 originalWireAdmissionGuard(zorde,zordeTests);
 checks++;
@@ -367,6 +368,8 @@ reject(()=>originalWireAdmissionGuard(zorde.replace(
 reject(()=>originalWireAdmissionGuard(zorde,
   zordeTests.replaceAll('length_over_original_limit',
     'length_over_canonical_limit')));
+reject(()=>originalWireAdmissionGuard(zorde,
+  zordeTests.replaceAll('raw_after_mutation','unchecked_stale_report')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
