@@ -547,12 +547,11 @@ pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
   return proto_unsigned_varint_size(field.varint_value);
 }
 
-// Size of a field after re-encoding, including its key and any type-2 length
-// prefix. This is intentionally a CANONICAL RE-ENCODING measurement. An
-// incoming message could have overlong key/length prefixes, and that original
-// byte count is unavailable once the decoder has discarded those prefixes.
-// Do not use this to certify signatures over the original byte stream.
-pub fnc proto_field_canonical_wire_bytes(ProtoField field): int {
+// Exact bytes produced when re-encoding this field: canonical key and type-2
+// length prefixes, but preserved raw varint *values* (including nonminimal
+// encodings) remain byte-for-byte as stored. The decoder discards the original
+// key/length prefixes, so this cannot attest original input size or signatures.
+pub fnc proto_field_reencoded_wire_bytes(ProtoField field): int {
   if !proto_wire_field_valid(field) then
     return -1;
   fi
