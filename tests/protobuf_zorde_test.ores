@@ -2,7 +2,7 @@ import fnc require_true, require_int from './assert';
 import class ProtoField, ProtoMessage, ProtoDecodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, default_proto_decode_options from '../src/protobuf/wire';
 import class ProtoZordeFieldRule from '../src/protobuf/zorde';
-import fnc zorde_validate_protobuf_wire from '../src/protobuf/zorde';
+import fnc zorde_validate_protobuf_wire, zorde_validate_protobuf_input from '../src/protobuf/zorde';
 import class ValidationReport from '../src/validation/validation';
 
 pub fnc run_protobuf_zorde_tests(): void {
@@ -147,6 +147,61 @@ pub fnc run_protobuf_zorde_tests(): void {
   );
   require_true(aggregate_budget.errors[0].code == "out-of-range",
     "multi-field canonical total must respect max_input_bytes");
+
+  // Original-wire admission counts every input byte. Nonminimal field keys
+  // and length prefixes get normalized when decoded into ProtoMessage;
+  // validation of an already parsed envelope alone cannot prove their size.
+  val List<ProtoZordeFieldRule> raw_field_rules = new List<ProtoZordeFieldRule>();
+  raw_field_rules.add(new ProtoZordeFieldRule(1, 0, true, 1, 1));
+  val List<int> overlong_key = new List<int>(136, 0, 1);
+  val ValidationReport key_over_original_limit = zorde_validate_protobuf_input(
+    overlong_key, raw_field_rules, new ProtoDecodeOptions(2, 1, 2), true
+  );
+  require_int(key_over_original_limit.errors.length, 1,
+    "original overlong key must exceed two-byte input budget");
+  require_true(key_over_original_limit.errors[0].code == "wire-decode",
+    "bounded original-wire decode must fail before Zorde field admission");
+
+  val ValidationReport key_at_original_limit = zorde_validate_protobuf_input(
+    overlong_key, raw_field_rules, new ProtoDecodeOptions(3, 1, 3), true
+  );
+  require_int(key_at_original_limit.errors.length, 0,
+    "original three-byte key and value must pass an exact three-byte limit");
+
+  val List<ProtoZordeFieldRule> raw_bytes_rules = new List<ProtoZordeFieldRule>();
+  raw_bytes_rules.add(new ProtoZordeFieldRule(1, 2, true, 1, 1));
+  val List<int> overlong_length = new List<int>(10, 129, 0, 65);
+  val ValidationReport length_over_original_limit = zorde_validate_protobuf_input(
+    overlong_length, raw_bytes_rules, new ProtoDecodeOptions(3, 1, 1), true
+  );
+  require_int(length_over_original_limit.errors.length, 1,
+    "original overlong length prefix must exceed three-byte budget");
+  require_true(length_over_original_limit.errors[0].code == "wire-decode",
+    "original length-prefix budget failure must be a wire decode diagnostic");
+
+  val ValidationReport length_at_original_limit = zorde_validate_protobuf_input(
+    overlong_length, raw_bytes_rules, new ProtoDecodeOptions(4, 1, 1), true
+  );
+  require_int(length_at_original_limit.errors.length, 0,
+    "four original wire bytes must fit a four-byte input budget");
+
+  val ValidationReport malformed_input = zorde_validate_protobuf_input(
+    new List<int>(10, 5, 65), raw_bytes_rules,
+    new ProtoDecodeOptions(16, 1, 16), true
+  );
+  require_int(malformed_input.errors.length, 1,
+    "truncated raw length-delimited input must refuse");
+  require_true(malformed_input.errors[0].code == "wire-decode",
+    "malformed original bytes must not yield a typed Zorde field report");
+
+  val ValidationReport rejected_unknown_input = zorde_validate_protobuf_input(
+    new List<int>(8, 1), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(2, 1, 2), true
+  );
+  require_int(rejected_unknown_input.errors.length, 1,
+    "original input admission must preserve unknown-field policy");
+  require_true(rejected_unknown_input.errors[0].code == "unknown-field",
+    "raw-input path must still apply Zorde unknown policy");
 
   // Report budgets are explicit; do not allow adversarial repeated errors to
   // allocate an unbounded ValidationReport.
