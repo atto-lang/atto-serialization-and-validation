@@ -302,6 +302,33 @@ reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
 reject(()=>earlySourceIntegrityGuard(physicalVerifier,
   refusalFixtures.replace("grep -Fq 'untracked files exist in source checkout'",
     "grep -Fq 'any diagnostic'")));
+
+// A SHA-consistent Git symlink attests a link pathname, not the source bytes
+// loaded through that link. Source-local native admission must refuse the
+// tracked symlink mode, with an independent disposable Git negative fixture.
+function trackedSymlinkGuard(verifier, fixtures) {
+  const forbidden='tracked symlinks are forbidden in source-local native evidence';
+  assert.ok(verifier.includes('if mode == b"120000":'),
+    'tracked symlink mode must be refused at Git tree enumeration');
+  assert.ok(verifier.includes('if expected_mode == b"120000":'),
+    'blob verifier must refuse symlink mode even if directly invoked');
+  assert.ok(verifier.split(forbidden).length >= 3,
+    'both physical attestation layers must refuse tracked symlinks');
+  assert.ok(fixtures.includes('git -C "$linked_src" add .') &&
+    fixtures.includes('ln -s ../external-unreviewed-guest "$linked_src/escape.ores"'),
+    'source-free fixture must commit an external-target symlink');
+  assert.ok(fixtures.includes("grep -Fq '"+forbidden+"'"),
+    'negative fixture must require exact symlink denial');
+}
+trackedSymlinkGuard(physicalVerifier,refusalFixtures);
+checks++;
+reject(()=>trackedSymlinkGuard(physicalVerifier.replace(
+  'if mode == b"120000":','if mode == b"000000":'),refusalFixtures));
+reject(()=>trackedSymlinkGuard(physicalVerifier.replace(
+  'if expected_mode == b"120000":','if expected_mode == b"000000":'),refusalFixtures));
+reject(()=>trackedSymlinkGuard(physicalVerifier,
+  refusalFixtures.replace('ln -s ../external-unreviewed-guest "$linked_src/escape.ores"',
+    'printf "safe" > "$linked_src/escape.ores"')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
