@@ -3,8 +3,8 @@
 // Only compiler/loader-authenticated generated descriptors may be treated as
 // an authoritative typed schema. Results remain mutable/untrusted data.
 
-import class ProtoField, ProtoMessage, ProtoDecodeOptions from './wire';
-import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_payload_wire_bytes, proto_field_reencoded_wire_bytes from './wire';
+import class ProtoField, ProtoMessage, ProtoDecodeOptions, ProtoError from './wire';
+import fnc decode_message, proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_payload_wire_bytes, proto_field_reencoded_wire_bytes from './wire';
 import class Utf8Text from '../core/value';
 import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
 
@@ -169,4 +169,31 @@ pub fnc zorde_validate_protobuf_wire(
   done
 
   return report;
+}
+
+// Report-only admission from ORIGINAL Protobuf wire bytes. Unlike checking a
+// separately supplied ProtoMessage, decode_message(input, options) enforces
+// max_input_bytes against the actual original buffer, including nonminimal
+// encoded field keys and length prefixes that the parsed field representation
+// discards. Do not treat this report as a typed/schema-authenticated proof.
+// Any mutation after validation requires another decode/validation.
+pub fnc zorde_validate_protobuf_input(
+  List<int> input,
+  List<ProtoZordeFieldRule> rules,
+  ProtoDecodeOptions options,
+  bool reject_unknown_fields
+): ValidationReport {
+  val Result<ProtoMessage, ProtoError> decoded = decode_message(input, options);
+  if decoded.is_err() then
+    val ValidationReport rejected = new ValidationReport(
+      new List<ValidationError>(), false
+    );
+    proto_zorde_issue(rejected, "wire-decode", -1,
+      "Protobuf input failed bounded wire decoding");
+    return rejected;
+  fi
+
+  return zorde_validate_protobuf_wire(
+    decoded.unwrap(), rules, options, reject_unknown_fields
+  );
 }
