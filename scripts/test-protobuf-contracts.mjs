@@ -212,7 +212,15 @@ function workflowIsolationGuard(w) {
 }
 workflowIsolationGuard(nativeWorkflow);
 checks++;
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace('env -i \\','env \\')));
+function alterProtectedNativeStep(source, search, replaceWith) {
+  const start=source.indexOf('      - name: Run actual compiler and privacy diagnostics');
+  assert.ok(start>=0,'protected native execution step missing');
+  const native=source.slice(start);
+  assert.ok(native.includes(search),'native test mutant anchor absent');
+  return source.slice(0,start)+native.replace(search,replaceWith);
+}
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
+  'env -i \\','env \\')));
 reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
   'GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null',
   'GIT_CONFIG_NOSYSTEM=0 GIT_CONFIG_GLOBAL=~/.gitconfig')));
@@ -255,8 +263,8 @@ reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
   '      - name: Verify exact physical checkout before source execution',
   '      - name: Removed source attestation')));
 reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
-  '      - name: Verify shell syntax and source-free refusal contracts',
-  '      - name: Verify exact physical checkout before source execution - changed label\n      - name: Verify shell syntax and source-free refusal contracts')));
+  'test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"',
+  'test -n "$GITHUB_SHA"')));
 reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
   'git show HEAD:scripts/verify-zorde-checkout.py |',
   'git show HEAD:scripts/other.py |')));
