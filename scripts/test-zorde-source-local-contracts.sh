@@ -91,6 +91,22 @@ printf 'dirty\n' > "$src/new-untracked.txt"
 expect_refusal dirty-checkout 'source tree is not clean'
 rm "$src/new-untracked.txt"
 
+# Physical checkout attestation runs *before* any repository-provided shell
+# script on the protected runner. It must reject ordinary untracked files
+# independently of the later shell git-status guard.
+printf 'unreviewed guest source bytes\n' > "$src/injected-untracked.ores"
+if (cd "$src" && python3 scripts/verify-zorde-checkout.py "$head" "$tree") \
+    >"$tmp/check-output" 2>&1; then
+  echo 'physical verifier accepted ordinary untracked source input' >&2
+  exit 1
+fi
+grep -Fq 'untracked files exist in source checkout' "$tmp/check-output" ||
+  { cat "$tmp/check-output" >&2; exit 1; }
+[[ ! -e "$out/zorde-registry-native-receipt.json" ]] ||
+  { echo 'ordinary untracked test emitted native receipt' >&2; exit 1; }
+count=$((count + 1))
+rm "$src/injected-untracked.ores"
+
 # Git status can report 'clean' if the index deliberately hides a modified
 # tracked source file. Byte-to-tree attestation must reject both mechanisms.
 git -C "$src" update-index --assume-unchanged fixture.txt
