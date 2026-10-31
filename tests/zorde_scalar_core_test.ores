@@ -125,6 +125,18 @@ pub fnc main(): void {
   require_true(!zorde_core_utf8_accepts(rt borrow large_text, rt borrow generous),
     "65537 otherwise-valid UTF-8 bytes must fail before scanning");
 
+  // An invalid descriptor must be rejected before any UTF-8 scan, even if
+  // an otherwise valid caller-created string would meet its stated bound.
+  val ZordeCoreInterval impossible = zorde_core_interval(
+    0, 0, new List<int>(0));
+  require_true(!zorde_core_interval_valid(rt borrow impossible, true),
+    "fully excluded zero-length string descriptor is invalid");
+  require_true(!zorde_core_utf8_accepts(new List<int>(), rt borrow impossible),
+    "invalid zero-length descriptor cannot accept an empty UTF8 input");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(97), rt borrow impossible),
+    "invalid descriptor rejects a nonempty UTF8 input without scanning");
+
   stdio.stdout.println("native Zorde core scalar ConstraintIR tests passed");
   return;
 }

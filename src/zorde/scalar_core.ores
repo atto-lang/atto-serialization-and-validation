@@ -86,7 +86,11 @@ pub fnc zorde_core_utf8_accepts(
   List<int> bytes,
   ZordeCoreInterval interval
 ): bool {
+  // Fail closed on both caller-owned length and unsupported rule metadata
+  // before running an O(n) Unicode scan. This includes invalid public
+  // ZordeCoreInterval instances that bypass the bounded builder.
   if bytes.length > zorde_core_max_scalar_string_bytes() then return false; fi
+  if !zorde_core_interval_valid(rt borrow interval, true) then return false; fi
   val int scalar_count = utf8_scalar_count(bytes);
   if scalar_count < 0 then return false; fi
   return zorde_core_interval_contains(rt borrow interval, true, scalar_count);
