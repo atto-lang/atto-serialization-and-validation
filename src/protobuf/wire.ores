@@ -661,6 +661,19 @@ pub fnc encode_message(
   return Ok(writer.output);
 }
 
+// Flat field snapshot for a caller-owned projection. It copies the payload
+// byte list, not any transitive guest/actor state, and does NOT yield an
+// immutable compiler-issued Valid<T> witness.
+pub fnc proto_field_snapshot(ProtoField field): ProtoField {
+  return new ProtoField(
+    field.field_number,
+    field.wire_type,
+    field.varint_fits_int,
+    field.varint_value,
+    snapshot_proto_bytes(field.payload)
+  );
+}
+
 pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
@@ -669,7 +682,7 @@ pub fnc fields_with_number(
 
   for const field of message.fields do
     if field.field_number == field_number then
-      fields.add(field);
+      fields.add(proto_field_snapshot(field));
     fi
   done
 
