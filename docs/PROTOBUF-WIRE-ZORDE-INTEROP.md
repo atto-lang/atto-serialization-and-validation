@@ -44,12 +44,13 @@ descriptor alongside the compiled Zorde registry.
   partially written byte list is returned.
 - The Zorde report layer checks manually constructed messages for aggregate
   **encoded** wire size, including field keys, length prefixes and logical
-  signed-varint values, as well as length-delimited and field-count limits.
-  Before scanning a mutable payload it refuses any field exceeding the remaining
-  input budget, avoiding repeated aliases that could amplify work far beyond
-  the configured bound. A positive report is still **not** a typed validation
-  proof: descriptor provenance, ownership, field semantics and mutation after
-  reporting remain outside this check.
+  signed-varint values (1–9 bytes even with an empty constructor payload),
+  as well as length-delimited and field-count limits. Before scanning a
+  mutable payload it refuses any field exceeding the remaining input budget,
+  preventing repeated aliases from amplifying work beyond that budget. A
+  positive report is still **not** a typed validation proof: descriptor
+  provenance, ownership, field semantics and mutation after reporting remain
+  outside this check.
 
 ### Zorde admission
 
