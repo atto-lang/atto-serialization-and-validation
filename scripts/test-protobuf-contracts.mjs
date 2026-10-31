@@ -138,6 +138,47 @@ reject(()=>sourceGuard(wire,zorde.replace('proto_field_reencoded_wire_bytes(fiel
   'proto_field_payload_wire_bytes(field)')));
 reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_reencoded_wire_bytes',
   'options.max_input_bytes')));
+
+// Source-only native admission wiring guard. This proves that the focused
+// tests/guest/harness *source* is connected; it never executes a compiler or
+// represents a toolchain-produced guest receipt.
+const focused=readFileSync('tests/protobuf_main.ores','utf8');
+const integrated=readFileSync('tests/main.ores','utf8');
+const nativeHarness=readFileSync('scripts/test-zorde-registry-source-local.sh','utf8');
+const marker='protobuf-wire-zorde-native-tests-passed';
+function nativeGateGuard(f,i,h) {
+  for(const source of [f,i]) {
+    const wireIndex=source.indexOf('  run_protobuf_tests();');
+    const zordeIndex=source.indexOf('  run_protobuf_zorde_tests();');
+    const markerIndex=source.indexOf('stdio.stdout.println("'+marker+'");');
+    assert.ok(wireIndex>=0 && zordeIndex>wireIndex && markerIndex>zordeIndex,
+      'native guest marker must follow both Protobuf test entrypoints');
+  }
+  assert.ok(h.includes('"$ORESLANG_BIN" "$root/tests/protobuf_main.ores"'),
+    'source-local harness must execute focused guest with approved compiler');
+  assert.ok(h.includes('grep -Fqx "'+marker+'" "$protobuf_log"'),
+    'source-local harness must check focused guest output');
+  assert.ok(h.includes('grep -Fqx "'+marker+'" "$log"'),
+    'full suite must independently check integrated Protobuf output');
+  assert.ok(h.includes('"protobuf_focused_native_log_sha256"'),
+    'native receipt must retain focused log digest');
+  assert.ok(h.includes('"protobuf_focused_native_guest_executed": True'),
+    'native receipt must distinguish focused guest evidence');
+}
+nativeGateGuard(focused,integrated,nativeHarness);
+checks++;
+reject(()=>nativeGateGuard(focused.replace('  run_protobuf_tests();','  skip_protobuf_tests();'),
+  integrated,nativeHarness));
+reject(()=>nativeGateGuard(focused,integrated.replace('  run_protobuf_zorde_tests();',
+  '  skip_protobuf_zorde_tests();'),nativeHarness));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"$ORESLANG_BIN" "$root/tests/protobuf_main.ores"','"$ORESLANG_BIN" "$root/tests/other.ores"')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  'grep -Fqx "'+marker+'" "$protobuf_log"','true')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"protobuf_focused_native_log_sha256"','"missing_hash"')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"protobuf_focused_native_guest_executed": True','"protobuf_focused_native_guest_executed": False')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
