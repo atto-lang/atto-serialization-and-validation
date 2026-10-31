@@ -697,7 +697,9 @@ pub fnc proto_message_copy_bounded(
   for const field of message.fields do
     val int remaining_bytes = options.max_input_bytes - used_bytes;
     // Check cheap lengths before any per-byte shape scan or allocation.
-    if field.payload.length > remaining_bytes then
+    // Even an otherwise-valid raw payload requires at least one tag byte.
+    // Reject payload==remaining in O(1), before inspecting/copying bytes.
+    if field.payload.length >= remaining_bytes then
       return Err(new ProtoError("input_limit", 0,
         "Protobuf field payload exceeds remaining copy byte budget"));
     fi
