@@ -90,24 +90,44 @@ pub fnc proto_encode_options_valid(ProtoEncodeOptions options): bool {
          options.max_output_bytes <= 256 * 1024 * 1024;
 }
 
+// Constructors snapshot primitive byte payloads. A pub val List<int> is not a
+// deep-freeze guarantee: callers must still avoid mutation or sharing without
+// the compiler's owned/frozen-value proof.
+fnc snapshot_proto_bytes(List<int> bytes): List<int> {
+  val List<int> snapshot = new List<int>();
+  for const byte of bytes do
+    snapshot.add(byte);
+  done
+  return snapshot;
+}
+
+// A descriptor/code generator must reject the Protobuf implementation-reserved
+// tag range. The untyped wire reader intentionally accepts and preserves those
+// numbers as unknown data (they are syntactically valid on the wire).
+pub fnc proto_descriptor_field_number_valid(int field_number): bool {
+  return field_number > 0 &&
+         field_number <= 536870911 &&
+         (field_number < 19000 || field_number > 19999);
+}
+
 pub fnc proto_varint(int field_number, int value): ProtoField {
   return new ProtoField(field_number, 0, true, value, new List<int>());
 }
 
 pub fnc proto_raw_varint(int field_number, List<int> bytes): ProtoField {
-  return new ProtoField(field_number, 0, false, 0, bytes);
+  return new ProtoField(field_number, 0, false, 0, snapshot_proto_bytes(bytes));
 }
 
 pub fnc proto_fixed64(int field_number, List<int> bytes): ProtoField {
-  return new ProtoField(field_number, 1, false, 0, bytes);
+  return new ProtoField(field_number, 1, false, 0, snapshot_proto_bytes(bytes));
 }
 
 pub fnc proto_bytes(int field_number, List<int> bytes): ProtoField {
-  return new ProtoField(field_number, 2, false, 0, bytes);
+  return new ProtoField(field_number, 2, false, 0, snapshot_proto_bytes(bytes));
 }
 
 pub fnc proto_fixed32(int field_number, List<int> bytes): ProtoField {
-  return new ProtoField(field_number, 5, false, 0, bytes);
+  return new ProtoField(field_number, 5, false, 0, snapshot_proto_bytes(bytes));
 }
 
 fnc empty_error(): ProtoError {
@@ -440,6 +460,21 @@ fnc append_payload(
   ProtoWriter mut writer,
   List<int> payload
 ): void {
+  if writer.failed then
+    return;
+  fi
+
+  // Refuse oversized or malformed buffers before copying *any* payload bytes.
+  // The subtraction avoids an output-length addition overflow.
+  if payload.length > writer.options.max_output_bytes - writer.output.length then
+    writer_fail(writer, "output_limit", "Protobuf payload exceeds remaining output budget");
+    return;
+  fi
+  if !byte_list_valid(payload) then
+    writer_fail(writer, "invalid_byte", "Protobuf payload contains a non-byte value");
+    return;
+  fi
+
   for const byte of payload do
     append_byte(writer, byte);
     if writer.failed then
