@@ -257,15 +257,96 @@ function workflowIsolationGuard(w) {
 }
 workflowIsolationGuard(nativeWorkflow);
 checks++;
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace('env -i \\','env \\')));
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+function alterProtectedNativeStep(source, search, replaceWith) {
+  const start=source.indexOf('      - name: Run actual compiler and privacy diagnostics');
+  assert.ok(start>=0,'protected native execution step missing');
+  const native=source.slice(start);
+  assert.ok(native.includes(search),'native test mutant anchor absent');
+  return source.slice(0,start)+native.replace(search,replaceWith);
+}
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
+  'env -i \\','env \\')));
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
   'GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null',
   'GIT_CONFIG_NOSYSTEM=0 GIT_CONFIG_GLOBAL=~/.gitconfig')));
 reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
   '/usr/bin/bash --noprofile --norc \\', '/usr/bin/bash \\')));
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
   'EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE"',
   'EXPECTED_SOURCE_TREE="$GITHUB_SHA"')));
+
+// A private, trusted self-hosted worker must not execute checkout-provided
+// test scripts before it proves the exact admin-approved physical source tree.
+// This is a narrow workflow source mutation guard, NOT runner evidence.
+function preexecutionAttestationGuard(w) {
+  const nativeJob=w.indexOf('  zorde-native-source-local:');
+  const snapshot=w.indexOf('      - name: Reject unapproved source snapshot before checkout',nativeJob);
+  const checkout=w.indexOf('      - uses: actions/checkout@',snapshot);
+  const physical=w.indexOf('      - name: Verify exact physical checkout before source execution',checkout);
+  const scripts=w.indexOf('      - name: Verify shell syntax and source-free refusal contracts',physical);
+  const execute=w.indexOf('      - name: Run actual compiler and privacy diagnostics',scripts);
+  assert.ok(nativeJob>=0 && snapshot>nativeJob && checkout>snapshot &&
+    physical>checkout && scripts>physical && execute>scripts,
+    'physical checkout admission must precede any source-local script invocation');
+  const verify=w.slice(physical,scripts);
+  assert.ok(verify.includes('test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"'),
+    'unreviewed dispatch commit must reject');
+  assert.ok(verify.includes('git rev-parse \'HEAD^{tree}\''),
+    'root tree identity must reject stale branch');
+  assert.ok(verify.includes('git show HEAD:scripts/verify-zorde-checkout.py |'),
+    'physical verifier must match source-approved blob');
+  assert.ok(verify.includes('cmp - scripts/verify-zorde-checkout.py'),
+    'physical verifier must be byte-compared before executing');
+  assert.ok(verify.includes('env -i PATH=/usr/bin:/bin'),
+    'checkout attestation must scrub inherited environment');
+  assert.ok(verify.includes('/usr/bin/python3 -I -S scripts/verify-zorde-checkout.py'),
+    'physical Git blob verifier must run before source checks');
+}
+preexecutionAttestationGuard(nativeWorkflow);
+checks++;
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  '      - name: Verify exact physical checkout before source execution',
+  '      - name: Removed source attestation')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"',
+  'test -n "$GITHUB_SHA"')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'git show HEAD:scripts/verify-zorde-checkout.py |',
+  'git show HEAD:scripts/other.py |')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'cmp - scripts/verify-zorde-checkout.py','cat > /dev/null')));
+reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
+  'env -i PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC',
+  'env PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC')));
+
+// Source-free integrity guard for the first source-execution boundary. Both
+// ignored AND ordinary untracked files must be rejected before scripts are
+// run, not merely by the later native harness status check.
+const physicalVerifier=readFileSync('scripts/verify-zorde-checkout.py','utf8');
+const refusalFixtures=readFileSync('scripts/test-zorde-source-local-contracts.sh','utf8');
+function earlySourceIntegrityGuard(v,t) {
+  assert.ok(v.includes('ignored = git_bytes("ls-files", "--others", "--ignored",'),
+    'pre-execution physical verifier must reject ignored files');
+  assert.ok(v.includes('untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")'),
+    'pre-execution physical verifier must enumerate ordinary untracked files');
+  assert.ok(v.includes('if untracked:') && v.includes('fail("untracked files exist in source checkout")'),
+    'physical verifier must refuse ordinary untracked files');
+  assert.ok(t.includes('injected-untracked.ores') && t.includes('unreviewed guest source bytes'),
+    'source-free test must create an untracked source injection');
+  assert.ok(t.includes("grep -Fq 'untracked files exist in source checkout'"),
+    'source-free fixture must assert targeted physical attestation denial');
+}
+earlySourceIntegrityGuard(physicalVerifier,refusalFixtures);
+checks++;
+reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
+  'untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")',
+  'untracked = b""'),refusalFixtures));
+reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
+  'fail("untracked files exist in source checkout")',
+  'return'),refusalFixtures));
+reject(()=>earlySourceIntegrityGuard(physicalVerifier,
+  refusalFixtures.replace("grep -Fq 'untracked files exist in source checkout'",
+    "grep -Fq 'any diagnostic'")));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,

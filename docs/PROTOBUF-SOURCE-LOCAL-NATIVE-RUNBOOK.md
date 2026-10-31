@@ -55,6 +55,21 @@ Do not use `main` as an accidental replacement for the reviewed PR head.
 
 ## 3. Distinguish first actionable failure
 
+**First executable PR-source boundary:** after checkout, the protected
+native workflow itself checks that `GITHUB_SHA`, `git rev-parse HEAD`,
+and the root tree equal the independently approved revision, verifies the
+physical checkout verifier's bytes against the reviewed Git blob, and runs
+the physical source-byte validator in an isolated Python environment.
+The validator now also rejects **all ordinary untracked files** and
+**ignored untracked files**, not only modified tracked blobs. A focused
+source-free negative fixture checks the ordinary-untracked denial before
+native source scripts are admitted.
+**Only after this passes** may `test-runner.sh` or any other checked-out
+source scripts run. That ordering is essential for a private ephemeral
+runner. The workflow source and selected commit still require independent
+review before dispatch; the gate does not turn arbitrary PR code into
+trusted executables.
+
 `scripts/test-zorde-registry-source-local.sh` independently verifies:
 clean Git status, exact HEAD and tree, physical blob bytes, non-symlinked
 reviewed compiler path and digest, and protected private evidence directory.
