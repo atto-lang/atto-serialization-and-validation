@@ -62,6 +62,9 @@ descriptor alongside the compiled Zorde registry.
   authentication semantics.
   Zorde preflights payload lengths against the remaining input budget before
   any per-byte scan and uses one shared re-encoded-size/shape helper.
+  An untrusted payload that fills the entire remaining budget is rejected
+  immediately: at least one additional byte is always needed for its field key.
+  The bounded detached-message copy uses the same inclusive preflight.
   Exceeded budgets stop immediately to avoid repeated work on aliased lists.
   This does not establish deep immutability, authenticated descriptors or
   the byte count of the original noncanonical input stream.
