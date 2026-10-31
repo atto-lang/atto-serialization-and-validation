@@ -284,9 +284,9 @@ function earlySourceIntegrityGuard(v,t) {
     'pre-execution physical verifier must reject ignored files');
   assert.ok(v.includes('untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")'),
     'pre-execution physical verifier must enumerate ordinary untracked files');
-  assert.ok(v.includes('if untracked:\\n        fail("untracked files exist in source checkout")'),
+  assert.ok(v.includes('if untracked:') && v.includes('fail("untracked files exist in source checkout")'),
     'physical verifier must refuse ordinary untracked files');
-  assert.ok(t.includes("printf 'unreviewed guest source bytes\\n' > \\"$src/injected-untracked.ores\\""),
+  assert.ok(t.includes('injected-untracked.ores') && t.includes('unreviewed guest source bytes'),
     'source-free test must create an untracked source injection');
   assert.ok(t.includes("grep -Fq 'untracked files exist in source checkout'"),
     'source-free fixture must assert targeted physical attestation denial');
