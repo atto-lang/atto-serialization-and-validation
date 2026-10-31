@@ -45,7 +45,11 @@ descriptor alongside the compiled Zorde registry.
   use `proto_message_copy_bounded(message, options)`. It validates
   re-encoded key/prefix/value budgets and copies each nested byte list;
   mutation of the original after the call no longer changes the copy and
-  vice versa. Concurrent mutation *during* copying is not an atomic snapshot
+  vice versa. The helper validates the **detached** field, not an earlier
+  version of its mutable source. It rechecks the detached byte-length before
+  scanning; this reduces a within-field validate-before-copy exposure but
+  does not provide cross-field atomicity. Concurrent mutation *during*
+  copying is not an atomic snapshot
   and must be excluded by exclusive ownership. Neither the copy nor a prior
   Zorde report is a frozen or authenticated value; revalidate after mutation.
 - The encoder preflights payload byte validity and available output budget

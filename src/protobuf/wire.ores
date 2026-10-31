@@ -708,18 +708,29 @@ pub fnc proto_message_copy_bounded(
       return Err(new ProtoError("length_limit", 0,
         "Protobuf length-delimited field exceeds copy budget"));
     fi
-    val int wire_bytes = proto_field_reencoded_wire_bytes(field);
+    // Snapshot first, then validate the bytes that will actually be returned.
+    // Source-only validation followed by a copy could accept mutated bytes.
+    // A coherent multi-field snapshot still requires exclusive ownership.
+    val ProtoField detached = proto_field_snapshot(field);
+    if detached.payload.length >= remaining_bytes then
+      return Err(new ProtoError("input_limit", 0,
+        "Protobuf copied payload leaves no space for field key"));
+    fi
+    if detached.wire_type == 2 &&
+       detached.payload.length > options.max_length_delimited_bytes then
+      return Err(new ProtoError("length_limit", 0,
+        "Protobuf copied length-delimited payload exceeds budget"));
+    fi
+    val int wire_bytes = proto_field_reencoded_wire_bytes(detached);
     if wire_bytes < 0 then
       return Err(new ProtoError("invalid_field", 0,
-        "Protobuf message copy refuses malformed field"));
+        "Protobuf detached message copy refuses malformed field"));
     fi
     if wire_bytes > remaining_bytes then
       return Err(new ProtoError("input_limit", 0,
         "Protobuf field tag or length prefix exceeds copy byte budget"));
     fi
-    // Independent nested payload list and independent parent list. No claim
-    // of deep ownership for unrelated guest values or later mutations.
-    copy.add(proto_field_snapshot(field));
+    copy.add(detached);
     used_bytes = used_bytes + wire_bytes;
   done
   return Ok(new ProtoMessage(copy));

@@ -218,6 +218,25 @@ pub fnc run_protobuf_tests(): void {
   require_true(invalid_byte_copy.is_err(),
     "bounded copy must reject malformed bytes without projecting");
 
+  // A new copy must reject post-copy mutation of the original. The old
+  // detached copy must remain independently valid data.
+  copy_source_fields[0].payload.add(256);
+  val Result<ProtoMessage, ProtoError> modified_source_copy = proto_message_copy_bounded(
+    copy_source, new ProtoDecodeOptions(12, 3, 10)
+  );
+  require_true(modified_source_copy.is_err(),
+    "new copy must reject invalid source bytes added after earlier copy");
+  require_int(isolated_copy.fields[0].payload.length, 3,
+    "old detached copy remains unaffected by modified original");
+
+  val List<ProtoField> invalid_raw_copy_fields = new List<ProtoField>();
+  invalid_raw_copy_fields.add(proto_raw_varint(1, new List<int>(128)));
+  val Result<ProtoMessage, ProtoError> invalid_raw_copy = proto_message_copy_bounded(
+    new ProtoMessage(invalid_raw_copy_fields), new ProtoDecodeOptions(4, 1, 4)
+  );
+  require_true(invalid_raw_copy.is_err(),
+    "copy of unterminated raw varint must fail closed");
+
   // The maximum signed i64 uses exactly nine varint bytes, not ten.
   // This boundary must retain the exact integer, without overflow or narrowing.
   val Result<ProtoMessage, ProtoError> signed_max = decode_message(

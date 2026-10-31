@@ -134,10 +134,14 @@ function sourceGuard(w,z) {
   const copyStart=w.indexOf('pub fnc proto_message_copy_bounded(');
   assert.ok(copyStart>=0,'missing bounded Protobuf message copy helper');
   const copyBudget=w.indexOf('if field.payload.length >= remaining_bytes then',copyStart);
-  const copyScan=w.indexOf('proto_field_reencoded_wire_bytes(field)',copyStart);
-  const copyDetached=w.indexOf('copy.add(proto_field_snapshot(field));',copyStart);
-  assert.ok(copyBudget>copyStart && copyBudget<copyScan && copyDetached>copyScan,
-    'bounded copy must check budget first and duplicate nested payloads');
+  const copyDetached=w.indexOf('val ProtoField detached = proto_field_snapshot(field);',copyStart);
+  const copyDetachedBudget=w.indexOf('if detached.payload.length >= remaining_bytes then',copyStart);
+  const copyScan=w.indexOf('proto_field_reencoded_wire_bytes(detached)',copyStart);
+  const copyAppend=w.indexOf('copy.add(detached);',copyStart);
+  assert.ok(copyBudget>copyStart && copyDetached>copyBudget &&
+    copyDetachedBudget>copyDetached && copyScan>copyDetachedBudget &&
+    copyAppend>copyScan,
+    'bounded copy must validate detached bytes after cheap source preflight');
   const cappedExit='if report.truncated then\n      return report;\n    fi';
   const fieldExit=z.indexOf(cappedExit);
   const requiredExit=z.indexOf(cappedExit,fieldExit+1);
@@ -161,8 +165,12 @@ reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_reenc
   'options.max_input_bytes')));
 reject(()=>sourceGuard(wire,zorde.replace('if field.payload.length >= remaining_bytes then',
   'if false then')));
-reject(()=>sourceGuard(wire.replace('copy.add(proto_field_snapshot(field));',
+reject(()=>sourceGuard(wire.replace('copy.add(detached);',
   'copy.add(field);'),zorde));
+reject(()=>sourceGuard(wire.replace('proto_field_reencoded_wire_bytes(detached)',
+  'proto_field_reencoded_wire_bytes(field)'),zorde));
+reject(()=>sourceGuard(wire.replace('if detached.payload.length >= remaining_bytes then',
+  'if false then'),zorde));
 reject(()=>sourceGuard(wire.replace('if field.payload.length >= remaining_bytes then',
   'if false then'),zorde));
 // Restoring the old > bound defeats the O(1) no-space-for-tag rejection.
