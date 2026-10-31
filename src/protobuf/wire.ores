@@ -488,6 +488,33 @@ fnc valid_field_number(int field_number): bool {
   return field_number > 0 && field_number <= 536870911;
 }
 
+// Report-only syntax check for descriptor-independent field envelopes. This
+// does not validate a typed Protobuf schema or produce a Zorde Valid<T> proof.
+pub fnc proto_wire_field_valid(ProtoField field): bool {
+  if !valid_field_number(field.field_number) then
+    return false;
+  fi
+
+  if field.wire_type == 0 then
+    if field.payload.length > 0 then
+      return raw_varint_is_valid(field.payload);
+    fi
+    return field.varint_fits_int && field.varint_value >= 0;
+  fi
+
+  if field.wire_type == 1 then
+    return field.payload.length == 8 && byte_list_valid(field.payload);
+  fi
+  if field.wire_type == 2 then
+    return byte_list_valid(field.payload);
+  fi
+  if field.wire_type == 5 then
+    return field.payload.length == 4 && byte_list_valid(field.payload);
+  fi
+
+  return false;
+}
+
 fnc encode_field(
   ProtoWriter mut writer,
   ProtoField field
