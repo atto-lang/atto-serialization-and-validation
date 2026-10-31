@@ -6,9 +6,6 @@ import {readFileSync} from 'node:fs';
 
 const tsp=readFileSync('contracts/protobuf/main.tsp','utf8');
 const wit=readFileSync('wit/protobuf-wire.wit','utf8');
-const wire=readFileSync('src/protobuf/wire.ores','utf8');
-assert.ok(!wire.split('\n').some(line => !line.trimStart().startsWith('//') && /\s%\s/.test(line)),
-  'Protobuf guest source must not reintroduce deprecated modulo syntax');
 const schema=JSON.parse(readFileSync('contracts/protobuf/authored.schema.json','utf8'));
 function canonical(s) {
   return s.replace(/\/\/[^\n]*/g,'').replace(/\s+/g,' ').trim();
@@ -113,6 +110,82 @@ reject(()=>audit(tsp.replace('@minValue(1)','@minValue(0)'),wit,schema));
 reject(()=>audit(tsp,wit.replace('payload: list<u8>','payload: string'),schema));
 reject(()=>audit(tsp,wit.replace('export protobuf-wire','import protobuf-wire'),schema));
 reject(()=>audit(tsp,wit+'\nworld unexpected {}',schema));
+
+// The source audit is a narrow lexical tripwire, NOT compilation or an
+// executable validator proof. Require the reviewed complete-wire budget path
+// and forbid the retired modulo operator in this Protobuf .ores implementation.
+const wire=readFileSync('src/protobuf/wire.ores','utf8');
+const zorde=readFileSync('src/protobuf/zorde.ores','utf8');
+function sourceGuard(w,z) {
+  assert.ok(!w.includes('%'), 'unsupported modulo operator in native wire codec');
+  assert.ok(w.includes('pub fnc proto_field_reencoded_wire_bytes('),
+    'missing full encoded field size API');
+  assert.ok(w.includes('proto_unsigned_varint_size(value_bytes)'),
+    'missing length-prefix byte accounting');
+  assert.ok(z.includes('proto_field_reencoded_wire_bytes(field)'),
+    'Zorde fails to count field keys and length prefixes');
+  assert.ok(z.includes('options.max_input_bytes - total_reencoded_wire_bytes'),
+    'Zorde lacks overflow-safe cumulative budget');
+  assert.ok(z.includes('if field.payload.length > remaining_bytes then'),
+    'missing cheap payload budget preflight');
+  assert.ok(z.indexOf('if field.payload.length > remaining_bytes then') <
+    z.indexOf('proto_field_reencoded_wire_bytes(field)'),
+    'payload budget preflight occurs after shape scan');
+}
+sourceGuard(wire,zorde);
+checks++;
+reject(()=>sourceGuard(wire+'%',zorde));
+reject(()=>sourceGuard(wire.replace('pub fnc proto_field_reencoded_wire_bytes(',
+  'fnc removed_full_wire_size('),zorde));
+reject(()=>sourceGuard(wire.replace('proto_unsigned_varint_size(value_bytes)',
+  '0'),zorde));
+reject(()=>sourceGuard(wire,zorde.replace('proto_field_reencoded_wire_bytes(field)',
+  'proto_field_payload_wire_bytes(field)')));
+reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_reencoded_wire_bytes',
+  'options.max_input_bytes')));
+reject(()=>sourceGuard(wire,zorde.replace('if field.payload.length > remaining_bytes then',
+  'if false then')));
+
+// Source-only native admission wiring guard. This proves that the focused
+// tests/guest/harness *source* is connected; it never executes a compiler or
+// represents a toolchain-produced guest receipt.
+const focused=readFileSync('tests/protobuf_main.ores','utf8');
+const integrated=readFileSync('tests/main.ores','utf8');
+const nativeHarness=readFileSync('scripts/test-zorde-registry-source-local.sh','utf8');
+const marker='protobuf-wire-zorde-native-tests-passed';
+function nativeGateGuard(f,i,h) {
+  for(const source of [f,i]) {
+    const wireIndex=source.indexOf('  run_protobuf_tests();');
+    const zordeIndex=source.indexOf('  run_protobuf_zorde_tests();');
+    const markerIndex=source.indexOf('stdio.stdout.println("'+marker+'");');
+    assert.ok(wireIndex>=0 && zordeIndex>wireIndex && markerIndex>zordeIndex,
+      'native guest marker must follow both Protobuf test entrypoints');
+  }
+  assert.ok(h.includes('"$ORESLANG_BIN" "$root/tests/protobuf_main.ores"'),
+    'source-local harness must execute focused guest with approved compiler');
+  assert.ok(h.includes('grep -Fqx "'+marker+'" "$protobuf_log"'),
+    'source-local harness must check focused guest output');
+  assert.ok(h.includes('grep -Fqx "'+marker+'" "$log"'),
+    'full suite must independently check integrated Protobuf output');
+  assert.ok(h.includes('"protobuf_focused_native_log_sha256"'),
+    'native receipt must retain focused log digest');
+  assert.ok(h.includes('"protobuf_focused_native_guest_executed": True'),
+    'native receipt must distinguish focused guest evidence');
+}
+nativeGateGuard(focused,integrated,nativeHarness);
+checks++;
+reject(()=>nativeGateGuard(focused.replace('  run_protobuf_tests();','  skip_protobuf_tests();'),
+  integrated,nativeHarness));
+reject(()=>nativeGateGuard(focused,integrated.replace('  run_protobuf_zorde_tests();',
+  '  skip_protobuf_zorde_tests();'),nativeHarness));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"$ORESLANG_BIN" "$root/tests/protobuf_main.ores"','"$ORESLANG_BIN" "$root/tests/other.ores"')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  'grep -Fqx "'+marker+'" "$protobuf_log"','true')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"protobuf_focused_native_log_sha256"','"missing_hash"')));
+reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
+  '"protobuf_focused_native_guest_executed": True','"protobuf_focused_native_guest_executed": False')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,

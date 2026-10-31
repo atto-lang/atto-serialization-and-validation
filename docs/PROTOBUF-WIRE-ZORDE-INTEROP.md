@@ -37,20 +37,27 @@ descriptor alongside the compiled Zorde registry.
 - Raw constructors now snapshot the caller's `List<int>`; mutation of the
   caller's original buffer cannot change those constructed field bytes. **But**
   `ProtoField.payload`, `ProtoMessage.fields`, and all nested lists remain
-  mutable values; copying one constructor list is NOT transitive immutability.
+  mutable values. `fields_with_number` now returns flat per-field snapshots
+  with independent payload lists, but `ProtoMessage` may still be constructed
+  with aliased mutable field lists. These copies are NOT transitive immutability.
   No cross-actor sharing/proof is authorized by this change.
 - The encoder preflights payload byte validity and available output budget
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
-- The Zorde report layer checks manually constructed messages for aggregate
-  **encoded** wire size, including field keys, length prefixes and logical
-  signed-varint values (1–9 bytes even with an empty constructor payload),
-  as well as length-delimited and field-count limits. Before scanning a
-  mutable payload it refuses any field exceeding the remaining input budget,
-  preventing repeated aliases from amplifying work beyond that budget. A
-  positive report is still **not** a typed validation proof: descriptor
-  provenance, ownership, field semantics and mutation after reporting remain
-  outside this check.
+- The Zorde report layer checks manually constructed messages against
+  the full **re-encoded** message byte budget, including field keys,
+  optional length prefixes and varint bytes (even when a logical constructor's
+  raw varint payload list is empty). Raw varint values remain verbatim, including nonminimal forms; key and length prefixes are normalized on re-encoding. A decoder can discard nonminimal key and
+  length prefixes, so this number is **not evidence of original input size**:
+  `decode_message` separately enforces the size of the actual input buffer.
+  `encode_message` separately enforces its output budget while emitting bytes.
+  Zorde's byte accounting is report-only and does not establish signature or
+  authentication semantics.
+  Zorde preflights payload lengths against the remaining input budget before
+  any per-byte scan and uses one shared re-encoded-size/shape helper.
+  Exceeded budgets stop immediately to avoid repeated work on aliased lists.
+  This does not establish deep immutability, authenticated descriptors or
+  the byte count of the original noncanonical input stream.
 
 ### Zorde admission
 

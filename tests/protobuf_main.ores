@@ -1,0 +1,16 @@
+// Focused native guest entrypoint. This deliberately excludes unrelated
+// JSON/CBOR/MessagePack/Zorde suites so the first compiler failure can be
+// attributed to protobuf sources and their direct imported dependencies.
+//
+// A successful marker is evidence only when run by the independently approved
+// native compiler on an exact, source-local Git tree. Source-free doubles and
+// parsed source inventories are not guest-execution evidence.
+import fnc run_protobuf_tests from './protobuf_test';
+import fnc run_protobuf_zorde_tests from './protobuf_zorde_test';
+
+pub async fnc main(): void {
+  run_protobuf_tests();
+  run_protobuf_zorde_tests();
+  stdio.stdout.println("protobuf-wire-zorde-native-tests-passed");
+  return;
+}

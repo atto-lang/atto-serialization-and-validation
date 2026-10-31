@@ -102,13 +102,31 @@ PY
 then
   die "evidence directory must be caller-owned and inaccessible to group/world"
 fi
-for artifact in zorde-registry-native.log zorde-registry-native-receipt.json \
+for artifact in protobuf-native-focused.log zorde-registry-native.log zorde-registry-native-receipt.json \
   zorde-public-export-control.log zorde-public-import-positive.log \
   zorde-private-entry-import-denial.log \
   zorde-private-storage-access-denial.log; do
   [[ ! -e "$out_dir/$artifact" && ! -L "$out_dir/$artifact" ]] ||
     die "evidence output already exists; use a fresh, private directory"
 done
+
+# Run the minimal Protobuf/Zorde guest first so a compiler failure elsewhere
+# in the full serialization suite does not obscure the first actionable
+# Protobuf diagnostics. This is an actual compiler invocation, never a test
+# double. Keep the private log within the approved source-local evidence path.
+protobuf_log="$out_dir/protobuf-native-focused.log"
+set +e
+timeout --signal=TERM --kill-after=5s 120s \
+  "$ORESLANG_BIN" "$root/tests/protobuf_main.ores" >"$protobuf_log" 2>&1
+protobuf_status=$?
+set -e
+if [[ "$protobuf_status" -ne 0 ]]; then
+  printf 'focused Protobuf guest status=%s; log retained at %s\n' \
+    "$protobuf_status" "$protobuf_log" >&2
+  exit "$protobuf_status"
+fi
+grep -Fqx "protobuf-wire-zorde-native-tests-passed" "$protobuf_log" ||
+  die "focused Protobuf/Zorde guest success marker absent"
 
 log="$out_dir/zorde-registry-native.log"
 receipt="$out_dir/zorde-registry-native-receipt.json"
@@ -125,6 +143,11 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
+# This PR adds guest assertions to the same integrated tests/main.ores. Require
+# the dedicated marker AFTER both Protobuf and Protobuf/Zorde test functions
+# return successfully; an old compiler/test artifact must not qualify.
+grep -Fqx "protobuf-wire-zorde-native-tests-passed" "$log" ||
+  die "Protobuf/Zorde guest success marker absent"
 # Keep the parent's positive-import control as a separate compiler
 # invocation. Its function signature must resolve the public class/import
 # even if no guest stdout marker is emitted by this compile-only fixture.
@@ -208,7 +231,7 @@ final_compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 # This is executable evidence *only for a separately approved compiler binary*.
 # A launcher digest alone does not attest a transitive Java/JVM/LLVM dependency
 # closure; that requires separately reviewed compiler build/release provenance.
-SOURCE_SHA="$source_sha" SOURCE_TREE="$source_tree" COMPILER_SHA="$compiler_sha" NATIVE_LOG="$log" \
+SOURCE_SHA="$source_sha" SOURCE_TREE="$source_tree" COMPILER_SHA="$compiler_sha" PROTOBUF_LOG="$protobuf_log" NATIVE_LOG="$log" \
   NATIVE_RECEIPT="$receipt" NEGATIVE_DIR="$out_dir" python3 - <<'PY'
 import hashlib, json, os
 from pathlib import Path
@@ -219,9 +242,13 @@ record = {
     "source_root_tree_sha": os.environ["SOURCE_TREE"],
     "compiler_executable_sha256": os.environ["COMPILER_SHA"],
     "native_log_sha256": hashlib.sha256(log).hexdigest(),
+    "protobuf_focused_native_log_sha256": hashlib.sha256(
+        Path(os.environ["PROTOBUF_LOG"]).read_bytes()).hexdigest(),
+    "protobuf_focused_native_guest_executed": True,
     "actual_native_guest_executed": True,
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
+    "protobuf_wire_zorde_guest_marker_observed": True,
     "public_registry_import_control_passed": True,
     "public_registry_import_log_sha256": hashlib.sha256(
         (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()

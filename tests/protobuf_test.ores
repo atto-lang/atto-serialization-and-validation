@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
-import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
+import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
 import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
@@ -44,6 +44,14 @@ pub fnc run_protobuf_tests(): void {
   val List<ProtoField> field_two = fields_with_number(roundtrip, 2);
   require_int(field_two.length, 1, "Protobuf field lookup");
   require_int(field_two[0].payload.length, 2, "Protobuf length-delimited payload");
+  // A field-number lookup must not hand out the exact nested mutable payload
+  // inside the message; callers can modify returned bytes independently.
+  field_two[0].payload.add(77);
+  require_int(field_two[0].payload.length, 3,
+    "field lookup returns a mutable local copy");
+  require_int(roundtrip.fields[1].payload.length, 2,
+    "field lookup mutation must not corrupt original message");
+
 
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
@@ -128,14 +136,14 @@ pub fnc run_protobuf_tests(): void {
   val List<int> multi_key_expected = new List<int>(128, 1, 128, 128, 1);
   require_int(multi_key_wire.length, multi_key_expected.length,
     "multi-byte tag and varint encoded length");
-  let int k = 0;
+  let int key_index = 0;
   loop do
-    if k >= multi_key_expected.length then
+    if key_index >= multi_key_expected.length then
       break;
     fi
-    require_int(multi_key_wire[k], multi_key_expected[k],
+    require_int(multi_key_wire[key_index], multi_key_expected[key_index],
       "exact multi-byte tag/value wire bytes");
-    k = k + 1;
+    key_index = key_index + 1;
   done
   val Result<ProtoMessage, ProtoError> multi_key_decoded = decode_message(
     multi_key_wire, default_proto_decode_options()
@@ -198,6 +206,42 @@ pub fnc run_protobuf_tests(): void {
     new List<int>(11, 1), default_proto_decode_options()
   );
   require_true(bad_wire_type.is_err(), "deprecated group wire type must reject");
+
+  // Re-encoded wire size is tag + optional length varint + content.
+  // Boundary 15->16 increases key size from one to two bytes.
+  require_int(proto_field_reencoded_wire_bytes(proto_varint(15, 1)), 2,
+    "one-byte key plus one-byte varint");
+  require_int(proto_field_reencoded_wire_bytes(proto_varint(16, 1)), 3,
+    "two-byte key plus one-byte varint");
+  require_int(proto_field_reencoded_wire_bytes(proto_varint(19000, 1)), 4,
+    "reserved unknown wire tag retains three-byte key");
+  require_int(proto_field_reencoded_wire_bytes(raw_field), 11,
+    "uint64-max preserved varint is ten bytes plus key");
+  require_int(proto_field_reencoded_wire_bytes(proto_varint(536870911, 1)), 6,
+    "maximum legal tag uses five key bytes");
+  require_int(proto_field_reencoded_wire_bytes(proto_bytes(1, new List<int>(7))), 3,
+    "length-delimited byte adds key and length prefix");
+
+  val List<int> long_payload = new List<int>();
+  let int k = 0;
+  loop do
+    if k >= 128 then
+      break;
+    fi
+    long_payload.add(7);
+    k = k + 1;
+  done
+  val ProtoField long_field = proto_bytes(1, long_payload);
+  require_int(proto_field_reencoded_wire_bytes(long_field), 131,
+    "128 content bytes require a two-byte length prefix");
+  val List<ProtoField> long_fields = new List<ProtoField>();
+  long_fields.add(long_field);
+  val Result<List<int>, ProtoError> encoded_long = encode_message(
+    new ProtoMessage(long_fields), default_proto_encode_options()
+  );
+  require_true(!encoded_long.is_err(), "128-byte payload should encode");
+  require_int(encoded_long.unwrap().length, 131,
+    "computed canonical byte count must match real encoded size");
 
   val List<ProtoField> bad_fixed_fields = new List<ProtoField>();
   bad_fixed_fields.add(proto_fixed32(1, new List<int>(1, 2, 3)));

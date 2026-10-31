@@ -195,8 +195,6 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
     fi
 
     bytes.add(byte);
-    // Byte is bounded to 0..255; quotient/remainder arithmetic stays in i64.
-    // Avoid the deprecated modulo operator in compiler-backend guest source.
     let int payload = byte - ((byte / 128) * 128);
 
     if count < 9 && fits_int then
@@ -343,7 +341,6 @@ pub fnc decode_message(
     fi
 
     let int field_number = key.value / 8;
-    // field_number and key are nonnegative; multiplication fits i64.
     let int wire_type = key.value - (field_number * 8);
 
     if field_number <= 0 || field_number > 536870911 then
@@ -452,9 +449,8 @@ fnc append_varint(
       break;
     fi
 
-    let int quotient = remaining / 128;
-    append_byte(writer, (remaining - (quotient * 128)) + 128);
-    remaining = quotient;
+    append_byte(writer, (remaining - ((remaining / 128) * 128)) + 128);
+    remaining = remaining / 128;
   done
 
   return;
@@ -519,6 +515,25 @@ pub fnc proto_wire_field_valid(ProtoField field): bool {
   return false;
 }
 
+// Exact size of an unsigned integer's canonical Protobuf varint form.
+// This is a byte-count helper, not a lossy conversion to another number type.
+pub fnc proto_unsigned_varint_size(int value): int {
+  if value < 0 then
+    return -1;
+  fi
+
+  let int remaining = value;
+  let int count = 1;
+  loop do
+    if remaining < 128 then
+      break;
+    fi
+    remaining = remaining / 128;
+    count = count + 1;
+  done
+  return count;
+}
+
 // Count the actual wire-value payload bytes even for a constructed logical
 // signed varint whose raw payload list is empty. Used by bounded Zorde checks.
 pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
@@ -529,16 +544,31 @@ pub fnc proto_field_payload_wire_bytes(ProtoField field): int {
     return -1;
   fi
 
-  let int value = field.varint_value;
-  let int count = 1;
-  loop do
-    if value < 128 then
-      break;
-    fi
-    value = value / 128;
-    count = count + 1;
-  done
-  return count;
+  return proto_unsigned_varint_size(field.varint_value);
+}
+
+// Exact bytes produced when re-encoding this field: canonical key and type-2
+// length prefixes, but preserved raw varint *values* (including nonminimal
+// encodings) remain byte-for-byte as stored. The decoder discards the original
+// key/length prefixes, so this cannot attest original input size or signatures.
+pub fnc proto_field_reencoded_wire_bytes(ProtoField field): int {
+  if !proto_wire_field_valid(field) then
+    return -1;
+  fi
+
+  val int key_bytes = proto_unsigned_varint_size(
+    field.field_number * 8 + field.wire_type
+  );
+  val int value_bytes = proto_field_payload_wire_bytes(field);
+  if key_bytes < 0 || value_bytes < 0 then
+    return -1;
+  fi
+
+  if field.wire_type == 2 then
+    val int length_bytes = proto_unsigned_varint_size(value_bytes);
+    return key_bytes + length_bytes + value_bytes;
+  fi
+  return key_bytes + value_bytes;
 }
 
 fnc encode_field(
@@ -630,6 +660,19 @@ pub fnc encode_message(
   return Ok(writer.output);
 }
 
+// Flat field snapshot for a caller-owned projection. It copies the payload
+// byte list, not any transitive guest/actor state, and does NOT yield an
+// immutable compiler-issued Valid<T> witness.
+pub fnc proto_field_snapshot(ProtoField field): ProtoField {
+  return new ProtoField(
+    field.field_number,
+    field.wire_type,
+    field.varint_fits_int,
+    field.varint_value,
+    snapshot_proto_bytes(field.payload)
+  );
+}
+
 pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
@@ -638,7 +681,7 @@ pub fnc fields_with_number(
 
   for const field of message.fields do
     if field.field_number == field_number then
-      fields.add(field);
+      fields.add(proto_field_snapshot(field));
     fi
   done
 
