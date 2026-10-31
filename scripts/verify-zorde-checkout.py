@@ -29,13 +29,11 @@ def git_bytes(*args: str) -> bytes:
 
 def hash_file(path: Path, expected_mode: bytes, algorithm: str) -> str:
     before = path.lstat()
+    # A tracked symlink has a stable Git blob but may point outside this
+    # checkout at compiler time. No source-local native receipt can attest
+    # the referenced target bytes from this tree. Reject symlinks entirely.
     if expected_mode == b"120000":
-        if not stat.S_ISLNK(before.st_mode):
-            fail("tracked symlink has wrong working-tree type")
-        data = os.fsencode(os.readlink(path))
-        digest = hashlib.new(algorithm)
-        digest.update(b"blob " + str(len(data)).encode("ascii") + b"\0" + data)
-        return digest.hexdigest()
+        fail("tracked symlinks are forbidden in source-local native evidence")
 
     if expected_mode not in (b"100644", b"100755"):
         fail("unsupported tracked mode; submodules require separate attestation")
@@ -109,6 +107,10 @@ def verify(expected_commit: str, expected_tree: str) -> None:
         mode, object_type, oid = metadata.split(b" ")
         if object_type != b"blob" or len(oid) != 40:
             fail("unattested Git tree object or submodule")
+        # Refuse the mode before even resolving the path. A checkout can
+        # contain an untrusted symlink target despite correct Git blob IDs.
+        if mode == b"120000":
+            fail("tracked symlinks are forbidden in source-local native evidence")
         parts = name.split(b"/")
         if any(p in (b"", b".", b"..") for p in parts):
             fail("invalid Git tree path")
