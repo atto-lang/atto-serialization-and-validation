@@ -72,8 +72,12 @@ pub fnc zorde_validate_protobuf_wire(
         rule.wire_type != 2 && rule.wire_type != 5) ||
        rule.max_occurrences < 0 ||
        rule.max_occurrences > options.max_fields ||
+       (rule.required && rule.max_occurrences == 0) ||
        rule.max_payload_bytes < 0 ||
        rule.max_payload_bytes > options.max_input_bytes ||
+       (rule.wire_type == 0 && rule.max_payload_bytes < 1) ||
+       (rule.wire_type == 1 && rule.max_payload_bytes < 8) ||
+       (rule.wire_type == 5 && rule.max_payload_bytes < 4) ||
        rule_indexes.contains(rule.field_number) then
       proto_zorde_issue(report, "invalid_rule", -1,
         "noncanonical/duplicate/unbounded Protobuf descriptor rule");
