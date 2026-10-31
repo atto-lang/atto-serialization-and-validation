@@ -231,5 +231,25 @@ pub fnc run_protobuf_zorde_tests(): void {
   );
   require_int(capped.errors.length, 64, "Zorde Protobuf issue budget");
   require_true(capped.truncated, "Zorde report indicates excess diagnostics");
+
+  // Missing-required diagnostics have the same bounded 64-error carrier.
+  // The validator must also stop that separate descriptor traversal at cap.
+  val List<ProtoZordeFieldRule> many_required = new List<ProtoZordeFieldRule>();
+  i = 0;
+  loop do
+    if i >= 70 then break; fi
+    many_required.add(new ProtoZordeFieldRule(i + 1, 0, true, 1, 1));
+    i = i + 1;
+  done
+  val ValidationReport required_capped = zorde_validate_protobuf_wire(
+    new ProtoMessage(new List<ProtoField>()),
+    many_required, default_proto_decode_options(), true
+  );
+  require_int(required_capped.errors.length, 64,
+    "required-field diagnostics must obey 64-error budget");
+  require_true(required_capped.truncated,
+    "missing-required overflow must mark diagnostic report truncated");
+  require_true(required_capped.errors[0].code == "missing-required",
+    "missing-required overflow must preserve its diagnostic identity");
   return;
 }
