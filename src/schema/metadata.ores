@@ -49,23 +49,12 @@ pub fnc max_codec_fields(): int { return 4096; }
 pub fnc max_codec_name_bytes(): int { return 4096; }
 
 pub fnc check_metadata(CodecTypeMeta metadata): MetadataCheck {
-  if metadata.type_name.bytes.length == 0 ||
-     !utf8_is_valid(metadata.type_name.bytes) then
-    return new MetadataCheck(
-      false,
-      metadata,
-      new MetadataError(
-        "invalid_type_name",
-        -1,
-        "codec type name must be non-empty valid UTF-8"
-      )
-    );
-  fi
-
   if metadata.unknown_field_policy < 0 || metadata.unknown_field_policy > 2 then
     return new MetadataCheck(false, metadata, new MetadataError("unknown_field_policy", -1, "unknown-field policy must be ignore(0), reject(1), or preserve(2)"));
   fi
 
+  // Check the byte budget before UTF-8 scanning untrusted input.
+  // A duplicate unbounded UTF-8 pre-scan previously defeated this limit.
   if metadata.type_name.bytes.length == 0 ||
      metadata.type_name.bytes.length > max_codec_name_bytes() ||
      !utf8_is_valid(rt borrow metadata.type_name.bytes) then
