@@ -102,6 +102,8 @@ pub fnc run_object_codec_tests(): void {
     default_validation_options()
   );
   require_int(strict_duplicate.status, 2, "duplicate key must reject under strict policy");
+  require_true(strict_duplicate.error.decode_error.code == "duplicate_key",
+    "strict duplicate rejection must report duplicate_key, not unrelated syntax failure");
 
   // JSON escape spellings must be compared after string decoding: "age"
   // and "ag\\u0065" are the same logical object key.
@@ -121,6 +123,8 @@ pub fnc run_object_codec_tests(): void {
     "escaped-equivalent duplicate JSON keys must reject");
   require_int(escaped_duplicate.error.kind, 1,
     "escaped-equivalent duplicate is a parse failure");
+  require_true(escaped_duplicate.error.decode_error.code == "duplicate_key",
+    "escaped-equivalent keys must reject specifically as duplicate_key");
 
   val DecodeOptions first_wins = new DecodeOptions(
     1, false, 128, 512, 512, 512, 512, 16, 16
@@ -130,6 +134,8 @@ pub fnc run_object_codec_tests(): void {
   );
   require_int(unsafe_first.status, 2, "typed object admission must reject first-wins");
   require_int(unsafe_first.error.kind, 1, "unsafe policy is a decode failure");
+  require_true(unsafe_first.error.decode_error.code == "unsafe_decode_options",
+    "unsafe first-wins must use the explicit unsafe-policy error");
 
   val DecodeOptions last_wins = new DecodeOptions(
     2, false, 128, 512, 512, 512, 512, 16, 16
@@ -190,6 +196,8 @@ pub fnc run_object_codec_tests(): void {
   );
   require_int(strict_trailing.status, 2, "strict JSON parser rejects trailing token");
   require_int(strict_trailing.error.kind, 1, "trailing token is a decode failure");
+  require_true(strict_trailing.error.decode_error.code == "trailing_data",
+    "strict suffix rejection must report trailing_data, not unrelated syntax failure");
 
   // Ordinary trailing JSON whitespace remains valid, fully consumed input.
   let List<int> whitespace_only = new List<int>();
