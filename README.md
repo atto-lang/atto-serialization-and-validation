@@ -107,7 +107,7 @@ These cases return explicit codec errors rather than silently narrowing values. 
 
 ## Protobuf interoperability trust boundaries
 
-[Protobuf wire + Zorde + WIT + TypeSpec/JSON Schema contract](docs/PROTOBUF-WIRE-ZORDE-INTEROP.md) records the independent JSON-envelope authorities, proposed WIT ABI, reserved descriptor tags, mutable ownership limitations, and required source-local conformance gates. All new native/contract tests are authored but remain **unexecuted** until actual runner receipts are available.
+[Protobuf wire + Zorde + WIT + TypeSpec/JSON Schema contract](docs/PROTOBUF-WIRE-ZORDE-INTEROP.md) and [source-local native runner runbook](docs/PROTOBUF-SOURCE-LOCAL-NATIVE-RUNBOOK.md) records the independent JSON-envelope authorities, proposed WIT ABI, reserved descriptor tags, mutable ownership limitations, and required source-local conformance gates. All new native/contract tests are authored but remain **unexecuted** until actual runner receipts are available.
 
 ## Running native tests
 
