@@ -673,6 +673,56 @@ pub fnc proto_field_snapshot(ProtoField field): ProtoField {
   );
 }
 
+
+// Bounded independent field-list/payload copy for a caller-owned projection.
+// A copy is NOT an immutable, atomic, compiler-authenticated Zorde proof.
+// Callers must hold exclusive access during the copy and must not re-use
+// validation results after either mutable copy is subsequently changed.
+pub fnc proto_message_copy_bounded(
+  ProtoMessage message,
+  ProtoDecodeOptions options
+): Result<ProtoMessage, ProtoError> {
+  if !proto_decode_options_valid(options) then
+    return Err(new ProtoError("invalid_options", 0,
+      "invalid options for Protobuf message copy"));
+  fi
+  if message.fields.length > options.max_fields ||
+     message.fields.length > options.max_input_bytes then
+    return Err(new ProtoError("field_limit", 0,
+      "Protobuf field list exceeds copy limits"));
+  fi
+
+  val List<ProtoField> copy = new List<ProtoField>();
+  let int used_bytes = 0;
+  for const field of message.fields do
+    val int remaining_bytes = options.max_input_bytes - used_bytes;
+    // Check cheap lengths before any per-byte shape scan or allocation.
+    if field.payload.length > remaining_bytes then
+      return Err(new ProtoError("input_limit", 0,
+        "Protobuf field payload exceeds remaining copy byte budget"));
+    fi
+    if field.wire_type == 2 &&
+       field.payload.length > options.max_length_delimited_bytes then
+      return Err(new ProtoError("length_limit", 0,
+        "Protobuf length-delimited field exceeds copy budget"));
+    fi
+    val int wire_bytes = proto_field_reencoded_wire_bytes(field);
+    if wire_bytes < 0 then
+      return Err(new ProtoError("invalid_field", 0,
+        "Protobuf message copy refuses malformed field"));
+    fi
+    if wire_bytes > remaining_bytes then
+      return Err(new ProtoError("input_limit", 0,
+        "Protobuf field tag or length prefix exceeds copy byte budget"));
+    fi
+    // Independent nested payload list and independent parent list. No claim
+    // of deep ownership for unrelated guest values or later mutations.
+    copy.add(proto_field_snapshot(field));
+    used_bytes = used_bytes + wire_bytes;
+  done
+  return Ok(new ProtoMessage(copy));
+}
+
 pub fnc fields_with_number(
   ProtoMessage message,
   int field_number

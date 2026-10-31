@@ -2,7 +2,7 @@ import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
-import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
+import fnc encode_message, decode_message, fields_with_number, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
   val List<ProtoField> fields = new List<ProtoField>();
@@ -163,6 +163,51 @@ pub fnc run_protobuf_tests(): void {
   val ProtoField copied_varint = proto_raw_varint(5, raw_source);
   raw_source.add(1);
   require_int(copied_varint.payload.length, 2, "raw varint constructor must snapshot byte source");
+
+  // Mutable ProtoMessage.fields can alias caller lists. An explicit bounded
+  // copy must isolate the parent list AND nested byte payloads in both directions.
+  val List<ProtoField> copy_source_fields = new List<ProtoField>();
+  copy_source_fields.add(proto_bytes(1, new List<int>(20, 30)));
+  val ProtoMessage copy_source = new ProtoMessage(copy_source_fields);
+  val Result<ProtoMessage, ProtoError> safe_copy_result = proto_message_copy_bounded(
+    copy_source, new ProtoDecodeOptions(4, 2, 2)
+  );
+  require_true(!safe_copy_result.is_err(),
+    "bounded Protobuf independent message copy must succeed");
+  val ProtoMessage isolated_copy = safe_copy_result.unwrap();
+  copy_source_fields[0].payload.add(77);
+  copy_source_fields.add(proto_varint(2, 1));
+  require_int(isolated_copy.fields.length, 1,
+    "subsequent parent-list mutation must not modify bounded copy");
+  require_int(isolated_copy.fields[0].payload.length, 2,
+    "subsequent original payload mutation must not modify bounded copy");
+  isolated_copy.fields[0].payload.add(88);
+  require_int(copy_source_fields[0].payload[2], 77,
+    "bounded copy payload mutation must not modify original bytes");
+  require_int(isolated_copy.fields[0].payload[2], 88,
+    "bounded copy independently retains its own mutation");
+
+  val Result<ProtoMessage, ProtoError> over_budget_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(3, 2, 2)
+  );
+  require_true(over_budget_copy.is_err(),
+    "bounded copy must count field key plus length prefix and payload");
+  val Result<ProtoMessage, ProtoError> over_length_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(4, 2, 1)
+  );
+  require_true(over_length_copy.is_err(),
+    "bounded copy must reject length-delimited payload over limit");
+  val Result<ProtoMessage, ProtoError> invalid_byte_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 256))
+    )), new ProtoDecodeOptions(4, 2, 2)
+  );
+  require_true(invalid_byte_copy.is_err(),
+    "bounded copy must reject malformed bytes without projecting");
 
   // The maximum signed i64 uses exactly nine varint bytes, not ten.
   // This boundary must retain the exact integer, without overflow or narrowing.

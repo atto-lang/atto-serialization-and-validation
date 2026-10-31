@@ -41,6 +41,13 @@ descriptor alongside the compiled Zorde registry.
   with independent payload lists, but `ProtoMessage` may still be constructed
   with aliased mutable field lists. These copies are NOT transitive immutability.
   No cross-actor sharing/proof is authorized by this change.
+  Callers that need a bounded, detached **mutable** field-list projection can
+  use `proto_message_copy_bounded(message, options)`. It validates
+  re-encoded key/prefix/value budgets and copies each nested byte list;
+  mutation of the original after the call no longer changes the copy and
+  vice versa. Concurrent mutation *during* copying is not an atomic snapshot
+  and must be excluded by exclusive ownership. Neither the copy nor a prior
+  Zorde report is a frozen or authenticated value; revalidate after mutation.
 - The encoder preflights payload byte validity and available output budget
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
