@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
-import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions from '../src/protobuf/wire';
-import fnc proto_varint, proto_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
+import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
+import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
 import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
@@ -113,6 +113,94 @@ pub fnc run_protobuf_tests(): void {
     tiny_input
   );
   require_true(input_limited.is_err(), "Protobuf max_input_bytes must fail closed");
+
+
+  // Constructor byte lists are snapshots, not aliases of mutable caller input.
+  val List<int> mutable_source = new List<int>(3, 7, 9, 11);
+  val ProtoField copied_fixed = proto_fixed32(4, mutable_source);
+  mutable_source.add(13);
+  require_int(copied_fixed.payload.length, 4, "fixed32 constructor must snapshot byte source");
+  require_int(copied_fixed.payload[3], 11, "fixed32 snapshot must not change");
+
+  val List<int> raw_source = new List<int>(128, 1);
+  val ProtoField copied_varint = proto_raw_varint(5, raw_source);
+  raw_source.add(1);
+  require_int(copied_varint.payload.length, 2, "raw varint constructor must snapshot byte source");
+
+  // The maximum signed i64 uses exactly nine varint bytes, not ten.
+  // This boundary must retain the exact integer, without overflow or narrowing.
+  val Result<ProtoMessage, ProtoError> signed_max = decode_message(
+    new List<int>(8, 255, 255, 255, 255, 255, 255, 255, 255, 127),
+    default_proto_decode_options()
+  );
+  require_true(!signed_max.is_err(), "signed i64 max varint must decode");
+  require_true(signed_max.unwrap().fields[0].varint_fits_int, "signed i64 max must fit int");
+  require_int(signed_max.unwrap().fields[0].varint_value, 9223372036854775807,
+    "signed i64 max must be decoded exactly");
+
+  // The reserved tag range is forbidden to *schema declarations* but remains
+  // syntactically legal for unknown wire fields and must roundtrip.
+  require_true(proto_descriptor_field_number_valid(18999),
+    "ordinary descriptor number is legal");
+  require_true(!proto_descriptor_field_number_valid(19000), "19000 must not be declared");
+  require_true(!proto_descriptor_field_number_valid(19999), "19999 must not be declared");
+  require_true(proto_descriptor_field_number_valid(20000), "20000 is allowed");
+  val List<ProtoField> reserved_fields = new List<ProtoField>();
+  reserved_fields.add(proto_varint(19000, 17));
+  val Result<List<int>, ProtoError> reserved_wire = encode_message(
+    new ProtoMessage(reserved_fields), default_proto_encode_options()
+  );
+  require_true(!reserved_wire.is_err(), "unknown reserved tag should pass wire-level encoding");
+  val Result<ProtoMessage, ProtoError> reserved_parsed = decode_message(
+    reserved_wire.unwrap(), default_proto_decode_options()
+  );
+  require_true(!reserved_parsed.is_err(), "unknown reserved tag should survive wire decoding");
+  require_int(reserved_parsed.unwrap().fields[0].field_number, 19000,
+    "unknown reserved tag must retain numeric identity");
+
+  val Result<ProtoMessage, ProtoError> bad_tenth = decode_message(
+    new List<int>(8, 255, 255, 255, 255, 255, 255, 255, 255, 255, 2),
+    default_proto_decode_options()
+  );
+  require_true(bad_tenth.is_err(), "tenth varint byte greater than 1 is overflow");
+
+  val Result<ProtoMessage, ProtoError> bad_wire_type = decode_message(
+    new List<int>(11, 1), default_proto_decode_options()
+  );
+  require_true(bad_wire_type.is_err(), "deprecated group wire type must reject");
+
+  val List<ProtoField> bad_fixed_fields = new List<ProtoField>();
+  bad_fixed_fields.add(proto_fixed32(1, new List<int>(1, 2, 3)));
+  val Result<List<int>, ProtoError> bad_fixed = encode_message(
+    new ProtoMessage(bad_fixed_fields), default_proto_encode_options()
+  );
+  require_true(bad_fixed.is_err(), "fixed32 must reject non-four-byte payload");
+
+  val List<ProtoField> bad_raw_fields = new List<ProtoField>();
+  bad_raw_fields.add(proto_raw_varint(1, new List<int>(128)));
+  val Result<List<int>, ProtoError> bad_raw = encode_message(
+    new ProtoMessage(bad_raw_fields), default_proto_encode_options()
+  );
+  require_true(bad_raw.is_err(), "unterminated raw varint must reject");
+
+  val List<ProtoField> non_byte_fields = new List<ProtoField>();
+  non_byte_fields.add(proto_bytes(1, new List<int>(20, 256)));
+  val Result<List<int>, ProtoError> non_byte_encoded = encode_message(
+    new ProtoMessage(non_byte_fields), default_proto_encode_options()
+  );
+  require_true(non_byte_encoded.is_err(), "non-byte payload must fail closed");
+
+  val List<ProtoField> too_large_fields = new List<ProtoField>();
+  too_large_fields.add(proto_bytes(1, new List<int>(1, 2, 3, 4)));
+  val Result<List<int>, ProtoError> too_large_encoded = encode_message(
+    new ProtoMessage(too_large_fields), new ProtoEncodeOptions(3)
+  );
+  require_true(too_large_encoded.is_err(), "payload budget must reject before output exposure");
+
+  val Result<ProtoMessage, ProtoError> truncated_length = decode_message(
+    new List<int>(10, 5, 1, 2), default_proto_decode_options()
+  );
+  require_true(truncated_length.is_err(), "truncated length-delimited input must reject");
 
   return;
 }
