@@ -194,6 +194,15 @@ pub fnc run_protobuf_tests(): void {
   );
   require_true(over_budget_copy.is_err(),
     "bounded copy must count field key plus length prefix and payload");
+  // The payload exactly fills max_input_bytes: the required tag cannot fit.
+  // Reject before scanning the two content bytes or allocating a copy.
+  val Result<ProtoMessage, ProtoError> no_tag_space_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(2, 2, 2)
+  );
+  require_true(no_tag_space_copy.is_err(),
+    "bounded copy must fail when payload leaves zero bytes for field key");
   val Result<ProtoMessage, ProtoError> over_length_copy = proto_message_copy_bounded(
     new ProtoMessage(new List<ProtoField>(
       proto_bytes(1, new List<int>(20, 30))
