@@ -4,7 +4,7 @@
 // an authoritative typed schema. Results remain mutable/untrusted data.
 
 import class ProtoField, ProtoMessage, ProtoDecodeOptions from './wire';
-import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid from './wire';
+import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_payload_wire_bytes from './wire';
 import class Utf8Text from '../core/value';
 import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
 
@@ -93,15 +93,20 @@ pub fnc zorde_validate_protobuf_wire(
   let int total_payload_bytes = 0;
   for const field of message.fields do
     // A manually constructed ProtoMessage never passed the wire decoder.
-    // Enforce its own byte budgets without overflowing signed arithmetic.
-    if field.payload.length > options.max_input_bytes - total_payload_bytes then
+    // Logical signed varints have an empty raw list but encode to 1..9 bytes.
+    // The trusted metric includes those bytes and avoids signed overflow.
+    val int payload_bytes = proto_field_payload_wire_bytes(field);
+    if payload_bytes < 0 then
+      proto_zorde_issue(report, "wrong-type", field_index,
+        "Protobuf field has no valid wire payload representation");
+    elseif payload_bytes > options.max_input_bytes - total_payload_bytes then
       proto_zorde_issue(report, "out-of-range", field_index,
         "Protobuf cumulative payload limit exceeded");
     else
-      total_payload_bytes = total_payload_bytes + field.payload.length;
+      total_payload_bytes = total_payload_bytes + payload_bytes;
     fi
     if field.wire_type == 2 &&
-       field.payload.length > options.max_length_delimited_bytes then
+       payload_bytes > options.max_length_delimited_bytes then
       proto_zorde_issue(report, "out-of-range", field_index,
         "Protobuf length-delimited payload exceeds decode limit");
     fi
@@ -123,7 +128,7 @@ pub fnc zorde_validate_protobuf_wire(
           "Protobuf wire type does not match descriptor");
       fi
       if occurrences[rule_index] > rule.max_occurrences ||
-         field.payload.length > rule.max_payload_bytes then
+         payload_bytes > rule.max_payload_bytes then
         proto_zorde_issue(report, "out-of-range", field_index,
           "Protobuf occurrence or payload budget exceeded");
       fi
