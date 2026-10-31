@@ -3,7 +3,7 @@ import fnc require_true, require_int from './assert';
 import class Utf8Text from '../src/core/value';
 import fnc any_rule from '../src/validation/validation';
 import class CodecFieldMeta, CodecTypeMeta, MetadataError from '../src/schema/metadata';
-import fnc codec_field, codec_type, validate_metadata, field_by_number, max_codec_fields from '../src/schema/metadata';
+import fnc codec_field, codec_type, validate_metadata, field_by_number, max_codec_fields, max_codec_name_bytes from '../src/schema/metadata';
 
 pub fnc run_metadata_tests(): void {
   val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
@@ -69,5 +69,24 @@ pub fnc run_metadata_tests(): void {
     codec_type(new Utf8Text(new List<int>(66, 105, 103)), too_many_fields, 0)
   );
   require_true(field_limited.is_err(), "codec metadata field ceiling must fail closed");
+
+  // Untrusted metadata names must be rejected by length *before* attempting
+  // any potentially unbounded UTF-8 traversal.
+  let List<int> oversized_name = new List<int>();
+  let int byte_index = 0;
+  loop do
+    if byte_index > max_codec_name_bytes() then break; fi
+    oversized_name.push(65);
+    byte_index = byte_index + 1;
+  done
+  val Result<CodecTypeMeta, MetadataError> oversized_type = validate_metadata(
+    codec_type(new Utf8Text(oversized_name), new List<CodecFieldMeta>(), 0)
+  );
+  require_true(oversized_type.is_err(), "oversized type names must fail closed");
+
+  val Result<CodecTypeMeta, MetadataError> invalid_utf8_type = validate_metadata(
+    codec_type(new Utf8Text(new List<int>(192, 128)), new List<CodecFieldMeta>(), 0)
+  );
+  require_true(invalid_utf8_type.is_err(), "invalid short UTF-8 type names must reject");
   return;
 }
