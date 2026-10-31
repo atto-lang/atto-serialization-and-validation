@@ -365,7 +365,7 @@ reject(()=>originalWireAdmissionGuard(zorde.replace(
   'proto_zorde_issue(rejected, "wire-decode"',
   'proto_zorde_issue(rejected, "validated"'),zordeTests));
 reject(()=>originalWireAdmissionGuard(zorde,
-  zordeTests.replace('length_over_original_limit',
+  zordeTests.replaceAll('length_over_original_limit',
     'length_over_canonical_limit')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
