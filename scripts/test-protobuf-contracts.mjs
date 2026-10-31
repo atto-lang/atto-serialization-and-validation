@@ -356,7 +356,7 @@ function originalWireAdmissionGuard(z,t) {
 }
 originalWireAdmissionGuard(zorde,zordeTests);
 checks++;
-reject(()=>originalWireAdmissionGuard(zorde.replace(
+reject(()=>originalWireAdmissionGuard(zorde.replaceAll(
   'decode_message(input, options)','decode_message(new List<int>(), options)'),
   zordeTests));
 reject(()=>originalWireAdmissionGuard(zorde.replace(
