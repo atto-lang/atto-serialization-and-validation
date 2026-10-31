@@ -20,3 +20,5 @@ jobs:
           test -n "${RUNNER_OS:-}"
           test "${RUNNER_OS}" = "Linux"
           printf '%s\n' 'ZORDE_SOURCE_ORG_RUNNER_ALLOCATED_NO_CHECKOUT'
+          # Source-free, non-sensitive receipt: an executed step is mandatory.
+          printf '%s\n' 'ZORDE_SOURCE_ORG_RUNNER_ALLOCATED_NO_CHECKOUT' >> "$GITHUB_STEP_SUMMARY"
