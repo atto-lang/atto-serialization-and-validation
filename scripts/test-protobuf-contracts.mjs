@@ -110,6 +110,34 @@ reject(()=>audit(tsp.replace('@minValue(1)','@minValue(0)'),wit,schema));
 reject(()=>audit(tsp,wit.replace('payload: list<u8>','payload: string'),schema));
 reject(()=>audit(tsp,wit.replace('export protobuf-wire','import protobuf-wire'),schema));
 reject(()=>audit(tsp,wit+'\nworld unexpected {}',schema));
+
+// The source audit is a narrow lexical tripwire, NOT compilation or an
+// executable validator proof. Require the reviewed complete-wire budget path
+// and forbid the retired modulo operator in this Protobuf .ores implementation.
+const wire=readFileSync('src/protobuf/wire.ores','utf8');
+const zorde=readFileSync('src/protobuf/zorde.ores','utf8');
+function sourceGuard(w,z) {
+  assert.ok(!w.includes('%'), 'unsupported modulo operator in native wire codec');
+  assert.ok(w.includes('pub fnc proto_field_canonical_wire_bytes('),
+    'missing full encoded field size API');
+  assert.ok(w.includes('proto_unsigned_varint_size(value_bytes)'),
+    'missing length-prefix byte accounting');
+  assert.ok(z.includes('proto_field_canonical_wire_bytes(field)'),
+    'Zorde fails to count field keys and length prefixes');
+  assert.ok(z.includes('options.max_input_bytes - total_canonical_wire_bytes'),
+    'Zorde lacks overflow-safe cumulative budget');
+}
+sourceGuard(wire,zorde);
+checks++;
+reject(()=>sourceGuard(wire+'%',zorde));
+reject(()=>sourceGuard(wire.replace('pub fnc proto_field_canonical_wire_bytes(',
+  'fnc removed_full_wire_size('),zorde));
+reject(()=>sourceGuard(wire.replace('proto_unsigned_varint_size(value_bytes)',
+  '0'),zorde));
+reject(()=>sourceGuard(wire,zorde.replace('proto_field_canonical_wire_bytes(field)',
+  'proto_field_payload_wire_bytes(field)')));
+reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_canonical_wire_bytes',
+  'options.max_input_bytes')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
