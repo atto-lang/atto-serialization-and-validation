@@ -3,6 +3,8 @@
   "$id": "https://oreslang.dev/schemas/protobuf-wire-envelope-v1.schema.json",
   "$defs": {
     "WireField": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WireField",
       "type": "object",
       "properties": {
         "fieldNumber": {
@@ -36,12 +38,14 @@
       "unevaluatedProperties": false
     },
     "WireMessage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WireMessage",
       "type": "object",
       "properties": {
         "fields": {
           "type": "array",
           "items": {
-            "$ref": "#/$defs/WireField"
+            "$ref": "WireField"
           }
         }
       },
