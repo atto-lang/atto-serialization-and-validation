@@ -95,7 +95,9 @@ pub fnc zorde_validate_protobuf_wire(
     // O(1) payload-length preflight first: constructed messages bypass decode.
     // Fail before scanning a large or repeatedly aliased mutable list.
     val int remaining_bytes = options.max_input_bytes - total_reencoded_wire_bytes;
-    if field.payload.length > remaining_bytes then
+    // A Protobuf field always needs a tag, even if its payload is otherwise
+    // valid. Equality already cannot fit; fail before scanning large lists.
+    if field.payload.length >= remaining_bytes then
       proto_zorde_issue(report, "out-of-range", field_index,
         "Protobuf payload exceeds remaining input byte budget");
       return report;
