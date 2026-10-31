@@ -1,0 +1,127 @@
+// Zorde report-only admission for an already decoded protobuf wire envelope.
+// This module does not infer field names or manufacture Valid<T,SchemaId>.
+// Only compiler/loader-authenticated generated descriptors may be treated as
+// an authoritative typed schema. Results remain mutable/untrusted data.
+
+import class ProtoField, ProtoMessage, ProtoDecodeOptions from './wire';
+import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid from './wire';
+import class Utf8Text from '../core/value';
+import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
+
+pub define class ProtoZordeFieldRule as
+  pub val int field_number;
+  pub val int wire_type;
+  pub val bool required;
+  pub val int max_occurrences;
+  pub val int max_payload_bytes;
+end
+
+fnc proto_zorde_issue(
+  ValidationReport mut report,
+  String code,
+  int field_index,
+  String message
+): void {
+  if report.errors.length >= 64 then
+    report.truncated = true;
+    return;
+  fi
+
+  val List<PathSegment> path = new List<PathSegment>();
+  if field_index >= 0 then
+    path.add(new PathSegment(2, new Utf8Text(new List<int>()), field_index));
+  fi
+  report.errors.add(new ValidationError(code, path, message, -1));
+  return;
+}
+
+// A report, NOT a proof. Revalidate after mutation; never serialize or share
+// its result as compiler-issued Valid<T>. An untrusted rule list cannot
+// authenticate its own descriptor provenance.
+pub fnc zorde_validate_protobuf_wire(
+  ProtoMessage message,
+  List<ProtoZordeFieldRule> rules,
+  ProtoDecodeOptions options,
+  bool reject_unknown_fields
+): ValidationReport {
+  val ValidationReport report = new ValidationReport(
+    new List<ValidationError>(), false
+  );
+
+  if !proto_decode_options_valid(options) ||
+     rules.length > 4096 ||
+     message.fields.length > options.max_fields then
+    proto_zorde_issue(report, "invalid_rule", -1,
+      "invalid Protobuf/Zorde resource limits");
+    return report;
+  fi
+
+  val Map<int, int> rule_indexes = new Map<int, int>();
+  val List<int> occurrences = new List<int>();
+
+  let int i = 0;
+  loop do
+    if i >= rules.length then
+      break;
+    fi
+
+    val ProtoZordeFieldRule rule = rules[i];
+    if !proto_descriptor_field_number_valid(rule.field_number) ||
+       (rule.wire_type != 0 && rule.wire_type != 1 &&
+        rule.wire_type != 2 && rule.wire_type != 5) ||
+       rule.max_occurrences < 0 ||
+       rule.max_occurrences > options.max_fields ||
+       rule.max_payload_bytes < 0 ||
+       rule.max_payload_bytes > options.max_input_bytes ||
+       rule_indexes.contains(rule.field_number) then
+      proto_zorde_issue(report, "invalid_rule", -1,
+        "noncanonical/duplicate/unbounded Protobuf descriptor rule");
+      return report;
+    fi
+
+    rule_indexes.set(rule.field_number, i);
+    occurrences.add(0);
+    i = i + 1;
+  done
+
+  let int field_index = 0;
+  for const field of message.fields do
+    if !proto_wire_field_valid(field) then
+      proto_zorde_issue(report, "wrong-type", field_index,
+        "invalid Protobuf wire field shape");
+    elseif !rule_indexes.contains(field.field_number) then
+      if reject_unknown_fields then
+        proto_zorde_issue(report, "unknown-field", field_index,
+          "unknown Protobuf field rejected by descriptor policy");
+      fi
+    else
+      val int rule_index = rule_indexes.get(field.field_number);
+      val ProtoZordeFieldRule rule = rules[rule_index];
+      occurrences[rule_index] = occurrences[rule_index] + 1;
+      if field.wire_type != rule.wire_type then
+        proto_zorde_issue(report, "wrong-type", field_index,
+          "Protobuf wire type does not match descriptor");
+      fi
+      if occurrences[rule_index] > rule.max_occurrences ||
+         field.payload.length > rule.max_payload_bytes then
+        proto_zorde_issue(report, "out-of-range", field_index,
+          "Protobuf occurrence or payload budget exceeded");
+      fi
+    fi
+    field_index = field_index + 1;
+  done
+
+  i = 0;
+  loop do
+    if i >= rules.length then
+      break;
+    fi
+    if rules[i].required && occurrences[i] == 0 then
+      proto_zorde_issue(report, "missing-required", -1,
+        "required Protobuf field was not present");
+    fi
+    i = i + 1;
+  done
+
+  return report;
+}
