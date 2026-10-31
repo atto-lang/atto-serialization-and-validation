@@ -1,0 +1,211 @@
+name: Protobuf wire contracts (draft evidence, not native conformance)
+on:
+  push:
+    paths:
+      - 'src/protobuf/**'
+      - 'tests/protobuf*'
+      - 'contracts/protobuf/**'
+      - 'wit/protobuf-wire.wit'
+      - 'scripts/test-protobuf-contracts.mjs'
+      - '.github/workflows/protobuf-contracts.yml'
+  pull_request:
+    paths:
+      - 'src/protobuf/**'
+      - 'tests/protobuf*'
+      - 'contracts/protobuf/**'
+      - 'wit/protobuf-wire.wit'
+      - 'scripts/test-protobuf-contracts.mjs'
+      - '.github/workflows/protobuf-contracts.yml'
+permissions:
+  contents: read
+
+jobs:
+  static-wit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify source HEAD
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Pin Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      - name: Run fail-closed static crosswalk and mutants
+        run: node scripts/test-protobuf-contracts.mjs | tee protobuf-contract-static.json
+      - name: Install checksum-pinned WIT parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/wasm-tools-1.262.0-x86_64-linux.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error \
+            --retry 2 --max-time 90 \
+            https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz \
+            -o "$archive"
+          printf '%s  %s\n' \
+            '655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65' \
+            "$archive" | sha256sum --check --status
+          mkdir -p "$RUNNER_TEMP/wasm-tools"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/wasm-tools"
+          bin="$(find "$RUNNER_TEMP/wasm-tools" -type f -name wasm-tools -print -quit)"
+          test -n "$bin" && test -x "$bin"
+          echo "$(dirname "$bin")" >> "$GITHUB_PATH"
+      - name: Parse/roundtrip positive WIT and refuse syntax mutant
+        shell: bash
+        run: |
+          set -euo pipefail
+          wasm-tools component wit wit/protobuf-wire.wit --json > protobuf-wit.json
+          wasm-tools component wit wit/protobuf-wire.wit --wasm -o protobuf-wit.wasm
+          wasm-tools validate protobuf-wit.wasm
+          wasm-tools component wit protobuf-wit.wasm --json > protobuf-roundtrip.json
+          cmp protobuf-wit.json protobuf-roundtrip.json
+          cp wit/protobuf-wire.wit protobuf-malformed.wit
+          printf '\nNOT VALID WIT !!!\n' >> protobuf-malformed.wit
+          if wasm-tools component wit protobuf-malformed.wit --json > /dev/null 2> protobuf-mutant-error.log; then
+            echo 'WIT parser admitted a malformed interface' >&2
+            exit 1
+          fi
+          test -s protobuf-mutant-error.log
+      - name: Stamp parser-only evidence
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os,json,hashlib
+          from pathlib import Path
+          files=['wit/protobuf-wire.wit','contracts/protobuf/main.tsp',
+                 'contracts/protobuf/authored.schema.json','protobuf-wit.json',
+                 'protobuf-roundtrip.json','protobuf-contract-static.json']
+          r={'schema':'oreslang.protobuf.contract.syntax.v1',
+             'head_sha':os.environ['HEAD_SHA'],
+             'sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in files},
+             'tool':'wasm-tools 1.262.0 pinned SHA-256',
+             'wit_syntax_parsed':True,'wit_roundtrip':True,
+             'native_oreslang_executed':False,'canonical_abi_implemented':False,
+             'typespec_json_schema_parity_executed_here':False,
+             'release_ready':False}
+          Path('protobuf-wit-receipt.json').write_text(json.dumps(r,indent=2,sort_keys=True)+'\n')
+          PY
+      - name: Retain source-local WIT syntax receipt
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protobuf-wit-syntax-only
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            protobuf-wit-receipt.json
+            protobuf-wit.json
+            protobuf-roundtrip.json
+            protobuf-contract-static.json
+            protobuf-mutant-error.log
+
+  dual-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Assert exact revision
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Pin Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      - name: Independently compare TypeSpec and authored JSON Schema against fixtures
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/protobuf/main.tsp
+          schema: contracts/protobuf/authored.schema.json
+          instances: contracts/protobuf/instances
+          report: protobuf-parity.json
+          sarif: protobuf-parity.sarif
+          output_dir: protobuf-generated
+      - name: Require meaningful semantic positive report
+        run: |
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('protobuf-parity.json'));
+          if(r.schema!=='ores.typespec-json-schema-validator.report/v1' ||
+             r.status!=='passed' || r.zeroUnexplainedFindings!==true ||
+             r.counts?.findings!==0 ||
+             r.coverage?.differentialInstanceValidation!==true ||
+             !(r.differential?.summary?.probesEvaluated>0) ||
+             r.differential?.summary?.divergences!==0){
+            throw Error('positive dual-authority receipt absent or incomplete');
+          }
+          JS
+      - name: Introduce independent authored-schema drift
+        run: |
+          node --input-type=module - <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const p='contracts/protobuf/authored.schema.json';
+          const j=JSON.parse(readFileSync(p,'utf8'));
+          if(j.$defs.WireField.properties.fieldNumber.maximum!==536870911) throw Error('drift anchor');
+          j.$defs.WireField.properties.fieldNumber.maximum=536870912;
+          writeFileSync('protobuf-mutant.schema.json',JSON.stringify(j,null,2));
+          JS
+      - name: Mutant MUST fail parity engine semantically
+        id: negative
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/protobuf/main.tsp
+          schema: protobuf-mutant.schema.json
+          instances: contracts/protobuf/instances
+          report: protobuf-mutant-report.json
+          sarif: ''
+          output_dir: protobuf-mutant-generated
+      - name: Refuse infrastructure-only failures as negative evidence
+        env:
+          MUTANT_OUTCOME: ${{ steps.negative.outcome }}
+        run: |
+          test "$MUTANT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('protobuf-mutant-report.json'));
+          if(r.status!=='stopped_for_evaluation' ||
+             r.zeroUnexplainedFindings!==false ||
+             !(r.counts?.findings>0) ||
+             !r.findings?.some(f=>f.resolutionState==='unexplained') ||
+             r.error) throw Error('semantic drift not proved');
+          JS
+      - name: Emit schema-parity-only evidence
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json,hashlib,os
+          from pathlib import Path
+          files=['contracts/protobuf/main.tsp','contracts/protobuf/authored.schema.json',
+                 'protobuf-parity.json','protobuf-mutant-report.json']
+          receipt={'schema':'oreslang.protobuf.dual-authority.v1',
+            'head_sha':os.environ['HEAD_SHA'],
+            'sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in files},
+            'parity_tool_sha':'a9aa7e0a258a0514b433178842288ab798b0947c',
+            'native_oreslang_executed':False,'wit_abi_implemented':False,
+            'release_ready':False}
+          Path('protobuf-schema-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
+          PY
+      - name: Retain source-local schema evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: protobuf-typespec-jsonschema-parity-only
+          retention-days: 14
+          if-no-files-found: error
+          path: |
+            protobuf-schema-receipt.json
+            protobuf-parity.json
+            protobuf-mutant-report.json
