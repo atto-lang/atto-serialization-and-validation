@@ -61,6 +61,17 @@ descriptor alongside the compiled Zorde registry.
   raw varint payload list is empty). Raw varint values remain verbatim, including nonminimal forms; key and length prefixes are normalized on re-encoding. A decoder can discard nonminimal key and
   length prefixes, so this number is **not evidence of original input size**:
   `decode_message` separately enforces the size of the actual input buffer.
+  For consumers starting from untrusted raw wire bytes, use
+  `zorde_validate_protobuf_input(input, rules, options, rejectUnknown)`:
+  this new **report-only** entrypoint performs bounded `decode_message`
+  against the original buffer **before** evaluating Zorde rules. A malformed
+  or over-budget original buffer returns a single `wire-decode` issue rather
+  than a partially validated envelope. The exact original byte count is
+  accounted for even if the decoder normalizes nonminimal field keys and
+  length prefixes. Native test fixtures cover 2/3-byte key and 3/4-byte
+  length-prefix boundaries, truncated input and unknown-field policy.
+  Neither entrypoint creates a typed `Valid<T>` proof; a mutable input or
+  decoded object must be revalidated after mutation.
   `encode_message` separately enforces its output budget while emitting bytes.
   Zorde's byte accounting is report-only and does not establish signature or
   authentication semantics.
