@@ -4,7 +4,7 @@
 // an authoritative typed schema. Results remain mutable/untrusted data.
 
 import class ProtoField, ProtoMessage, ProtoDecodeOptions from './wire';
-import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_payload_wire_bytes from './wire';
+import fnc proto_decode_options_valid, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_payload_wire_bytes, proto_field_canonical_wire_bytes from './wire';
 import class Utf8Text from '../core/value';
 import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
 
@@ -90,20 +90,26 @@ pub fnc zorde_validate_protobuf_wire(
   done
 
   let int field_index = 0;
-  let int total_payload_bytes = 0;
+  let int total_canonical_wire_bytes = 0;
   for const field of message.fields do
-    // A manually constructed ProtoMessage never passed the wire decoder.
-    // Logical signed varints have an empty raw list but encode to 1..9 bytes.
-    // The trusted metric includes those bytes and avoids signed overflow.
+    // A manually constructed message bypasses decode_message(input, options).
+    // Account for the key, optional length prefix, and payload *together*.
+    // This measures canonical RE-ENCODING, not discarded original overlong
+    // prefixes. Native decode still guards the actual original input length.
     val int payload_bytes = proto_field_payload_wire_bytes(field);
-    if payload_bytes < 0 then
-      proto_zorde_issue(report, "wrong-type", field_index,
-        "Protobuf field has no valid wire payload representation");
-    elseif payload_bytes > options.max_input_bytes - total_payload_bytes then
-      proto_zorde_issue(report, "out-of-range", field_index,
-        "Protobuf cumulative payload limit exceeded");
-    else
-      total_payload_bytes = total_payload_bytes + payload_bytes;
+    if proto_wire_field_valid(field) then
+      if payload_bytes > options.max_input_bytes then
+        proto_zorde_issue(report, "out-of-range", field_index,
+          "Protobuf field exceeds message byte budget");
+      else
+        val int wire_bytes = proto_field_canonical_wire_bytes(field);
+        if wire_bytes > options.max_input_bytes - total_canonical_wire_bytes then
+          proto_zorde_issue(report, "out-of-range", field_index,
+            "Protobuf canonical encoded message exceeds input byte budget");
+        else
+          total_canonical_wire_bytes = total_canonical_wire_bytes + wire_bytes;
+        fi
+      fi
     fi
     if field.wire_type == 2 &&
        payload_bytes > options.max_length_delimited_bytes then
