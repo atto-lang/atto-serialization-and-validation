@@ -1,5 +1,5 @@
 import fnc require_true, require_int from './assert';
-import class ProtoField, ProtoMessage from '../src/protobuf/wire';
+import class ProtoField, ProtoMessage, ProtoDecodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, default_proto_decode_options from '../src/protobuf/wire';
 import class ProtoZordeFieldRule from '../src/protobuf/zorde';
 import fnc zorde_validate_protobuf_wire from '../src/protobuf/zorde';
@@ -101,6 +101,52 @@ pub fnc run_protobuf_zorde_tests(): void {
   );
   require_true(malformed.errors[0].code == "wrong-type",
     "syntactically malformed raw varint must reject");
+
+  // A payload-only calculation could admit this one-byte varint at a
+  // max_input_bytes=1 boundary. The on-wire field key adds another byte.
+  val List<ProtoField> tiny_field = new List<ProtoField>();
+  tiny_field.add(proto_varint(1, 1));
+  val ValidationReport encoded_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(tiny_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(1, 1, 1), false
+  );
+  require_true(encoded_budget.errors[0].code == "out-of-range",
+    "wire budget must count field key, not just payload");
+
+  val ValidationReport encoded_budget_exact = zorde_validate_protobuf_wire(
+    new ProtoMessage(tiny_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(2, 1, 2), false
+  );
+  require_int(encoded_budget_exact.errors.length, 0,
+    "canonical two-byte field should fit exact message budget");
+
+  // The extra length varint also consumes a wire byte.
+  val List<ProtoField> tiny_delimited = new List<ProtoField>();
+  tiny_delimited.add(proto_bytes(1, new List<int>(77)));
+  val ValidationReport length_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(tiny_delimited), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(2, 1, 1), false
+  );
+  require_true(length_budget.errors[0].code == "out-of-range",
+    "length-delimited field budget must include length prefix");
+
+  val ValidationReport length_budget_exact = zorde_validate_protobuf_wire(
+    new ProtoMessage(tiny_delimited), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(3, 1, 1), false
+  );
+  require_int(length_budget_exact.errors.length, 0,
+    "three-byte field with one-byte payload should fit exact budget");
+
+  // Full byte accounting must accumulate across fields rather than reset.
+  val List<ProtoField> two_fields = new List<ProtoField>();
+  two_fields.add(proto_varint(1, 1));
+  two_fields.add(proto_varint(2, 2));
+  val ValidationReport aggregate_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(two_fields), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(3, 2, 3), false
+  );
+  require_true(aggregate_budget.errors[0].code == "out-of-range",
+    "multi-field canonical total must respect max_input_bytes");
 
   // Report budgets are explicit; do not allow adversarial repeated errors to
   // allocate an unbounded ValidationReport.
