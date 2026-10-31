@@ -207,13 +207,13 @@ pub fnc run_protobuf_zorde_tests(): void {
   // be checked again after it changes; a previously clean report is stale.
   val List<int> mutable_raw = new List<int>(8, 1);
   val ValidationReport raw_before_mutation = zorde_validate_protobuf_input(
-    mutable_raw, raw_field_rules, new ProtoDecodeOptions(3, 1, 3), true
+    mutable_raw, raw_field_rules, new ProtoDecodeOptions(3, 2, 3), true
   );
   require_int(raw_before_mutation.errors.length, 0,
     "original raw input passes before mutation");
   mutable_raw.add(255);
   val ValidationReport raw_after_mutation = zorde_validate_protobuf_input(
-    mutable_raw, raw_field_rules, new ProtoDecodeOptions(3, 1, 3), true
+    mutable_raw, raw_field_rules, new ProtoDecodeOptions(3, 2, 3), true
   );
   require_int(raw_after_mutation.errors.length, 1,
     "mutated original buffer must be revalidated");
