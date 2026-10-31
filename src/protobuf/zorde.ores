@@ -143,6 +143,11 @@ pub fnc zorde_validate_protobuf_wire(
           "Protobuf occurrence or payload budget exceeded");
       fi
     fi
+    // Once the report is truncated, scanning more fields cannot increase
+    // diagnostic fidelity. Bound the work even for adversarially large lists.
+    if report.truncated then
+      return report;
+    fi
     field_index = field_index + 1;
   done
 
@@ -154,6 +159,9 @@ pub fnc zorde_validate_protobuf_wire(
     if rules[i].required && occurrences[i] == 0 then
       proto_zorde_issue(report, "missing-required", -1,
         "required Protobuf field was not present");
+    fi
+    if report.truncated then
+      return report;
     fi
     i = i + 1;
   done
