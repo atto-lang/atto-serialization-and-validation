@@ -273,6 +273,35 @@ reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
 reject(()=>preexecutionAttestationGuard(nativeWorkflow.replace(
   'env -i PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC',
   'env PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC')));
+
+// Source-free integrity guard for the first source-execution boundary. Both
+// ignored AND ordinary untracked files must be rejected before scripts are
+// run, not merely by the later native harness status check.
+const physicalVerifier=readFileSync('scripts/verify-zorde-checkout.py','utf8');
+const refusalFixtures=readFileSync('scripts/test-zorde-source-local-contracts.sh','utf8');
+function earlySourceIntegrityGuard(v,t) {
+  assert.ok(v.includes('ignored = git_bytes("ls-files", "--others", "--ignored",'),
+    'pre-execution physical verifier must reject ignored files');
+  assert.ok(v.includes('untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")'),
+    'pre-execution physical verifier must enumerate ordinary untracked files');
+  assert.ok(v.includes('if untracked:\\n        fail("untracked files exist in source checkout")'),
+    'physical verifier must refuse ordinary untracked files');
+  assert.ok(t.includes("printf 'unreviewed guest source bytes\\n' > \\"$src/injected-untracked.ores\\""),
+    'source-free test must create an untracked source injection');
+  assert.ok(t.includes("grep -Fq 'untracked files exist in source checkout'"),
+    'source-free fixture must assert targeted physical attestation denial');
+}
+earlySourceIntegrityGuard(physicalVerifier,refusalFixtures);
+checks++;
+reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
+  'untracked = git_bytes("ls-files", "--others", "--exclude-standard", "-z")',
+  'untracked = b""'),refusalFixtures));
+reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
+  'fail("untracked files exist in source checkout")',
+  'return'),refusalFixtures));
+reject(()=>earlySourceIntegrityGuard(physicalVerifier,
+  refusalFixtures.replace("grep -Fq 'untracked files exist in source checkout'",
+    "grep -Fq 'any diagnostic'")));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
