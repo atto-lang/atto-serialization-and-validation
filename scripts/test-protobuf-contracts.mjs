@@ -373,6 +373,46 @@ reject(()=>trackedSymlinkGuard(physicalVerifier.replace(
 reject(()=>trackedSymlinkGuard(physicalVerifier,
   refusalFixtures.replace('ln -s ../external-unreviewed-guest "$linked_src/escape.ores"',
     'printf "safe" > "$linked_src/escape.ores"')));
+// The ORIGINAL-WIRE report entrypoint must decode bounded input before using
+// field-only Zorde rules. Canonicalized keys/length prefixes can otherwise
+// undercount attacker-controlled bytes. Source-only wiring checks, not a
+// substitute for an Oreslang compiler or guest assertion.
+const zordeTests=readFileSync('tests/protobuf_zorde_test.ores','utf8');
+function originalWireAdmissionGuard(z,t) {
+  assert.ok(z.includes('pub fnc zorde_validate_protobuf_input('),
+    'bounded original wire report entrypoint missing');
+  assert.ok(z.includes('decode_message(input, options)'),
+    'original wire input must be decoded under caller limits');
+  assert.ok(z.includes('if decoded.is_err() then'),
+    'raw wire failure must stop before Zorde field admission');
+  assert.ok(z.includes('proto_zorde_issue(rejected, "wire-decode"'),
+    'raw wire refusal needs a distinct fail-closed report code');
+  assert.ok(z.includes('return zorde_validate_protobuf_wire(') &&
+    z.includes('decoded.unwrap(), rules, options, reject_unknown_fields'),
+    'decoded fields must be passed through Zorde descriptor checks');
+  assert.ok(t.includes('zorde_validate_protobuf_input from') &&
+    t.includes('overlong_key') && t.includes('overlong_length') &&
+    t.includes('key_over_original_limit') &&
+    t.includes('length_over_original_limit') &&
+    t.includes('malformed_input') && t.includes('rejected_unknown_input') &&
+    t.includes('raw_before_mutation') && t.includes('raw_after_mutation'),
+    'native guest fixtures must cover nonminimal prefixes, mutation, and raw errors');
+}
+originalWireAdmissionGuard(zorde,zordeTests);
+checks++;
+reject(()=>originalWireAdmissionGuard(zorde.replaceAll(
+  'decode_message(input, options)','decode_message(new List<int>(), options)'),
+  zordeTests));
+reject(()=>originalWireAdmissionGuard(zorde.replace(
+  'if decoded.is_err() then','if false then'),zordeTests));
+reject(()=>originalWireAdmissionGuard(zorde.replace(
+  'proto_zorde_issue(rejected, "wire-decode"',
+  'proto_zorde_issue(rejected, "validated"'),zordeTests));
+reject(()=>originalWireAdmissionGuard(zorde,
+  zordeTests.replaceAll('length_over_original_limit',
+    'length_over_canonical_limit')));
+reject(()=>originalWireAdmissionGuard(zorde,
+  zordeTests.replaceAll('raw_after_mutation','unchecked_stale_report')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
