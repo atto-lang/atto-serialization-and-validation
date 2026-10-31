@@ -48,6 +48,22 @@ pub fnc run_protobuf_zorde_tests(): void {
   require_true(reserved_rule.errors[0].code == "invalid_rule",
     "reserved field number must never enter trusted schema");
 
+  val List<ProtoZordeFieldRule> impossible_rules = new List<ProtoZordeFieldRule>();
+  impossible_rules.add(new ProtoZordeFieldRule(1, 0, true, 0, 10));
+  val ValidationReport impossible = zorde_validate_protobuf_wire(
+    new ProtoMessage(good_fields), impossible_rules, default_proto_decode_options(), true
+  );
+  require_true(impossible.errors[0].code == "invalid_rule",
+    "required field with zero occurrences must be invalid descriptor");
+
+  val List<ProtoZordeFieldRule> impossible_fixed = new List<ProtoZordeFieldRule>();
+  impossible_fixed.add(new ProtoZordeFieldRule(2, 5, false, 1, 3));
+  val ValidationReport too_short_fixed = zorde_validate_protobuf_wire(
+    new ProtoMessage(good_fields), impossible_fixed, default_proto_decode_options(), true
+  );
+  require_true(too_short_fixed.errors[0].code == "invalid_rule",
+    "fixed32 field budget less than four bytes must reject as rule");
+
   val List<ProtoField> repeated = new List<ProtoField>();
   repeated.add(proto_varint(1, 1));
   repeated.add(proto_varint(1, 2));
