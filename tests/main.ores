@@ -21,6 +21,7 @@ pub async fnc main(): void {
   run_cbor_tests();
   run_protobuf_tests();
   run_protobuf_zorde_tests();
+  stdio.stdout.println("protobuf-wire-zorde-native-tests-passed");
   run_validation_tests();
   run_refined_int_zorde_tests();
   run_refined_string_zorde_tests();
