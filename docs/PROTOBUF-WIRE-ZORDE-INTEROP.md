@@ -45,9 +45,9 @@ descriptor alongside the compiled Zorde registry.
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
 - The Zorde report layer checks manually constructed messages against
-  the full **canonical re-encoded** message byte budget, including field keys,
+  the full **re-encoded** message byte budget, including field keys,
   optional length prefixes and varint bytes (even when a logical constructor's
-  raw varint payload list is empty). A decoder can discard nonminimal key and
+  raw varint payload list is empty). Raw varint values remain verbatim, including nonminimal forms; key and length prefixes are normalized on re-encoding. A decoder can discard nonminimal key and
   length prefixes, so this number is **not evidence of original input size**:
   `decode_message` separately enforces the size of the actual input buffer.
   `encode_message` separately enforces its output budget while emitting bytes.
