@@ -125,6 +125,11 @@ grep -Fqx "native Zorde compiled scalar registry tests passed" "$log" ||
   die "registry guest test success marker absent"
 grep -Fqx "serialization/validation native tests passed" "$log" ||
   die "full native suite success marker absent"
+# This PR adds guest assertions to the same integrated tests/main.ores. Require
+# the dedicated marker AFTER both Protobuf and Protobuf/Zorde test functions
+# return successfully; an old compiler/test artifact must not qualify.
+grep -Fqx "protobuf-wire-zorde-native-tests-passed" "$log" ||
+  die "Protobuf/Zorde guest success marker absent"
 # Keep the parent's positive-import control as a separate compiler
 # invocation. Its function signature must resolve the public class/import
 # even if no guest stdout marker is emitted by this compile-only fixture.
@@ -222,6 +227,7 @@ record = {
     "actual_native_guest_executed": True,
     "registry_marker_observed": True,
     "full_suite_marker_observed": True,
+    "protobuf_wire_zorde_guest_marker_observed": True,
     "public_registry_import_control_passed": True,
     "public_registry_import_log_sha256": hashlib.sha256(
         (Path(os.environ["NEGATIVE_DIR"]) / "zorde-public-import-positive.log").read_bytes()
