@@ -144,5 +144,50 @@ pub fnc run_object_codec_tests(): void {
     input, allow_trailing, rt borrow metadata, default_validation_options()
   );
   require_true(wrapper_reject.is_err(), "Result wrapper must preserve unsafe-policy rejection");
+
+  // Admission rejects unsafe policy configuration even when the payload
+  // itself contains no duplicate fields or trailing bytes.
+  val ObjectDecodeAttempt valid_first = decode_json_object_attempt(
+    input, first_wins, rt borrow metadata, default_validation_options()
+  );
+  require_int(valid_first.status, 2, "first-wins must reject clean JSON too");
+  require_int(valid_first.decoded.consumed, 0, "unsafe first-wins must not admit bytes");
+
+  val ObjectDecodeAttempt valid_last = decode_json_object_attempt(
+    input, last_wins, rt borrow metadata, default_validation_options()
+  );
+  require_int(valid_last.status, 2, "last-wins must reject clean JSON too");
+  require_int(valid_last.error.kind, 1, "unsafe last-wins is a decode failure");
+
+  val ObjectDecodeAttempt valid_trailing = decode_json_object_attempt(
+    input, allow_trailing, rt borrow metadata, default_validation_options()
+  );
+  require_int(valid_trailing.status, 2, "allow-trailing must reject clean JSON too");
+
+  // Strict full-message parsing must also refuse actual trailing tokens.
+  val ObjectDecodeAttempt strict_trailing = decode_json_object_attempt(
+    trailing_content, default_decode_options(), rt borrow metadata,
+    default_validation_options()
+  );
+  require_int(strict_trailing.status, 2, "strict JSON parser rejects trailing token");
+  require_int(strict_trailing.error.kind, 1, "trailing token is a decode failure");
+
+  // Ordinary trailing JSON whitespace remains valid, fully consumed input.
+  let List<int> whitespace_only = new List<int>();
+  for const byte of input do
+    whitespace_only.push(byte);
+  done
+  whitespace_only.push(32);
+  whitespace_only.push(10);
+  whitespace_only.push(13);
+  whitespace_only.push(9);
+  val ObjectDecodeAttempt strict_whitespace = decode_json_object_attempt(
+    whitespace_only, default_decode_options(), rt borrow metadata,
+    default_validation_options()
+  );
+  require_int(strict_whitespace.status, 0, "strict JSON permits trailing whitespace");
+  require_int(strict_whitespace.decoded.consumed, whitespace_only.length,
+    "strict JSON must consume all trailing whitespace");
+
   return;
 }
