@@ -71,6 +71,31 @@ jobs:
           persist-credentials: false
           fetch-depth: 1
 
+      # Do not execute any checked-out scripts on the trusted native worker
+      # until physical source bytes have matched the admin-approved commit and
+      # root tree. Executing test-runner.sh first was a trust-boundary gap.
+      - name: Verify exact physical checkout before source execution
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ vars.ZORDE_APPROVED_SOURCE_SHA }}
+          EXPECTED_SOURCE_TREE: ${{ vars.ZORDE_APPROVED_SOURCE_TREE }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$EXPECTED_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          test "$GITHUB_SHA" = "$EXPECTED_SOURCE_SHA"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA"
+          test "$(git rev-parse 'HEAD^{tree}')" = "$EXPECTED_SOURCE_TREE"
+          # Before running the source-local verifier itself, prove its bytes
+          # match the independently approved commit's tracked blob.
+          git show HEAD:scripts/verify-zorde-checkout.py |
+            cmp - scripts/verify-zorde-checkout.py
+          env -i PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            PYTHONDONTWRITEBYTECODE=1 \
+            /usr/bin/python3 -I -S scripts/verify-zorde-checkout.py \
+              "$EXPECTED_SOURCE_SHA" "$EXPECTED_SOURCE_TREE"
+
       - name: Verify shell syntax and source-free refusal contracts
         shell: bash
         run: |
