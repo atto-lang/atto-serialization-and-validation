@@ -182,6 +182,14 @@ pub fnc run_protobuf_zorde_tests(): void {
   );
   require_true(length_over_budget.errors.length > 0 && length_over_budget.errors[0].code == "out-of-range",
     "length-delimited bytes must include tag and prefix");
+  // An otherwise-valid two-byte payload cannot occupy the entire two-byte
+  // input budget because every field must also have a tag (and length prefix).
+  val ValidationReport no_tag_space = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_length_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(2, 2, 2), false
+  );
+  require_true(no_tag_space.errors.length > 0 && no_tag_space.errors[0].code == "out-of-range",
+    "Zorde rejects payload==remaining before full payload scan");
 
   // Large tag keys consume more bytes than the usual one-byte tag. Unknown
   // reserved tags are still valid *wire* data and must honor the same budget.
