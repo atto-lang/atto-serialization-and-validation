@@ -92,6 +92,8 @@ JSON Schema draft 2020-12 and TypeSpec cannot express the complete varint
 continuation rules, exact fixed-width content, lifetime, budget, provenance or
 all Protobuf semantic constraints without additional validators.
 
+Source-local native admission and reviewer/administrator responsibilities are specified in [the Protobuf execution runbook](PROTOBUF-SOURCE-LOCAL-NATIVE-RUNBOOK.md). The focused guest entrypoint is `tests/protobuf_main.ores` and must run with a separately approved exact-head compiler before any passing native receipt can be issued.
+
 ### Evidence gates / conformance plan
 
 1. `node scripts/test-protobuf-contracts.mjs` — static shape/ABI-drift
