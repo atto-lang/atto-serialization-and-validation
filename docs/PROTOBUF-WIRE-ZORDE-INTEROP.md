@@ -42,12 +42,15 @@ descriptor alongside the compiled Zorde registry.
 - The encoder preflights payload byte validity and available output budget
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
-- The Zorde report layer checks manually constructed messages for aggregate
-  payload and length-delimited budgets as well as field-count limits. For
-  a constructed logical signed varint, the budget counts its actual 1–9 wire
-  bytes even though the constructor's raw payload list is empty. It does
-  **not** claim full encoded-size accounting: the actual encoder enforces the
-  full max-output-byte bound including tags and length prefixes.
+- The Zorde report layer checks manually constructed messages against
+  the full **canonical re-encoded** message byte budget, including field keys,
+  optional length prefixes and varint bytes (even when a logical constructor's
+  raw varint payload list is empty). A decoder can discard nonminimal key and
+  length prefixes, so this number is **not evidence of original input size**:
+  `decode_message` separately enforces the size of the actual input buffer.
+  `encode_message` separately enforces its output budget while emitting bytes.
+  Zorde's byte accounting is report-only and does not establish signature or
+  authentication semantics.
 
 ### Zorde admission
 
