@@ -195,7 +195,7 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
     fi
 
     bytes.add(byte);
-    let int payload = byte % 128;
+    let int payload = byte - ((byte / 128) * 128);
 
     if count < 9 && fits_int then
       value = value + (payload * multiplier);
@@ -341,7 +341,7 @@ pub fnc decode_message(
     fi
 
     let int field_number = key.value / 8;
-    let int wire_type = key.value % 8;
+    let int wire_type = key.value - (field_number * 8);
 
     if field_number <= 0 || field_number > 536870911 then
       return Err(new ProtoError("field_number", cursor.index, "invalid Protobuf field number"));
@@ -449,7 +449,7 @@ fnc append_varint(
       break;
     fi
 
-    append_byte(writer, (remaining % 128) + 128);
+    append_byte(writer, (remaining - ((remaining / 128) * 128)) + 128);
     remaining = remaining / 128;
   done
 
