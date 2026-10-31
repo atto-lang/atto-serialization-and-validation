@@ -59,6 +59,14 @@ Do not use `main` as an accidental replacement for the reviewed PR head.
 clean Git status, exact HEAD and tree, physical blob bytes, non-symlinked
 reviewed compiler path and digest, and protected private evidence directory.
 
+The protected native workflow launches this attester through `env -i` with
+an explicit minimal `PATH`, no inherited `BASH_ENV`/`ENV`,
+`PYTHONPATH`, `LD_PRELOAD` or `GIT_CONFIG_*` overrides, no Bash
+profiles, and only the approved source/head/tree/compiler/evidence inputs.
+This reduces configuration-based injection into the attester on a trusted
+ephemeral host. It does not establish compiler transitive-dependency
+provenance or protect against a compromised self-hosted runner.
+
 It then executes, in order:
 
 1. `tests/protobuf_main.ores`, importing only the codec/Zorde test suites

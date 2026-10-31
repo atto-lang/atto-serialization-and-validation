@@ -212,6 +212,47 @@ reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
   '"protobuf_focused_native_log_sha256"','"missing_hash"')));
 reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
   '"protobuf_focused_native_guest_executed": True','"protobuf_focused_native_guest_executed": False')));
+// The protected native job must reach the source-local attester through a
+// clean environment. This is a source-only CI configuration guard; it does
+// NOT attest that an administrator approved the runner or that it executed.
+const nativeWorkflow=readFileSync('.github/workflows/runner.yml','utf8');
+function workflowIsolationGuard(w) {
+  const start=w.indexOf('      - name: Run actual compiler and privacy diagnostics');
+  assert.ok(start>=0,'protected native workflow step missing');
+  const native=w.slice(start);
+  assert.ok(native.includes('env -i \\'),'native harness must strip inherited env');
+  assert.ok(native.includes('PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC'),
+    'native harness must bind a minimal tool and home environment');
+  assert.ok(native.includes('GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null'),
+    'native harness must disallow external Git configuration');
+  assert.ok(native.includes('PYTHONDONTWRITEBYTECODE=1'),
+    'Python guest verification must not create ignored output in checkout');
+  assert.ok(native.includes('EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA"'),
+    'native launcher must receive approved exact commit');
+  assert.ok(native.includes('EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE"'),
+    'native launcher must receive approved exact root tree');
+  assert.ok(native.includes('EXPECTED_COMPILER_SHA256="$EXPECTED_COMPILER_SHA256"'),
+    'native launcher must receive approved compiler digest');
+  assert.ok(native.includes('ORESLANG_BIN="$ORESLANG_BIN"'),
+    'native launcher must receive approved compiler path');
+  assert.ok(native.includes('ZORDE_EVIDENCE_DIR="$ZORDE_EVIDENCE_DIR"'),
+    'native launcher must retain private evidence path');
+  assert.ok(native.includes('/usr/bin/bash --noprofile --norc \\'),
+    'native launcher must avoid Bash startup profile resolution');
+  assert.ok(!native.includes('          bash scripts/test-zorde-registry-source-local.sh'),
+    'inheriting caller environment into private native attester is forbidden');
+}
+workflowIsolationGuard(nativeWorkflow);
+checks++;
+reject(()=>workflowIsolationGuard(nativeWorkflow.replace('env -i \\','env \\')));
+reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+  'GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null',
+  'GIT_CONFIG_NOSYSTEM=0 GIT_CONFIG_GLOBAL=~/.gitconfig')));
+reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+  '/usr/bin/bash --noprofile --norc \\', '/usr/bin/bash \\')));
+reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+  'EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE"',
+  'EXPECTED_SOURCE_TREE="$GITHUB_SHA"')));
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,

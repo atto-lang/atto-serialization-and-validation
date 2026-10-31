@@ -99,6 +99,20 @@ jobs:
           # Do not echo raw guest/negative compiler logs into public output.
           # The administrator must retain the private evidence directory
           # within the approved source trust boundary for independent review.
-          bash scripts/test-zorde-registry-source-local.sh
+          # The reviewed shell harness must never inherit Bash startup
+          # injection, Git config overrides, LD_PRELOAD, PYTHONPATH, tool
+          # overrides, arbitrary PATH entries, or stale user profiles.
+          # Preserve only independently approved native admission inputs.
+          env -i \
+            PATH=/usr/bin:/bin HOME=/nonexistent LC_ALL=C TZ=UTC \
+            GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            PYTHONDONTWRITEBYTECODE=1 \
+            EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA" \
+            EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE" \
+            EXPECTED_COMPILER_SHA256="$EXPECTED_COMPILER_SHA256" \
+            ORESLANG_BIN="$ORESLANG_BIN" \
+            ZORDE_EVIDENCE_DIR="$ZORDE_EVIDENCE_DIR" \
+            /usr/bin/bash --noprofile --norc \
+            scripts/test-zorde-registry-source-local.sh
           sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"
           cat "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"
