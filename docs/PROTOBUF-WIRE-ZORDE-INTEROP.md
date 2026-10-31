@@ -43,9 +43,13 @@ descriptor alongside the compiled Zorde registry.
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
 - The Zorde report layer checks manually constructed messages for aggregate
-  payload and length-delimited budgets as well as field-count limits. It does
-  **not** claim full encoded-size accounting: the actual encoder enforces the
-  full max-output-byte bound including tags and length prefixes.
+  **encoded** wire size, including field keys, length prefixes and logical
+  signed-varint values, as well as length-delimited and field-count limits.
+  Before scanning a mutable payload it refuses any field exceeding the remaining
+  input budget, avoiding repeated aliases that could amplify work far beyond
+  the configured bound. A positive report is still **not** a typed validation
+  proof: descriptor provenance, ownership, field semantics and mutation after
+  reporting remain outside this check.
 
 ### Zorde admission
 

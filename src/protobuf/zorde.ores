@@ -35,6 +35,21 @@ fnc proto_zorde_issue(
   return;
 }
 
+// Length of the base-128 wire representation. Call only with values >= 0.
+// Every emitted tag fits in signed i64 even at protobuf's maximum field number.
+fnc protobuf_varint_wire_bytes(int value): int {
+  let int remaining = value;
+  let int count = 1;
+  loop do
+    if remaining < 128 then
+      break;
+    fi
+    remaining = remaining / 128;
+    count = count + 1;
+  done
+  return count;
+}
+
 // A report, NOT a proof. Revalidate after mutation; never serialize or share
 // its result as compiler-issued Valid<T>. An untrusted rule list cannot
 // authenticate its own descriptor provenance.
@@ -90,31 +105,65 @@ pub fnc zorde_validate_protobuf_wire(
   done
 
   let int field_index = 0;
-  let int total_payload_bytes = 0;
+  let int total_encoded_bytes = 0;
   for const field of message.fields do
-    // A manually constructed ProtoMessage never passed the wire decoder.
-    // Logical signed varints have an empty raw list but encode to 1..9 bytes.
-    // The trusted metric includes those bytes and avoids signed overflow.
-    val int payload_bytes = proto_field_payload_wire_bytes(field);
-    if payload_bytes < 0 then
-      proto_zorde_issue(report, "wrong-type", field_index,
-        "Protobuf field has no valid wire payload representation");
-    elseif payload_bytes > options.max_input_bytes - total_payload_bytes then
+    // This function also receives *constructed* messages which may never have
+    // passed decode_message. Refuse an impossible byte budget BEFORE traversing
+    // a potentially large or repeatedly aliased mutable payload list.
+    if field.payload.length > options.max_input_bytes - total_encoded_bytes then
       proto_zorde_issue(report, "out-of-range", field_index,
-        "Protobuf cumulative payload limit exceeded");
-    else
-      total_payload_bytes = total_payload_bytes + payload_bytes;
+        "Protobuf encoded message exceeds max_input_bytes");
+      return report;
     fi
     if field.wire_type == 2 &&
-       payload_bytes > options.max_length_delimited_bytes then
+       field.payload.length > options.max_length_delimited_bytes then
       proto_zorde_issue(report, "out-of-range", field_index,
         "Protobuf length-delimited payload exceeds decode limit");
+      return report;
     fi
 
     if !proto_wire_field_valid(field) then
       proto_zorde_issue(report, "wrong-type", field_index,
         "invalid Protobuf wire field shape");
-    elseif !rule_indexes.contains(field.field_number) then
+      // Return before additional field scans; malformed payloads are not an
+      // opportunity to consume unbounded work or mint a positive report.
+      return report;
+    fi
+
+    // Count the exact length of what encode_message would produce, including
+    // key varints, length prefixes and logical signed varints. Subtraction
+    // checks avoid overflow and make accept=>re-decode within input budget.
+    val int payload_bytes = proto_field_payload_wire_bytes(field);
+    let int remaining_bytes = options.max_input_bytes - total_encoded_bytes;
+    val int key_bytes = protobuf_varint_wire_bytes(
+      field.field_number * 8 + field.wire_type
+    );
+    if key_bytes > remaining_bytes then
+      proto_zorde_issue(report, "out-of-range", field_index,
+        "Protobuf encoded field key exceeds input budget");
+      return report;
+    fi
+    remaining_bytes = remaining_bytes - key_bytes;
+
+    if field.wire_type == 2 then
+      val int prefix_bytes = protobuf_varint_wire_bytes(payload_bytes);
+      if prefix_bytes > remaining_bytes then
+        proto_zorde_issue(report, "out-of-range", field_index,
+          "Protobuf length prefix exceeds input budget");
+        return report;
+      fi
+      remaining_bytes = remaining_bytes - prefix_bytes;
+    fi
+
+    if payload_bytes > remaining_bytes then
+      proto_zorde_issue(report, "out-of-range", field_index,
+        "Protobuf encoded payload exceeds input budget");
+      return report;
+    fi
+    total_encoded_bytes = options.max_input_bytes -
+      (remaining_bytes - payload_bytes);
+
+    if !rule_indexes.contains(field.field_number) then
       if reject_unknown_fields then
         proto_zorde_issue(report, "unknown-field", field_index,
           "unknown Protobuf field rejected by descriptor policy");
