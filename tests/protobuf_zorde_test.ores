@@ -1,0 +1,93 @@
+import fnc require_true, require_int from './assert';
+import class ProtoField, ProtoMessage from '../src/protobuf/wire';
+import fnc proto_varint, proto_bytes, proto_raw_varint, default_proto_decode_options from '../src/protobuf/wire';
+import class ProtoZordeFieldRule from '../src/protobuf/zorde';
+import fnc zorde_validate_protobuf_wire from '../src/protobuf/zorde';
+import class ValidationReport from '../src/validation/validation';
+
+pub fnc run_protobuf_zorde_tests(): void {
+  val List<ProtoZordeFieldRule> rules = new List<ProtoZordeFieldRule>();
+  rules.add(new ProtoZordeFieldRule(1, 0, true, 1, 10));
+  rules.add(new ProtoZordeFieldRule(2, 2, false, 1, 4));
+
+  val List<ProtoField> good_fields = new List<ProtoField>();
+  good_fields.add(proto_varint(1, 17));
+  good_fields.add(proto_bytes(2, new List<int>(65, 66)));
+  val ValidationReport good = zorde_validate_protobuf_wire(
+    new ProtoMessage(good_fields), rules, default_proto_decode_options(), true
+  );
+  require_int(good.errors.length, 0, "known Protobuf fields should satisfy rules");
+  require_true(!good.truncated, "valid Protobuf report must not be truncated");
+
+  val List<ProtoField> missing_fields = new List<ProtoField>();
+  val ValidationReport missing = zorde_validate_protobuf_wire(
+    new ProtoMessage(missing_fields), rules, default_proto_decode_options(), true
+  );
+  require_int(missing.errors.length, 1, "missing required field must reject");
+  require_true(missing.errors[0].code == "missing-required", "missing field diagnostic");
+
+  val List<ProtoField> unknown_fields = new List<ProtoField>();
+  unknown_fields.add(proto_varint(19000, 9));
+  unknown_fields.add(proto_varint(1, 1));
+  val ValidationReport preserved = zorde_validate_protobuf_wire(
+    new ProtoMessage(unknown_fields), rules, default_proto_decode_options(), false
+  );
+  require_int(preserved.errors.length, 0, "untyped reserved field can remain unknown");
+  val ValidationReport strict = zorde_validate_protobuf_wire(
+    new ProtoMessage(unknown_fields), rules, default_proto_decode_options(), true
+  );
+  require_int(strict.errors.length, 1, "strict descriptor must reject unknown field");
+  require_true(strict.errors[0].code == "unknown-field", "unknown field diagnostic");
+  require_int(strict.errors[0].path[0].index, 0, "unknown field reports field index");
+
+  val List<ProtoZordeFieldRule> bad_rules = new List<ProtoZordeFieldRule>();
+  bad_rules.add(new ProtoZordeFieldRule(19000, 0, false, 1, 10));
+  val ValidationReport reserved_rule = zorde_validate_protobuf_wire(
+    new ProtoMessage(good_fields), bad_rules, default_proto_decode_options(), true
+  );
+  require_true(reserved_rule.errors[0].code == "invalid_rule",
+    "reserved field number must never enter trusted schema");
+
+  val List<ProtoField> repeated = new List<ProtoField>();
+  repeated.add(proto_varint(1, 1));
+  repeated.add(proto_varint(1, 2));
+  val ValidationReport repeat_report = zorde_validate_protobuf_wire(
+    new ProtoMessage(repeated), rules, default_proto_decode_options(), true
+  );
+  require_true(repeat_report.errors[0].code == "out-of-range",
+    "duplicate singular field must reject");
+
+  val List<ProtoField> wrong_wire = new List<ProtoField>();
+  wrong_wire.add(proto_bytes(1, new List<int>(1)));
+  val ValidationReport wrong_type = zorde_validate_protobuf_wire(
+    new ProtoMessage(wrong_wire), rules, default_proto_decode_options(), true
+  );
+  require_true(wrong_type.errors[0].code == "wrong-type",
+    "descriptor must not coerce wire types");
+
+  val List<ProtoField> bad_shape = new List<ProtoField>();
+  bad_shape.add(proto_raw_varint(1, new List<int>(128)));
+  val ValidationReport malformed = zorde_validate_protobuf_wire(
+    new ProtoMessage(bad_shape), rules, default_proto_decode_options(), true
+  );
+  require_true(malformed.errors[0].code == "wrong-type",
+    "syntactically malformed raw varint must reject");
+
+  // Report budgets are explicit; do not allow adversarial repeated errors to
+  // allocate an unbounded ValidationReport.
+  val List<ProtoField> many_unknown = new List<ProtoField>();
+  let int i = 0;
+  loop do
+    if i >= 70 then
+      break;
+    fi
+    many_unknown.add(proto_varint(100, i));
+    i = i + 1;
+  done
+  val ValidationReport capped = zorde_validate_protobuf_wire(
+    new ProtoMessage(many_unknown), rules, default_proto_decode_options(), true
+  );
+  require_int(capped.errors.length, 64, "Zorde Protobuf issue budget");
+  require_true(capped.truncated, "Zorde report indicates excess diagnostics");
+  return;
+}
