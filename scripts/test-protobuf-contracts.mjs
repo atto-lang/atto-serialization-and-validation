@@ -131,6 +131,15 @@ function sourceGuard(w,z) {
   assert.ok(z.indexOf('if field.payload.length > remaining_bytes then') <
     z.indexOf('proto_field_reencoded_wire_bytes(field)'),
     'payload budget preflight occurs after shape scan');
+  const cappedExit='if report.truncated then\\n      return report;\\n    fi';
+  const fieldExit=z.indexOf(cappedExit);
+  const requiredExit=z.indexOf(cappedExit,fieldExit+1);
+  assert.ok(fieldExit>z.indexOf('val int payload_bytes = proto_field_payload_wire_bytes(field)') &&
+    fieldExit<z.indexOf('field_index = field_index + 1;'),
+    'Zorde continues scanning message.fields after report truncation');
+  assert.ok(requiredExit>z.indexOf('if rules[i].required && occurrences[i] == 0 then') &&
+    requiredExit<z.lastIndexOf('i = i + 1;'),
+    'Zorde continues scanning required rules after report truncation');
 }
 sourceGuard(wire,zorde);
 checks++;
@@ -145,6 +154,14 @@ reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_reenc
   'options.max_input_bytes')));
 reject(()=>sourceGuard(wire,zorde.replace('if field.payload.length > remaining_bytes then',
   'if false then')));
+reject(()=>sourceGuard(wire,zorde.replace(
+  '    if report.truncated then\\n      return report;\\n    fi',
+  '    if false then\\n      return report;\\n    fi')));
+reject(()=>sourceGuard(wire,zorde.replace(
+  '    if report.truncated then\\n      return report;\\n    fi',
+  '    if false then\\n      return report;\\n    fi').replace(
+  '    if report.truncated then\\n      return report;\\n    fi',
+  '    if false then\\n      return report;\\n    fi')));
 
 // Source-only native admission wiring guard. This proves that the focused
 // tests/guest/harness *source* is connected; it never executes a compiler or
