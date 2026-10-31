@@ -131,6 +131,25 @@ pub fnc decode_json_object_attempt(
     return new ObjectDecodeAttempt(1, empty_decoded_object(), error);
   fi
 
+  // This is a schema-admission boundary, not a generic JSON decoder.
+  // Duplicate-key first/last-wins discards conflicting input before field
+  // validation; allowing trailing bytes admits a valid prefix as a message.
+  // Keep these options for generic decoding, but fail closed for typed objects.
+  if decode_options.duplicate_key_policy != 0 ||
+     decode_options.allow_trailing_data then
+    let ObjectCodecError error = object_codec_error(
+      1,
+      empty_metadata_error(),
+      new DecodeError(
+        "unsafe_decode_options",
+        0,
+        "metadata-driven object decode requires duplicate-key rejection and complete input"
+      ),
+      empty_validation_report()
+    );
+    return new ObjectDecodeAttempt(2, empty_decoded_object(), error);
+  fi
+
   let DecodeAttempt attempt = decode_attempt(input, decode_options);
   if attempt.status != 0 then
     let ObjectCodecError error = object_codec_error(
