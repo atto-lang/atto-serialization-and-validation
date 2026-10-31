@@ -70,6 +70,19 @@ pub fnc run_metadata_tests(): void {
   );
   require_true(field_limited.is_err(), "codec metadata field ceiling must fail closed");
 
+  // The exact budget is a valid boundary; only values beyond it reject.
+  let List<int> at_name_limit = new List<int>();
+  let int at_index = 0;
+  loop do
+    if at_index >= max_codec_name_bytes() then break; fi
+    at_name_limit.push(65);
+    at_index = at_index + 1;
+  done
+  val Result<CodecTypeMeta, MetadataError> bounded_type = validate_metadata(
+    codec_type(new Utf8Text(at_name_limit), new List<CodecFieldMeta>(), 0)
+  );
+  require_true(!bounded_type.is_err(), "exactly max_codec_name_bytes is valid");
+
   // Untrusted metadata names must be rejected by length *before* attempting
   // any potentially unbounded UTF-8 traversal.
   let List<int> oversized_name = new List<int>();
