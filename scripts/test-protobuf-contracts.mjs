@@ -221,12 +221,12 @@ function alterProtectedNativeStep(source, search, replaceWith) {
 }
 reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
   'env -i \\','env \\')));
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
   'GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null',
   'GIT_CONFIG_NOSYSTEM=0 GIT_CONFIG_GLOBAL=~/.gitconfig')));
 reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
   '/usr/bin/bash --noprofile --norc \\', '/usr/bin/bash \\')));
-reject(()=>workflowIsolationGuard(nativeWorkflow.replace(
+reject(()=>workflowIsolationGuard(alterProtectedNativeStep(nativeWorkflow,
   'EXPECTED_SOURCE_TREE="$EXPECTED_SOURCE_TREE"',
   'EXPECTED_SOURCE_TREE="$GITHUB_SHA"')));
 
