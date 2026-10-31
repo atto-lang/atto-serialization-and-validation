@@ -134,8 +134,9 @@ pub fnc run_protobuf_tests(): void {
     default_proto_decode_options()
   );
   require_true(!signed_max.is_err(), "signed i64 max varint must decode");
-  require_true(signed_max.unwrap().fields[0].varint_fits_int, "signed i64 max must fit int");
-  require_int(signed_max.unwrap().fields[0].varint_value, 9223372036854775807,
+  val ProtoMessage signed_max_message = signed_max.unwrap();
+  require_true(signed_max_message.fields[0].varint_fits_int, "signed i64 max must fit int");
+  require_int(signed_max_message.fields[0].varint_value, 9223372036854775807,
     "signed i64 max must be decoded exactly");
 
   // The reserved tag range is forbidden to *schema declarations* but remains
