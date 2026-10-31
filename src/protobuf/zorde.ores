@@ -50,7 +50,8 @@ pub fnc zorde_validate_protobuf_wire(
 
   if !proto_decode_options_valid(options) ||
      rules.length > 4096 ||
-     message.fields.length > options.max_fields then
+     message.fields.length > options.max_fields ||
+     message.fields.length > options.max_input_bytes then
     proto_zorde_issue(report, "invalid_rule", -1,
       "invalid Protobuf/Zorde resource limits");
     return report;
@@ -85,7 +86,22 @@ pub fnc zorde_validate_protobuf_wire(
   done
 
   let int field_index = 0;
+  let int total_payload_bytes = 0;
   for const field of message.fields do
+    // A manually constructed ProtoMessage never passed the wire decoder.
+    // Enforce its own byte budgets without overflowing signed arithmetic.
+    if field.payload.length > options.max_input_bytes - total_payload_bytes then
+      proto_zorde_issue(report, "out-of-range", field_index,
+        "Protobuf cumulative payload limit exceeded");
+    else
+      total_payload_bytes = total_payload_bytes + field.payload.length;
+    fi
+    if field.wire_type == 2 &&
+       field.payload.length > options.max_length_delimited_bytes then
+      proto_zorde_issue(report, "out-of-range", field_index,
+        "Protobuf length-delimited payload exceeds decode limit");
+    fi
+
     if !proto_wire_field_valid(field) then
       proto_zorde_issue(report, "wrong-type", field_index,
         "invalid Protobuf wire field shape");
