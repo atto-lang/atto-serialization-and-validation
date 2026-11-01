@@ -196,5 +196,9 @@ pub fnc run_json_tests(): void {
   );
   require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
 
+  // Native UTF-8 boundary cases independent of the JSON decoder.
+  require_true(!utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
+  require_int(utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
+  require_int(utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
   return;
 }
