@@ -200,5 +200,7 @@ pub fnc run_json_tests(): void {
   require_true(!utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
   require_int(utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
   require_int(utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
+  require_true(!utf8_is_valid(new List<int>(255)), "0xFF is not a valid Unicode lead byte");
+  require_int(utf8_codepoint_count(new List<int>(65, 66, 67)), 3, "three ASCII code points");
   return;
 }
