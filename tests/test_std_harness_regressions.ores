@@ -1,5 +1,5 @@
-import class TestCase, TestSuite, TestOptions, TestOutcome, RunSummary from "std/testing";
-import fnc expect_true, expect_false, expect_equal_int, expect_equal_string, run_suite, require_success, fail from "std/testing";
+import class TestCase, TestSuite, TestOptions, TestOutcome, RunSummary from "ores.std/testing";
+import fnc expect_true, expect_false, expect_equal_int, expect_equal_string, run_suite, require_success, fail from "ores.std/testing";
 import fnc utf8_scalar_count from "../src/core/utf8_scalar";
 fnc rejects_overlong_null_encoding(): TestOutcome {
   return expect_equal_int(utf8_scalar_count(arr[192, 128]), -1,
