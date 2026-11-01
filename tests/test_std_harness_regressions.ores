@@ -5,9 +5,14 @@ fnc rejects_overlong_null_encoding(): TestOutcome {
   return expect_equal_int(utf8_scalar_count(arr[192, 128]), -1,
     "overlong UTF-8 NUL must be rejected");
 }
+fnc rejects_utf8_surrogate(): TestOutcome {
+  return expect_equal_int(utf8_scalar_count(arr[237, 160, 128]), -1,
+    "UTF-8 encoding of a surrogate scalar must be rejected");
+}
 pub routine main(): void {
   val TestSuite suite = new TestSuite("utf8-scalar", arr[
-    new TestCase("rejects_overlong_null_encoding", rejects_overlong_null_encoding, false, "")
+    new TestCase("rejects_overlong_null_encoding", rejects_overlong_null_encoding, false, ""),
+    new TestCase("rejects_utf8_surrogate", rejects_utf8_surrogate, false, "")
   ]);
   val TestOptions options = new TestOptions("", false, true);
   val RunSummary summary = run_suite(rt borrow suite, rt borrow options);
