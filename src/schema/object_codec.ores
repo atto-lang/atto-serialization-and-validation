@@ -287,6 +287,16 @@ pub fnc decode_ai_scalar_record_attempt(
   CodecTypeMeta metadata,
   ValidationOptions validation_options
 ): ObjectDecodeAttempt {
+  // The generic metadata codec accepts 4096 fields, but this AI profile
+  // allows at most 256. Reject the count before hashing/UTF-8-scanning
+  // individual user-controlled field names (work-before-limit hardening).
+  if metadata.fields.length > 256 then
+    return ai_schema_failure(
+      "ai_schema_field_limit", -1,
+      "AI scalar record schema exceeds 256 fields"
+    );
+  fi
+
   // Reuse the bounded, duplicate-aware metadata validation. Do not iterate
   // untrusted fields until its name/field limits have been enforced.
   val MetadataCheck checked = check_metadata(rt borrow metadata);
@@ -325,7 +335,7 @@ pub fnc decode_ai_scalar_record_attempt(
      decode_options.max_depth > 16 ||
      decode_options.max_input_bytes > 65536 ||
      decode_options.max_string_bytes > 16384 ||
-     decode_options.max_binary_bytes > 65536 ||
+     decode_options.max_binary_bytes != 0 ||
      decode_options.max_number_bytes > 1024 ||
      decode_options.max_array_entries > 256 ||
      decode_options.max_map_entries > 256 then
