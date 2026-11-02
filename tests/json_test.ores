@@ -151,6 +151,24 @@ pub fnc run_json_tests(): void {
   );
   require_true(too_deep.is_err(), "JSON max_depth must reject before unbounded recursion");
 
+  val DecodeOptions one_array_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 1, 16
+  );
+  val Result<DecodedValue, DecodeError> array_over = decode(
+    new List<int>(91, 48, 44, 49, 93),
+    one_array_entry
+  );
+  require_true(array_over.is_err(), "JSON array must enforce max_array_entries before parsing the next item");
+
+  val DecodeOptions one_map_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 16, 1
+  );
+  val Result<DecodedValue, DecodeError> object_over = decode(
+    new List<int>(123, 34, 97, 34, 58, 48, 44, 34, 98, 34, 58, 49, 125),
+    one_map_entry
+  );
+  require_true(object_over.is_err(), "JSON object must enforce max_map_entries before parsing the next member");
+
   val DecodeOptions tiny_input = new DecodeOptions(
     0, false, 128, 1, 16, 16, 16, 16, 16
   );
