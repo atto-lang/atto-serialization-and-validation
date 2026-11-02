@@ -58,6 +58,19 @@ pub fnc run_contract_ir_tests(): void {
   require_true(!bad_version.ok && bad_version.error.code == "contract_ir_version",
     "unsupported Contract IR version must reject");
 
+  let StaticContractIR bad_schema_id_ir = new StaticContractIR(
+    1,
+    new Utf8Text(new List<int>(47, 101, 118, 105, 108)),
+    valid_ir.ir_digest,
+    valid_ir.typespec_digest,
+    valid_ir.authored_schema_digest,
+    valid_ir.generated_schema_digest,
+    valid_ir.codec
+  );
+  let ContractIRCheck bad_schema_id = check_static_contract_ir(rt borrow bad_schema_id_ir);
+  require_true(!bad_schema_id.ok && bad_schema_id.error.code == "contract_ir_schema_id",
+    "schema IDs must not admit a leading slash/path");
+
   let List<int> malformed_digest_bytes = new List<int>();
   for (let i = 0; i < 64; i = i + 1) { malformed_digest_bytes.add(65); }
   let ContractIRCheck bad_digest = check_static_contract_ir(
@@ -65,6 +78,14 @@ pub fnc run_contract_ir_tests(): void {
   );
   require_true(!bad_digest.ok && bad_digest.error.code == "contract_ir_digest",
     "uppercase/noncanonical digest bytes must reject");
+
+  let List<int> short_digest_bytes = new List<int>();
+  for (let i = 0; i < 63; i = i + 1) { short_digest_bytes.add(97); }
+  let ContractIRCheck short_digest = check_static_contract_ir(
+    person_contract(1, 1, new Utf8Text(short_digest_bytes))
+  );
+  require_true(!short_digest.ok && short_digest.error.code == "contract_ir_digest",
+    "truncated SHA-256 digest must reject");
 
   let StaticContractIR bad_typespec_ir = new StaticContractIR(
     1,
