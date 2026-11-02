@@ -316,7 +316,7 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
         "MessagePack encoder key hashing exceeds the configured work budget");
       return -1;
     fi
-    writer.map_key_work_remaining = writer.map_key_work_remaining - key_work;
+    // Hash once; the work allowance bounds repeated collision comparisons.
     let int hash = value_hash(entry.key);
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
@@ -447,7 +447,7 @@ fnc decode_map(
         "MessagePack map-key hashing exceeds the configured work budget");
       return value_map(entries);
     fi
-    cursor.map_key_work_remaining = cursor.map_key_work_remaining - key_work;
+    // Hash once; nested equality work is charged only for collision candidates.
     let int hash = value_hash(key);
     let int existing = map_entry_index(cursor, entries, buckets, key, hash, key_work);
     if cursor.failed then
