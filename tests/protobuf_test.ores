@@ -126,6 +126,38 @@ pub fnc run_protobuf_tests(): void {
   require_int(nonminimal_encode.unwrap()[2], 0,
     "nonminimal signed varint terminal byte is preserved");
 
+  // A public val payload list can still be mutated by an alias. A prior
+  // successful field check is not a reusable validation token.
+  val List<int> mutable_signed_raw = new List<int>(1);
+  val ProtoField mutable_signed_field = new ProtoField(
+    1, 0, true, 1, mutable_signed_raw
+  );
+  require_true(proto_wire_field_valid(mutable_signed_field),
+    "initial signed raw metadata must be valid");
+  mutable_signed_raw[0] = 2;
+  require_true(!proto_wire_field_valid(mutable_signed_field),
+    "mutating public raw bytes invalidates the previous metadata check");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(mutable_signed_field)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must recheck mutated raw bytes at use time");
+
+  // A one-byte raw encoding equal to its signed metadata is also legal at
+  // zero, but an unterminated continuation or out-of-byte-range value is not.
+  val ProtoField zero_raw = new ProtoField(1, 0, true, 0, new List<int>(0));
+  require_true(proto_wire_field_valid(zero_raw),
+    "signed zero raw encoding is valid");
+  val ProtoField unfinished_signed = new ProtoField(
+    1, 0, true, 0, new List<int>(128)
+  );
+  require_true(!proto_wire_field_valid(unfinished_signed),
+    "unterminated signed raw varint cannot pass consistency checks");
+  val ProtoField non_byte_signed = new ProtoField(
+    1, 0, true, 0, new List<int>(256)
+  );
+  require_true(!proto_wire_field_valid(non_byte_signed),
+    "out-of-range signed raw byte must be refused");
+
   val ProtoField misclaimed_ten_byte = new ProtoField(
     1, 0, true, 0,
     new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)
