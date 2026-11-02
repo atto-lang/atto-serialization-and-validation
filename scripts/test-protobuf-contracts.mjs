@@ -246,6 +246,51 @@ reject(()=>opaqueMetadataGuard(wire,protobufWireTests,
   protobufZordeTests.replace('val List<ProtoField> forged_opaque_metadata =',
     'val List<ProtoField> untested_opaque_metadata =')));
 
+// Independent source-only mutation tests for checked Protobuf field lookup.
+// Public unbounded lookup remains for compatibility with already trusted
+// inputs, but must not be used as an untrusted admission surface.
+function boundedFieldLookupGuard(w,t) {
+  const start=w.indexOf('pub fnc fields_with_number_bounded(');
+  const legacy=w.indexOf('pub fnc fields_with_number(');
+  assert.ok(start>legacy && legacy>=0,
+    'checked lookup must be separately available alongside legacy API');
+  const checked=w.slice(start);
+  const preflight=checked.indexOf('proto_message_copy_bounded(message, options)');
+  const fail=checked.indexOf('if detached.is_err() then');
+  const selection=checked.indexOf('for const field of detached.unwrap().fields do');
+  assert.ok(preflight>=0 && fail>preflight && selection>fail,
+    'checked lookup must validate and snapshot WHOLE message before filtering');
+  assert.ok(checked.includes('if !valid_field_number(field_number) then'),
+    'bounded lookup must reject invalid field numbers');
+  assert.ok(checked.includes('return Ok(selected);'),
+    'bounded lookup must return detached selected fields');
+  for(const marker of [
+    'bounded_lookup.is_err()',
+    'lookup_too_small.is_err()',
+    'lookup_too_many.is_err()',
+    'lookup_invalid_number.is_err()',
+    'lookup_invalid_other.is_err()',
+    'bounded_two[0].payload.add(90);',
+    'roundtrip.fields[1].payload.length, 2'
+  ]) {
+    assert.ok(t.includes(marker), 'native bounded lookup test missing: '+marker);
+  }
+}
+boundedFieldLookupGuard(wire,protobufWireTests);
+checks++;
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'proto_message_copy_bounded(message, options)', 'Ok(message)'), protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'for const field of detached.unwrap().fields do',
+  'for const field of message.fields do'), protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'if detached.is_err() then','if false then'), protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire,protobufWireTests.replace(
+  'lookup_invalid_other.is_err()', 'lookup_invalid_other.is_ok()')));
+reject(()=>boundedFieldLookupGuard(wire,protobufWireTests.replace(
+  'bounded_two[0].payload.add(90);',
+  'roundtrip.fields[1].payload.add(90);')));
+
 reject(()=>sourceGuard(wire+'%',zorde));
 reject(()=>sourceGuard(wire.replace('pub fnc proto_field_reencoded_wire_bytes(',
   'fnc removed_full_wire_size('),zorde));
