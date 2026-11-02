@@ -49,6 +49,7 @@ See the design documents on the feature branch for the detailed API and performa
 - [Std-lib/core migration and format hardening](docs/STDLIB_MIGRATION.md)
 - [Format-specific semantic models](docs/FORMAT_MODELS.md)
 - [Validation model](docs/VALIDATION.md)
+- [Dynamic map-key complexity budget](docs/MAP_KEY_COMPLEXITY_BUDGET.md)
 - [Ecosystem benchmark](docs/ECOSYSTEM-BENCHMARK.md)
 - [Benchmark plan](benchmarks/README.md)
 - [Proposed Oreslang surface](examples/proposed-api.md)
