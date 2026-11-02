@@ -207,7 +207,7 @@ function opaqueMetadataGuard(w,t,zt) {
   assert.ok(w.includes('return field.varint_fits_int || field.varint_value == 0;') &&
     w.includes('return !field.varint_fits_int && field.varint_value == 0;'),
     'opaque and non-varint fields must use canonical zero metadata');
-  assert.ok(w.includes('!valid_field_number(field.field_number) ||\\n     !proto_field_metadata_shape_valid(field) then'),
+  assert.ok(w.includes('!valid_field_number(field.field_number) ||\n     !proto_field_metadata_shape_valid(field) then'),
     'report-only validator must refuse forged non-varint metadata');
   assert.ok(w.includes('if !proto_field_metadata_shape_valid(field) then'),
     'actual encoder must refuse forged non-varint metadata');
@@ -228,7 +228,7 @@ reject(()=>opaqueMetadataGuard(wire.replace(
   'return !field.varint_fits_int && field.varint_value == 0;',
   'return true;'),protobufWireTests,protobufZordeTests));
 reject(()=>opaqueMetadataGuard(wire.replace(
-  '!valid_field_number(field.field_number) ||\\n     !proto_field_metadata_shape_valid(field) then',
+  '!valid_field_number(field.field_number) ||\n     !proto_field_metadata_shape_valid(field) then',
   '!valid_field_number(field.field_number) then'),
   protobufWireTests,protobufZordeTests));
 reject(()=>opaqueMetadataGuard(wire.replace(
