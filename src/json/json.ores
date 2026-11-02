@@ -818,13 +818,8 @@ fnc object_keys_unique(JsonWriter mut writer, List<WireMember> members): int {
     fi
 
     let WireMember member = members[i];
-    let int hash_cost = member.key.bytes.length;
-    if hash_cost > writer.map_key_work_remaining then
-      writer_fail(writer, "map_complexity_limit",
-        "JSON encoder map-key collision work exceeds the configured admission budget");
-      return -1;
-    fi
-    writer.map_key_work_remaining = writer.map_key_work_remaining - hash_cost;
+    // Hashing is a single linear pass over already byte-bounded input. Charge
+    // only repeated collision-candidate work against the complexity budget.
     let int hash = text_hash(member.key);
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
@@ -950,13 +945,8 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int hash_cost = key.bytes.length;
-    if hash_cost > cursor.map_key_work_remaining then
-      fail(cursor, "map_complexity_limit",
-        "JSON map-key hashing exceeds the configured admission budget");
-      return value_object(members);
-    fi
-    cursor.map_key_work_remaining = cursor.map_key_work_remaining - hash_cost;
+    // Hash each untrusted key once; the shared work budget covers repeated
+    // candidate comparisons, not this input-linear pass.
     let int hash = text_hash(key);
     let int existing = member_index_bounded(cursor, members, buckets, hash, key);
     if cursor.failed then
