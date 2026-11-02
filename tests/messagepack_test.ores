@@ -147,5 +147,55 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
 
+  // Security regression matrix: truncated structures and length-prefix bombs.
+  // These inputs must reject before any oversized container allocation.
+  val Result<DecodedValue, DecodeError> truncated_fixarray = decode(
+    new List<int>(146, 1),
+    default_decode_options()
+  );
+  require_true(truncated_fixarray.is_err(), "MessagePack truncated fixarray must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_fixmap = decode(
+    new List<int>(129, 161, 97),
+    default_decode_options()
+  );
+  require_true(truncated_fixmap.is_err(), "MessagePack missing fixmap value must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_ext8 = decode(
+    new List<int>(199, 3, 1, 9, 8),
+    default_decode_options()
+  );
+  require_true(truncated_ext8.is_err(), "MessagePack truncated ext8 payload must reject");
+
+  val Result<DecodedValue, DecodeError> overlong_utf8 = decode(
+    new List<int>(217, 2, 192, 175),
+    default_decode_options()
+  );
+  require_true(overlong_utf8.is_err(), "MessagePack non-shortest UTF-8 must reject");
+
+  val Result<DecodedValue, DecodeError> reserved_marker = decode(
+    new List<int>(193),
+    default_decode_options()
+  );
+  require_true(reserved_marker.is_err(), "MessagePack reserved C1 marker must reject");
+
+  val Result<DecodedValue, DecodeError> array32_bomb = decode(
+    new List<int>(221, 255, 255, 255, 255),
+    default_decode_options()
+  );
+  require_true(array32_bomb.is_err(), "MessagePack array32 length bomb must reject");
+
+  val Result<DecodedValue, DecodeError> map32_bomb = decode(
+    new List<int>(223, 255, 255, 255, 255),
+    default_decode_options()
+  );
+  require_true(map32_bomb.is_err(), "MessagePack map32 length bomb must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_str32_header = decode(
+    new List<int>(219, 0, 0),
+    default_decode_options()
+  );
+  require_true(truncated_str32_header.is_err(), "MessagePack truncated str32 header must reject");
+
   return;
 }
