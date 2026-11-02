@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
-import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
+import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
 import fnc encode_message, decode_message, fields_with_number, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
@@ -88,6 +88,59 @@ pub fnc run_protobuf_tests(): void {
     require_int(raw_bytes[j], uint64_max[j], "preserved uint64 max byte mismatch");
     j = j + 1;
   done
+
+  // A manually forged ProtoField must not claim an integer that disagrees
+  // with its separately supplied raw varint bytes. Both the report-only
+  // field admission and the actual encoder must refuse the mismatch.
+  val ProtoField forged_integer = new ProtoField(
+    1, 0, true, 2, new List<int>(1)
+  );
+  require_true(!proto_wire_field_valid(forged_integer),
+    "signed varint metadata must agree with raw bytes");
+  require_int(proto_field_reencoded_wire_bytes(forged_integer), -1,
+    "forged raw/integer pair must not receive a valid wire-size report");
+  val Result<List<int>, ProtoError> forged_encode = encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_integer)),
+    default_proto_encode_options()
+  );
+  require_true(forged_encode.is_err(),
+    "encoder must reject inconsistent declared integer and raw payload");
+
+  // Nonminimal raw varints remain acceptable when consistent with the
+  // declared signed value; re-encoding preserves the two raw value bytes.
+  val ProtoField consistent_nonminimal = new ProtoField(
+    1, 0, true, 1, new List<int>(129, 0)
+  );
+  require_true(proto_wire_field_valid(consistent_nonminimal),
+    "consistent nonminimal signed varint must remain legal");
+  val Result<List<int>, ProtoError> nonminimal_encode = encode_message(
+    new ProtoMessage(new List<ProtoField>(consistent_nonminimal)),
+    default_proto_encode_options()
+  );
+  require_true(!nonminimal_encode.is_err(),
+    "consistent nonminimal signed varint must encode");
+  require_int(nonminimal_encode.unwrap().length, 3,
+    "nonminimal signed varint preserves original two value bytes");
+  require_int(nonminimal_encode.unwrap()[1], 129,
+    "nonminimal signed varint continuation is preserved");
+  require_int(nonminimal_encode.unwrap()[2], 0,
+    "nonminimal signed varint terminal byte is preserved");
+
+  val ProtoField misclaimed_ten_byte = new ProtoField(
+    1, 0, true, 0,
+    new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)
+  );
+  require_true(!proto_wire_field_valid(misclaimed_ten_byte),
+    "ten-byte varint must never be advertised as signed-int fitting");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(misclaimed_ten_byte)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny forged signed-int fit for ten raw bytes");
+  val ProtoField opaque_ten_byte = proto_raw_varint(
+    1, new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)
+  );
+  require_true(proto_wire_field_valid(opaque_ten_byte),
+    "valid ten-byte raw varint can remain opaque and preserved");
 
   val Result<ProtoMessage, ProtoError> zero_field = decode_message(
     new List<int>(0),
