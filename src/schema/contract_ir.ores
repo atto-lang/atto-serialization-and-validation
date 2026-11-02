@@ -10,8 +10,8 @@ import class Utf8Text from '../core/value';
 import fnc utf8_is_valid from '../core/utf8';
 import class CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
 import fnc check_metadata from './metadata';
-import class DecodeOptions, DecodeError, ValidationOptions from '../core/options';
-import class ValidationReport, ValidationError from '../validation/validation';
+import class DecodeOptions, DecodeError from '../core/options';
+import class ValidationOptions, ValidationReport, ValidationError from '../validation/validation';
 import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from './object_codec';
 import fnc decode_json_object_attempt from './object_codec';
 import class Value, WireMember from '../core/value';
@@ -31,6 +31,12 @@ pub define class ContractIRError as
   pub val String code;
   pub val int field_index;
   pub val String message;
+end
+
+pub define class ContractIRCheck as
+  pub val bool ok;
+  pub val StaticContractIR ir;
+  pub val ContractIRError error;
 end
 
 pub fnc contract_ir_max_id_bytes(): int { return 128; }
@@ -55,16 +61,16 @@ fnc contract_id_valid(Utf8Text id): bool {
   return true;
 }
 
-pub fnc validate_static_contract_ir(
+pub fnc check_static_contract_ir(
   StaticContractIR ir
-): Result<StaticContractIR, ContractIRError> {
+): ContractIRCheck {
   if ir.version != 1 then
-    return Err(new ContractIRError(
+    return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_version", -1, "only static Contract IR version 1 is supported"
     ));
   fi
   if !contract_id_valid(rt borrow ir.schema_id) then
-    return Err(new ContractIRError(
+    return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_schema_id", -1, "schema identifier must be bounded printable UTF-8"
     ));
   fi
@@ -72,26 +78,26 @@ pub fnc validate_static_contract_ir(
      !is_lower_hex_digest(rt borrow ir.typespec_digest) ||
      !is_lower_hex_digest(rt borrow ir.authored_schema_digest) ||
      !is_lower_hex_digest(rt borrow ir.generated_schema_digest) then
-    return Err(new ContractIRError(
+    return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_digest", -1, "Contract IR and all three source lanes require lowercase SHA-256 digests"
     ));
   fi
   // The portable v1 runtime schema is a closed record. Ignore/preserve unknown
   // field modes are not admitted as a substitute for an open-record type.
   if ir.codec.unknown_field_policy != 1 then
-    return Err(new ContractIRError(
+    return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_open_record", -1, "Contract IR v1 requires reject-unknown closed-record metadata"
     ));
   fi
   let MetadataCheck checked = check_metadata(rt borrow ir.codec);
   if !checked.ok then
-    return Err(new ContractIRError(
+    return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_metadata",
       checked.error.field_index,
       checked.error.code
     ));
   fi
-  return Ok(ir);
+  return new ContractIRCheck(true, ir, new ContractIRError("", -1, ""));
 }
 
 /// Result of admitting static Contract IR and decoding through the existing
@@ -130,14 +136,12 @@ pub fnc decode_static_contract_json_attempt(
   StaticContractIR ir,
   ValidationOptions validation_options
 ): ContractDecodeAttempt {
-  let Result<StaticContractIR, ContractIRError> checked =
-    validate_static_contract_ir(rt borrow ir);
-  if checked.is_err() then
-    let ContractIRError error = checked.unwrap_err();
+  let ContractIRCheck checked = check_static_contract_ir(rt borrow ir);
+  if !checked.ok then
     return new ContractDecodeAttempt(
       1,
       empty_contract_decode_object(),
-      error,
+      checked.error,
       empty_contract_codec_error()
     );
   fi
