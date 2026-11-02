@@ -26,6 +26,7 @@ define class JsonWriter as
   pub val EncodeOptions options;
   pub let bool failed;
   pub let int map_key_work_remaining;
+  pub let int map_key_hash_work_remaining;
   pub let EncodeError error;
 end
 
@@ -818,8 +819,14 @@ fnc object_keys_unique(JsonWriter mut writer, List<WireMember> members): int {
     fi
 
     let WireMember member = members[i];
-    // Hashing is a single linear pass over already byte-bounded input. Charge
-    // only repeated collision-candidate work against the complexity budget.
+    // Bound the one-pass hash scan separately from repeated collision work.
+    if member.key.bytes.length > writer.map_key_hash_work_remaining then
+      writer_fail(writer, "map_complexity_limit",
+        "JSON encoder key hashing exceeds the configured output work budget");
+      return -1;
+    fi
+    writer.map_key_hash_work_remaining =
+      writer.map_key_hash_work_remaining - member.key.bytes.length;
     let int hash = text_hash(member.key);
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
@@ -1383,6 +1390,7 @@ pub fnc encode(
     options,
     false,
     map_key_work_limit(1000000, options.max_output_bytes),
+    options.max_output_bytes,
     new EncodeError("", "")
   );
 
