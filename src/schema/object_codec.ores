@@ -239,3 +239,125 @@ pub fnc decode_json_object(
   fi
   return Err(attempt.error);
 }
+
+
+// Closed, scalar JSON-record admission for deterministic AI-provider responses.
+//
+// This v1 profile deliberately supports only bool, JSON-number lexemes, and
+// UTF-8 strings. It does not certify an AttoLang nominal type, an i64 numeric
+// range, nested records, array element types, enums or Option/null semantics.
+// The result is an ordinary diagnostic dynamic Value, NOT Valid<T>.
+// Generated typed construction must remain a separate compiler-owned gate.
+pub fnc ai_scalar_decode_options(): DecodeOptions {
+  return new DecodeOptions(
+    0, false, 16, 65536, 16384, 0, 1024, 256, 256
+  );
+}
+
+fnc ai_schema_failure(String code, int index, String message): ObjectDecodeAttempt {
+  return new ObjectDecodeAttempt(
+    1,
+    empty_decoded_object(),
+    object_codec_error(
+      0,
+      new MetadataError(code, index, message),
+      empty_decode_error(),
+      empty_validation_report()
+    )
+  );
+}
+
+fnc ai_options_failure(String code, String message): ObjectDecodeAttempt {
+  return new ObjectDecodeAttempt(
+    2,
+    empty_decoded_object(),
+    object_codec_error(
+      1,
+      empty_metadata_error(),
+      new DecodeError(code, 0, message),
+      empty_validation_report()
+    )
+  );
+}
+
+pub fnc decode_ai_scalar_record_attempt(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): ObjectDecodeAttempt {
+  // Reuse the bounded, duplicate-aware metadata validation. Do not iterate
+  // untrusted fields until its name/field limits have been enforced.
+  val MetadataCheck checked = check_metadata(rt borrow metadata);
+  if !checked.ok then
+    return ai_schema_failure(
+      checked.error.code,
+      checked.error.field_index,
+      checked.error.message
+    );
+  fi
+
+  // AI structured output is a closed-record contract. A metadata profile
+  // that ignores or preserves unknown keys could discard model mistakes.
+  if metadata.unknown_field_policy != 1 then
+    return ai_schema_failure(
+      "ai_open_schema", -1,
+      "AI scalar output requires unknown-field rejection"
+    );
+  fi
+
+  let int index = 0;
+  for const field of metadata.fields do
+    let int kind = field.validation.expected_kind;
+    if kind != 1 && kind != 2 && kind != 3 then
+      return ai_schema_failure(
+        "ai_unsupported_kind", index,
+        "v1 requires explicitly typed bool, number or string fields"
+      );
+    fi
+    index = index + 1;
+  done
+
+  // Product-specific tight budgets, not the generic codec's 256 MiB ceiling.
+  // Refuse invalid/overly permissive configurations before parsing input.
+  if !decode_options_valid(rt borrow decode_options) ||
+     decode_options.max_depth > 16 ||
+     decode_options.max_input_bytes > 65536 ||
+     decode_options.max_string_bytes > 16384 ||
+     decode_options.max_binary_bytes > 65536 ||
+     decode_options.max_number_bytes > 1024 ||
+     decode_options.max_array_entries > 256 ||
+     decode_options.max_map_entries > 256 then
+    return ai_options_failure(
+      "ai_limits",
+      "AI scalar output exceeds the bounded decode profile"
+    );
+  fi
+
+  // The shared schema-bound decoder already rejects duplicate-key
+  // first/last-wins, trailing data, malformed UTF-8 and failed field rules.
+  return decode_json_object_attempt(
+    input,
+    decode_options,
+    metadata,
+    validation_options
+  );
+}
+
+pub fnc decode_ai_scalar_record(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): Result<DecodedObject, ObjectCodecError> {
+  val ObjectDecodeAttempt attempt = decode_ai_scalar_record_attempt(
+    input,
+    decode_options,
+    metadata,
+    validation_options
+  );
+  if attempt.status == 0 then
+    return Ok(attempt.decoded);
+  fi
+  return Err(attempt.error);
+}
