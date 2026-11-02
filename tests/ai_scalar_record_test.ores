@@ -1,0 +1,121 @@
+// Native .ores source-level regression cases for issue #317.
+// These assertions are NOT compiler-backed evidence until executed on an
+// exact-head trusted compiler and nonzero-step source-local runner.
+import fnc require_int, require_true from './assert';
+import class Utf8Text from '../src/core/value';
+import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
+import fnc codec_field, codec_type from '../src/schema/metadata';
+import class DecodeOptions from '../src/core/options';
+import fnc default_decode_options from '../src/core/options';
+import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from '../src/schema/object_codec';
+import fnc ai_scalar_decode_options, decode_ai_scalar_record_attempt, decode_ai_scalar_record from '../src/schema/object_codec';
+import fnc default_validation_options, kind_rule from '../src/validation/validation';
+
+fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    1, true, kind_rule(name_kind)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(115, 99, 111, 114, 101)),
+    new Utf8Text(new List<int>(115, 99, 111, 114, 101)),
+    2, true, kind_rule(score_kind)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110, 111, 116, 101)),
+    new Utf8Text(new List<int>(110, 111, 116, 101)),
+    3, false, kind_rule(3)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65, 105, 82, 101, 112, 108, 121)),
+    fields, policy
+  );
+}
+
+fnc check_ai_status(
+  List<int> input,
+  DecodeOptions options,
+  CodecTypeMeta metadata,
+  int expected,
+  String label
+): void {
+  val ObjectDecodeAttempt actual = decode_ai_scalar_record_attempt(
+    input, options, metadata, default_validation_options()
+  );
+  require_int(actual.status, expected, label);
+  return;
+}
+
+pub fnc run_ai_scalar_record_tests(): void {
+  val CodecTypeMeta closed = ai_fixture_metadata(1, 3, 2);
+  val CodecTypeMeta open_ignore = ai_fixture_metadata(0, 3, 2);
+  val CodecTypeMeta open_preserve = ai_fixture_metadata(2, 3, 2);
+  val CodecTypeMeta any_name = ai_fixture_metadata(1, -1, 2);
+  val CodecTypeMeta any_score = ai_fixture_metadata(1, 3, -1);
+  val CodecTypeMeta array_meta = ai_fixture_metadata(1, 5, 2);
+  val CodecTypeMeta object_meta = ai_fixture_metadata(1, 6, 2);
+  val CodecTypeMeta null_meta = ai_fixture_metadata(1, 0, 2);
+  val DecodeOptions strict = ai_scalar_decode_options();
+  val DecodeOptions tight = new DecodeOptions(0, false, 16, 16, 16, 0, 16, 8, 8);
+  val DecodeOptions first_wins = new DecodeOptions(1, false, 16, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions last_wins = new DecodeOptions(2, false, 16, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions allow_trailing = new DecodeOptions(0, true, 16, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions negative_bytes = new DecodeOptions(0, false, 16, -1, 128, 0, 128, 8, 8);
+
+  // Eight valid scalar-record fixtures.
+
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "normal_closed_record");
+  check_ai_status(new List<int>(123, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 125), rt borrow strict, rt borrow closed, 0, "reordered_fields");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 111, 116, 101, 34, 58, 34, 111, 107, 34, 125), rt borrow strict, rt borrow closed, 0, "optional_present");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 92, 117, 48, 48, 54, 52, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "escaped_string");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 195, 133, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "utf8_string");
+  check_ai_status(new List<int>(32, 10, 123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125, 9, 32), rt borrow strict, rt borrow closed, 0, "whitespace");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 48, 125), rt borrow strict, rt borrow closed, 0, "number_zero");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 49, 101, 50, 125), rt borrow strict, rt borrow closed, 0, "scientific_number");
+
+  // Sixteen negative and adversarial fixtures.
+  check_ai_status(new List<int>(123, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "missing_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 125), rt borrow strict, rt borrow closed, 3, "missing_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 53, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "wrong_name_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 34, 52, 50, 34, 125), rt borrow strict, rt borrow closed, 3, "wrong_score_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 110, 117, 108, 108, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "null_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 110, 117, 108, 108, 125), rt borrow strict, rt borrow closed, 3, "null_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 101, 120, 116, 114, 97, 34, 58, 49, 125), rt borrow strict, rt borrow closed, 3, "unknown_field");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "duplicate_key");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 92, 117, 48, 48, 54, 53, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "escaped_duplicate_key");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125, 32, 116, 114, 117, 101), rt borrow strict, rt borrow closed, 2, "trailing_token");
+  check_ai_status(new List<int>(91, 34, 65, 100, 97, 34, 44, 52, 50, 93), rt borrow strict, rt borrow closed, 3, "wrong_root");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58), rt borrow strict, rt borrow closed, 2, "truncated_json");
+  check_ai_status(new List<int>(123,34,110,97,109,101,34,58,34,192,128,34,44,34,115,99,111,114,101,34,58,52,50,125), rt borrow strict, rt borrow closed, 2, "invalid_utf8");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), tight, rt borrow closed, 2, "input_byte_limit");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), first_wins, rt borrow closed, 2, "unsafe_first_wins");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), allow_trailing, rt borrow closed, 2, "unsafe_trailing_policy");
+
+  // Ten additional explicit profile/policy denials.
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow open_ignore, 1, "reject_open_ignore");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow open_preserve, 1, "reject_open_preserve");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow any_name, 1, "reject_any_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow any_score, 1, "reject_any_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow array_meta, 1, "reject_array_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow object_meta, 1, "reject_object_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow null_meta, 1, "reject_null_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), default_decode_options(), rt borrow closed, 2, "reject_wide_generic_limits");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), last_wins, rt borrow closed, 2, "unsafe_last_wins");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), negative_bytes, rt borrow closed, 2, "invalid_negative_budget");
+
+  // A successful diagnostic dynamic projection must not be confused with an
+  // unforgeable Valid<T> witness or a generated nominal AttoLang record.
+  val Result<DecodedObject, ObjectCodecError> admitted = decode_ai_scalar_record(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, default_validation_options()
+  );
+  require_true(!admitted.is_err(), "scalar record Result wrapper passes valid bytes");
+  val Result<DecodedObject, ObjectCodecError> denied = decode_ai_scalar_record(
+    new List<int>(123,34,110,97,109,101,34,58,110,117,108,108,44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, default_validation_options()
+  );
+  require_true(denied.is_err(), "scalar record Result wrapper propagates schema failures");
+  return;
+}
