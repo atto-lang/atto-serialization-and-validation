@@ -32,8 +32,14 @@ descriptor alongside the compiled Zorde registry.
   signed integer are rejected unless the bytes decode to that exact integer;
   a ten-byte raw varint cannot claim `varint_fits_int=true`. Nonminimal
   one-to-nine-byte encodings remain legal when their metadata agrees.
-  The encoder normalizes field
-  **key** and length-prefix varints; byte-for-byte preservation of nonminimal
+  For opaque raw varints (`varint_fits_int=false`) and non-varint wire types,
+  `varint_value` must be the zero sentinel. Non-varint fields must also have
+  `varint_fits_int=false`. The ten-byte raw decoder returns zero in the
+  signed slot instead of leaking a partial nine-byte signed accumulator.
+  Both encoder and report-only/Zorde paths reject forged noncanonical
+  integer metadata; this does not make mutable public fields a typed proof.
+  The encoder normalizes field **key** and length-prefix varints;
+  byte-for-byte preservation of nonminimal
   keys/lengths is NOT promised. For signatures, retain the original input bytes.
 - `ProtoField.payload` for wire 1/5 is exact fixed-width little-endian content;
   for wire 2 it is the content **excluding** the length prefix; for wire 0 it
