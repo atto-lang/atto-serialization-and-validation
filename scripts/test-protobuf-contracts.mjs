@@ -168,7 +168,7 @@ function varintMetadataGuard(w,t,zt) {
     'signed raw varints longer than nine bytes must be denied');
   assert.ok(w.includes('return decoded == field.varint_value;'),
     'raw varint decoder must compare with declared signed metadata');
-  assert.ok(w.includes('return raw_varint_is_valid(field.payload) &&\\n             raw_varint_matches_declared_int(field);'),
+  assert.ok(w.includes('return raw_varint_is_valid(field.payload) &&\n             raw_varint_matches_declared_int(field);'),
     'report-only field admission must enforce metadata consistency');
   assert.ok(w.includes('!raw_varint_matches_declared_int(field) then'),
     'encoder must refuse inconsistent varint metadata');
@@ -187,7 +187,7 @@ reject(()=>varintMetadataGuard(wire.replace(
   'return decoded == field.varint_value;', 'return true;'),
   protobufWireTests,protobufZordeTests));
 reject(()=>varintMetadataGuard(wire.replace(
-  'raw_varint_is_valid(field.payload) &&\\n             raw_varint_matches_declared_int(field);',
+  'raw_varint_is_valid(field.payload) &&\n             raw_varint_matches_declared_int(field);',
   'raw_varint_is_valid(field.payload);'),
   protobufWireTests,protobufZordeTests));
 reject(()=>varintMetadataGuard(wire.replace(
