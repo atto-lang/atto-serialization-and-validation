@@ -788,6 +788,10 @@ pub fnc proto_message_copy_bounded(
   return Ok(new ProtoMessage(copy));
 }
 
+// Compatibility-only lookup for ALREADY TRUSTED bounded messages.
+// This allocates independently copied matching payloads without limits.
+// Do not call it on public/untrusted ProtoMessage input; use the checked
+// fields_with_number_bounded API below instead.
 pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
@@ -801,4 +805,39 @@ pub fnc fields_with_number(
   done
 
   return fields;
+}
+
+// Safely select a field from a caller-owned untrusted message using an
+// explicit whole-message budget, not just a budget on matching fields.
+// An otherwise huge or malformed nonmatching field cannot be used to
+// bypass the copy bounds. This creates a detached but still mutable result,
+// NOT a compiler-authenticated immutable/proven schema value. Callers must
+// have exclusive access to the original input during the snapshot operation.
+pub fnc fields_with_number_bounded(
+  ProtoMessage message,
+  int field_number,
+  ProtoDecodeOptions options
+): Result<List<ProtoField>, ProtoError> {
+  if !valid_field_number(field_number) then
+    return Err(new ProtoError("field_number", 0,
+      "invalid Protobuf field lookup number"));
+  fi
+
+  // Reuse the single reviewed whole-message preflight/snapshot function.
+  // This scans and copies all fields under the original input budget,
+  // including fields that will not appear in the selection.
+  val Result<ProtoMessage, ProtoError> detached =
+    proto_message_copy_bounded(message, options);
+  if detached.is_err() then
+    return Err(new ProtoError("invalid_message", 0,
+      "Protobuf field lookup rejected malformed or over-budget message"));
+  fi
+
+  val List<ProtoField> selected = new List<ProtoField>();
+  for const field of detached.unwrap().fields do
+    if field.field_number == field_number then
+      selected.add(field);
+    fi
+  done
+  return Ok(selected);
 }
