@@ -66,6 +66,45 @@ pub fnc run_contract_ir_tests(): void {
   require_true(!bad_digest.ok && bad_digest.error.code == "contract_ir_digest",
     "uppercase/noncanonical digest bytes must reject");
 
+  let StaticContractIR bad_typespec_ir = new StaticContractIR(
+    1,
+    valid_ir.schema_id,
+    valid_ir.ir_digest,
+    new Utf8Text(malformed_digest_bytes),
+    valid_ir.authored_schema_digest,
+    valid_ir.generated_schema_digest,
+    valid_ir.codec
+  );
+  let ContractIRCheck bad_typespec_digest = check_static_contract_ir(rt borrow bad_typespec_ir);
+  require_true(!bad_typespec_digest.ok && bad_typespec_digest.error.code == "contract_ir_digest",
+    "TypeSpec source digest must be checked independently");
+
+  let StaticContractIR bad_authored_ir = new StaticContractIR(
+    1,
+    valid_ir.schema_id,
+    valid_ir.ir_digest,
+    valid_ir.typespec_digest,
+    new Utf8Text(malformed_digest_bytes),
+    valid_ir.generated_schema_digest,
+    valid_ir.codec
+  );
+  let ContractIRCheck bad_authored_digest = check_static_contract_ir(rt borrow bad_authored_ir);
+  require_true(!bad_authored_digest.ok && bad_authored_digest.error.code == "contract_ir_digest",
+    "independently authored JSON Schema digest must be checked independently");
+
+  let StaticContractIR bad_generated_ir = new StaticContractIR(
+    1,
+    valid_ir.schema_id,
+    valid_ir.ir_digest,
+    valid_ir.typespec_digest,
+    valid_ir.authored_schema_digest,
+    new Utf8Text(malformed_digest_bytes),
+    valid_ir.codec
+  );
+  let ContractIRCheck bad_generated_digest = check_static_contract_ir(rt borrow bad_generated_ir);
+  require_true(!bad_generated_digest.ok && bad_generated_digest.error.code == "contract_ir_digest",
+    "generated comparison schema digest must be checked independently");
+
   let ContractIRCheck open_record = check_static_contract_ir(
     person_contract(1, 0, digest_byte(97))
   );
