@@ -154,6 +154,51 @@ function sourceGuard(w,z) {
 }
 sourceGuard(wire,zorde);
 checks++;
+
+// Source-only defense-in-depth: both actual encoder and report-only admission
+// must enforce the same raw-varint/signed-metadata consistency constraint.
+// Mutation probes ensure this tripwire catches removing either enforcement.
+const protobufWireTests=readFileSync('tests/protobuf_test.ores','utf8');
+const protobufZordeTests=readFileSync('tests/protobuf_zorde_test.ores','utf8');
+function varintMetadataGuard(w,t,zt) {
+  assert.ok(w.includes('fnc raw_varint_matches_declared_int(ProtoField field): bool'),
+    'missing declared integer/raw Protobuf consistency helper');
+  assert.ok(w.includes('if field.payload.length > 9 then') ||
+    w.includes('field.payload.length > 9 then'),
+    'signed raw varints longer than nine bytes must be denied');
+  assert.ok(w.includes('return decoded == field.varint_value;'),
+    'raw varint decoder must compare with declared signed metadata');
+  assert.ok(w.includes('return raw_varint_is_valid(field.payload) &&\\n             raw_varint_matches_declared_int(field);'),
+    'report-only field admission must enforce metadata consistency');
+  assert.ok(w.includes('!raw_varint_matches_declared_int(field) then'),
+    'encoder must refuse inconsistent varint metadata');
+  assert.ok(t.includes('val ProtoField forged_integer =') &&
+    t.includes('val ProtoField consistent_nonminimal =') &&
+    t.includes('val ProtoField misclaimed_ten_byte ='),
+    'native wire tests must cover forged, legitimate and ten-byte cases');
+  assert.ok(zt.includes('forged_metadata_report.errors[0].code == "wrong-type"') &&
+    zt.includes('matching_nonminimal_report.errors.length, 0') &&
+    zt.includes('false_signed_fit_report.errors[0].code == "wrong-type"'),
+    'native Zorde tests must cover forged and legitimate raw varints');
+}
+varintMetadataGuard(wire,protobufWireTests,protobufZordeTests);
+checks++;
+reject(()=>varintMetadataGuard(wire.replace(
+  'return decoded == field.varint_value;', 'return true;'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire.replace(
+  'raw_varint_is_valid(field.payload) &&\\n             raw_varint_matches_declared_int(field);',
+  'raw_varint_is_valid(field.payload);'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire.replace(
+  '!raw_varint_matches_declared_int(field) then', 'false then'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire,protobufWireTests.replace(
+  'val ProtoField forged_integer =', 'val ProtoField untested_forged_integer ='),
+  protobufZordeTests));
+reject(()=>varintMetadataGuard(wire,protobufWireTests,
+  protobufZordeTests.replace('forged_metadata_report.errors[0].code == "wrong-type"',
+    'forged_metadata_report.errors[0].code == "accepted"')));
 reject(()=>sourceGuard(wire+'%',zorde));
 reject(()=>sourceGuard(wire.replace('pub fnc proto_field_reencoded_wire_bytes(',
   'fnc removed_full_wire_size('),zorde));
