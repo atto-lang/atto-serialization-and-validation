@@ -157,7 +157,7 @@ pub fnc run_messagepack_tests(): void {
   let List<int> msgpack_work_below = new List<int>();
   msgpack_work_below.add(132);
   for (let i = 0; i < 4; i++) {
-    msgpack_work_below.add(129);
+    msgpack_work_below.add(130);
     for (let n = 0; n < 2; n++) {
       msgpack_work_below.add(176);
       for (let j = 0; j < 16; j++) { msgpack_work_below.add(97); }
@@ -173,7 +173,7 @@ pub fnc run_messagepack_tests(): void {
   let List<int> msgpack_work_over = new List<int>();
   msgpack_work_over.add(132);
   for (let i = 0; i < 5; i++) {
-    msgpack_work_over.add(129);
+    msgpack_work_over.add(130);
     for (let n = 0; n < 2; n++) {
       msgpack_work_over.add(176);
       for (let j = 0; j < 16; j++) { msgpack_work_over.add(97); }
@@ -191,7 +191,7 @@ pub fnc run_messagepack_tests(): void {
   let List<int> nested_map_work = new List<int>();
   nested_map_work.add(148);
   for (let i = 0; i < 4; i++) {
-    nested_map_work.add(129);
+    nested_map_work.add(130);
     for (let n = 0; n < 2; n++) {
       nested_map_work.add(176);
       for (let j = 0; j < 16; j++) { nested_map_work.add(97); }
