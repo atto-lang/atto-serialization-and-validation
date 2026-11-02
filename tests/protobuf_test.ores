@@ -2,7 +2,7 @@ import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
-import fnc encode_message, decode_message, fields_with_number, proto_message_copy_bounded from '../src/protobuf/wire';
+import fnc encode_message, decode_message, fields_with_number, fields_with_number_bounded, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
   val List<ProtoField> fields = new List<ProtoField>();
@@ -52,6 +52,44 @@ pub fnc run_protobuf_tests(): void {
   require_int(roundtrip.fields[1].payload.length, 2,
     "field lookup mutation must not corrupt original message");
 
+
+  // Bounded lookup accounts for ALL input fields before selecting matches.
+  // Field 1 is 3 encoded bytes; field 2 is 4 bytes (key, length and data).
+  val Result<List<ProtoField>, ProtoError> bounded_lookup =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(7, 2, 2));
+  require_true(!bounded_lookup.is_err(), "whole-message bounded lookup must accept exact budget");
+  val List<ProtoField> bounded_two = bounded_lookup.unwrap();
+  require_int(bounded_two.length, 1, "bounded lookup returns one matching field");
+  require_int(bounded_two[0].payload.length, 2, "bounded lookup retains detached content");
+  bounded_two[0].payload.add(90);
+  require_int(roundtrip.fields[1].payload.length, 2,
+    "bounded lookup must not expose original mutable payload");
+
+  val Result<List<ProtoField>, ProtoError> lookup_too_small =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(6, 2, 2));
+  require_true(lookup_too_small.is_err(),
+    "bounded lookup must count nonmatching field wire bytes");
+
+  val Result<List<ProtoField>, ProtoError> lookup_too_many =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(7, 1, 2));
+  require_true(lookup_too_many.is_err(),
+    "bounded lookup must reject excess nonmatching fields");
+
+  val Result<List<ProtoField>, ProtoError> lookup_invalid_number =
+    fields_with_number_bounded(roundtrip, 0, new ProtoDecodeOptions(7, 2, 2));
+  require_true(lookup_invalid_number.is_err(),
+    "bounded lookup refuses an invalid selected field number");
+
+  val List<ProtoField> malformed_unselected_fields = new List<ProtoField>();
+  malformed_unselected_fields.add(proto_raw_varint(1, new List<int>(128)));
+  malformed_unselected_fields.add(proto_bytes(2, new List<int>(9)));
+  val Result<List<ProtoField>, ProtoError> lookup_invalid_other =
+    fields_with_number_bounded(
+      new ProtoMessage(malformed_unselected_fields), 2,
+      new ProtoDecodeOptions(16, 2, 16)
+    );
+  require_true(lookup_invalid_other.is_err(),
+    "malformed nonmatching fields must not bypass bounded selection");
 
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
