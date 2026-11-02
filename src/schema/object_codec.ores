@@ -9,6 +9,7 @@
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_object from '../core/value';
 import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
+import fnc decode_options_valid from '../core/options';
 import fnc decode_attempt from '../json/json';
 import class ValidationOptions, ValidationReport, ValidationError, PathSegment, FieldRule, ObjectSchema from '../validation/validation';
 import fnc field_rule, object_schema, validate_object, report_is_valid from '../validation/validation';
