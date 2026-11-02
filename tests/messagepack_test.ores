@@ -148,21 +148,17 @@ pub fnc run_messagepack_tests(): void {
   require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
 
 
-  // Four 16-byte string-key pairs stay below the per-decode work budget.
-  // Five pairs exceed it. first_wins deliberately keeps parsing so candidate
-  // comparisons consume the same operation-local counter.
+  // Four 16-byte equal string-key pairs stay below the shared work budget;
+  // five exceed it. The map is one operation, not four independent decodes.
   val DecodeOptions bounded_map_work = new DecodeOptions(
     1, false, 128, 4096, 32, 64, 64, 16, 16
   );
   let List<int> msgpack_work_below = new List<int>();
   msgpack_work_below.add(132);
   for (let i = 0; i < 4; i++) {
-    msgpack_work_below.add(130);
-    for (let n = 0; n < 2; n++) {
-      msgpack_work_below.add(176);
-      for (let j = 0; j < 16; j++) { msgpack_work_below.add(97); }
-      msgpack_work_below.add(n + 1);
-    }
+    msgpack_work_below.add(176);
+    for (let j = 0; j < 16; j++) { msgpack_work_below.add(97); }
+    msgpack_work_below.add(i + 1);
   }
   val Result<DecodedValue, DecodeError> msgpack_work_ok = decode(
     msgpack_work_below, bounded_map_work
@@ -171,14 +167,11 @@ pub fnc run_messagepack_tests(): void {
     "MessagePack map-key work below budget must succeed");
 
   let List<int> msgpack_work_over = new List<int>();
-  msgpack_work_over.add(132);
+  msgpack_work_over.add(133);
   for (let i = 0; i < 5; i++) {
-    msgpack_work_over.add(130);
-    for (let n = 0; n < 2; n++) {
-      msgpack_work_over.add(176);
-      for (let j = 0; j < 16; j++) { msgpack_work_over.add(97); }
-      msgpack_work_over.add(n + 1);
-    }
+    msgpack_work_over.add(176);
+    for (let j = 0; j < 16; j++) { msgpack_work_over.add(97); }
+    msgpack_work_over.add(i + 1);
   }
   val Result<DecodedValue, DecodeError> msgpack_work_limited = decode(
     msgpack_work_over, bounded_map_work
@@ -187,7 +180,7 @@ pub fnc run_messagepack_tests(): void {
     "MessagePack map-key work above budget must fail closed");
 
   // Nested maps share one decoder-wide counter. Four individually cheap maps
-  // together exceed the total allowance; resetting per nested map would miss it.
+  // together exceed the total allowance; resetting per map would miss it.
   let List<int> nested_map_work = new List<int>();
   nested_map_work.add(148);
   for (let i = 0; i < 4; i++) {
@@ -203,6 +196,5 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(nested_map_limited.is_err(),
     "nested MessagePack maps must share one operation-wide work budget");
-
   return;
 }
