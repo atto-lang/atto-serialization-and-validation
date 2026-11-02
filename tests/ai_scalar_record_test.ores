@@ -57,6 +57,7 @@ pub fnc run_ai_scalar_record_tests(): void {
   val CodecTypeMeta array_meta = ai_fixture_metadata(1, 5, 2);
   val CodecTypeMeta object_meta = ai_fixture_metadata(1, 6, 2);
   val CodecTypeMeta null_meta = ai_fixture_metadata(1, 0, 2);
+  val CodecTypeMeta bool_meta = ai_fixture_metadata(1, 3, 1);
   val DecodeOptions strict = ai_scalar_decode_options();
   val DecodeOptions tight = new DecodeOptions(0, false, 16, 16, 16, 0, 16, 8, 8);
   val DecodeOptions first_wins = new DecodeOptions(1, false, 16, 256, 128, 0, 128, 8, 8);
@@ -104,6 +105,13 @@ pub fnc run_ai_scalar_record_tests(): void {
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), default_decode_options(), rt borrow closed, 2, "reject_wide_generic_limits");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), last_wins, rt borrow closed, 2, "unsafe_last_wins");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), negative_bytes, rt borrow closed, 2, "invalid_negative_budget");
+
+
+  // Boolean-typed metadata and optional-absent versus present-null rules.
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 116, 114, 117, 101, 125), rt borrow strict, rt borrow bool_meta, 0, "boolean_true");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 102, 97, 108, 115, 101, 125), rt borrow strict, rt borrow bool_meta, 0, "boolean_false");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 34, 116, 114, 117, 101, 34, 125), rt borrow strict, rt borrow bool_meta, 3, "boolean_wrong_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 111, 116, 101, 34, 58, 110, 117, 108, 108, 125), rt borrow strict, rt borrow closed, 3, "present_optional_null");
 
   // A successful diagnostic dynamic projection must not be confused with an
   // unforgeable Valid<T> witness or a generated nominal AttoLang record.
