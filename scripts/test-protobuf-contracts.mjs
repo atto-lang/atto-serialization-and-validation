@@ -199,6 +199,53 @@ reject(()=>varintMetadataGuard(wire,protobufWireTests.replace(
 reject(()=>varintMetadataGuard(wire,protobufWireTests,
   protobufZordeTests.replace('forged_metadata_report.errors[0].code == "wrong-type"',
     'forged_metadata_report.errors[0].code == "accepted"')));
+// Opaque raw and non-varint fields have zero-sentinel integer metadata.
+// These are lexical/mutation checks only: NOT native guest or CI proof.
+function opaqueMetadataGuard(w,t,zt) {
+  assert.ok(w.includes('fnc proto_field_metadata_shape_valid(ProtoField field): bool'),
+    'missing field-wide signed metadata canonicalization');
+  assert.ok(w.includes('return field.varint_fits_int || field.varint_value == 0;') &&
+    w.includes('return !field.varint_fits_int && field.varint_value == 0;'),
+    'opaque and non-varint fields must use canonical zero metadata');
+  assert.ok(w.includes('!valid_field_number(field.field_number) ||\\n     !proto_field_metadata_shape_valid(field) then'),
+    'report-only validator must refuse forged non-varint metadata');
+  assert.ok(w.includes('if !proto_field_metadata_shape_valid(field) then'),
+    'actual encoder must refuse forged non-varint metadata');
+  assert.ok(w.includes('return new VarintRead(true, false, 0, bytes);'),
+    'raw-only decoder must not expose partially decoded signed integer');
+  assert.ok(t.includes('val ProtoField opaque_forged_integer =') &&
+    t.includes('val ProtoField forged_delimited_metadata =') &&
+    t.includes('val ProtoField forged_fixed_metadata =') &&
+    t.includes('raw_roundtrip.fields[0].varint_value, 0'),
+    'wire guests must cover opaque/fixed/delimited and decode sentinel');
+  assert.ok(zt.includes('val List<ProtoField> forged_opaque_metadata =') &&
+    zt.includes('val List<ProtoField> forged_nonvarint_metadata ='),
+    'Zorde guests must refuse field-wide forged signed metadata');
+}
+opaqueMetadataGuard(wire,protobufWireTests,protobufZordeTests);
+checks++;
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'return !field.varint_fits_int && field.varint_value == 0;',
+  'return true;'),protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  '!valid_field_number(field.field_number) ||\\n     !proto_field_metadata_shape_valid(field) then',
+  '!valid_field_number(field.field_number) then'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'if !proto_field_metadata_shape_valid(field) then',
+  'if false then'),protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'return new VarintRead(true, false, 0, bytes);',
+  'return new VarintRead(true, false, value, bytes);'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire,
+  protobufWireTests.replace('val ProtoField forged_fixed_metadata =',
+    'val ProtoField untested_fixed_metadata ='),
+  protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire,protobufWireTests,
+  protobufZordeTests.replace('val List<ProtoField> forged_opaque_metadata =',
+    'val List<ProtoField> untested_opaque_metadata =')));
+
 reject(()=>sourceGuard(wire+'%',zorde));
 reject(()=>sourceGuard(wire.replace('pub fnc proto_field_reencoded_wire_bytes(',
   'fnc removed_full_wire_size('),zorde));
