@@ -3,6 +3,7 @@
 // exact-head trusted compiler and nonzero-step source-local runner.
 import fnc require_int, require_true from './assert';
 import class Utf8Text from '../src/core/value';
+import fnc int_to_decimal_bytes from '../src/core/value';
 import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
 import fnc codec_field, codec_type from '../src/schema/metadata';
 import class DecodeOptions from '../src/core/options';
@@ -31,6 +32,25 @@ fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMet
   return codec_type(
     new Utf8Text(new List<int>(65, 105, 82, 101, 112, 108, 121)),
     fields, policy
+  );
+}
+
+// Exercise the exact count boundary with distinct, well-formed keys.
+// No duplicate-name error may hide a missing AI-profile budget guard.
+fnc ai_many_fields(int count): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  let int index = 0;
+  loop do
+    if index >= count then break; fi
+    val Utf8Text key = new Utf8Text(int_to_decimal_bytes(index));
+    fields.push(codec_field(
+      rt borrow key, rt borrow key, index + 1, false, kind_rule(3)
+    ));
+    index = index + 1;
+  done
+  return codec_type(
+    new Utf8Text(new List<int>(65, 105, 66, 111, 117, 110, 100)),
+    fields, 1
   );
 }
 
@@ -125,6 +145,40 @@ pub fnc run_ai_scalar_record_tests(): void {
     rt borrow strict, rt borrow closed, default_validation_options()
   );
   require_true(denied.is_err(), "scalar record Result wrapper propagates schema failures");
+
+  // 256-field exact boundary, 257-field rejection before metadata hashing.
+  val CodecTypeMeta at_field_limit = ai_many_fields(256);
+  val ObjectDecodeAttempt max_fields_ok = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow at_field_limit, default_validation_options()
+  );
+  require_int(max_fields_ok.status, 0,
+    "256 distinct optional scalar fields must be accepted");
+  val CodecTypeMeta past_field_limit = ai_many_fields(257);
+  val ObjectDecodeAttempt fields_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(fields_rejected.status, 1,
+    "257 declared fields must fail before schema traversal");
+  require_true(fields_rejected.error.metadata_error.code == "ai_schema_field_limit",
+    "excessive schema must fail specifically on AI field budget");
+  require_int(fields_rejected.decoded.consumed, 0,
+    "oversized schema must never publish a decoded object");
+
+  // Binary storage is unsupported for the scalar JSON profile. Even one
+  // allowed binary byte must be refused before decoder invocation.
+  val DecodeOptions nonzero_binary = new DecodeOptions(
+    0, false, 16, 65536, 16384, 1, 1024, 256, 256
+  );
+  val ObjectDecodeAttempt binary_refused = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow nonzero_binary,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(binary_refused.status, 2,
+    "nonzero binary decode budget is disallowed by scalar JSON profile");
+  require_true(binary_refused.error.decode_error.code == "ai_limits",
+    "binary profile rejection has bounded configuration error");
 
   // Boundaries: full 65,536-byte message is admitted, but one extra byte is
   // refused before parsing. Padding uses trailing JSON whitespace only.
