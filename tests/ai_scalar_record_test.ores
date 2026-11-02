@@ -117,5 +117,55 @@ pub fnc run_ai_scalar_record_tests(): void {
     rt borrow strict, rt borrow closed, default_validation_options()
   );
   require_true(denied.is_err(), "scalar record Result wrapper propagates schema failures");
+
+  // Boundaries: full 65,536-byte message is admitted, but one extra byte is
+  // refused before parsing. Padding uses trailing JSON whitespace only.
+  let List<int> boundary_input = new List<int>(
+    123,34,110,97,109,101,34,58,34,65,100,97,34,44,
+    34,115,99,111,114,101,34,58,52,50,125
+  );
+  loop do
+    if boundary_input.length >= strict.max_input_bytes then break; fi
+    boundary_input.push(32);
+  done
+  val ObjectDecodeAttempt boundary_ok = decode_ai_scalar_record_attempt(
+    rt borrow boundary_input, rt borrow strict,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(boundary_ok.status, 0, "exact input byte ceiling must admit");
+  require_int(boundary_ok.decoded.consumed, strict.max_input_bytes,
+    "exact-limit success must consume the entire JSON document");
+  boundary_input.push(32);
+  val ObjectDecodeAttempt boundary_reject = decode_ai_scalar_record_attempt(
+    rt borrow boundary_input, rt borrow strict,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(boundary_reject.status, 2, "one byte beyond the ceiling must reject");
+  require_true(boundary_reject.error.decode_error.code == "input_limit",
+    "over-limit failure must be a byte budget error");
+  require_int(boundary_reject.decoded.consumed, 0,
+    "rejected oversized input must not publish any decoded object");
+
+  // Typed schema denials have exact machine-readable metadata errors.
+  val ObjectDecodeAttempt open_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow open_ignore, default_validation_options()
+  );
+  require_true(open_reject.error.metadata_error.code == "ai_open_schema",
+    "open-record schema requires explicit fail-closed classification");
+  val ObjectDecodeAttempt kind_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow any_name, default_validation_options()
+  );
+  require_true(kind_reject.error.metadata_error.code == "ai_unsupported_kind",
+    "untyped any is not a typed scalar output contract");
+  val ObjectDecodeAttempt options_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), default_decode_options(),
+    rt borrow closed, default_validation_options()
+  );
+  require_true(options_reject.error.decode_error.code == "ai_limits",
+    "wide codec option ceiling must fail before decode");
+  require_int(options_reject.decoded.consumed, 0,
+    "unsafe decoder configuration must not publish a partial object");
   return;
 }
