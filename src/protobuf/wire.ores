@@ -261,6 +261,33 @@ fnc raw_varint_is_valid(List<int> bytes): bool {
   return true;
 }
 
+// The public ProtoField constructor can supply BOTH a signed integer and raw
+// bytes. Bind them before validation/encoding so consumers cannot observe one
+// value while the wire carries another. raw_varint_is_valid must run first.
+// A 10-byte raw encoding is opaque even when its numeric value is small:
+// read_varint marks such input as not fitting the signed-int representation.
+fnc raw_varint_matches_declared_int(ProtoField field): bool {
+  if !field.varint_fits_int then
+    return true;
+  fi
+  if field.varint_value < 0 || field.payload.length > 9 then
+    return false;
+  fi
+
+  let int decoded = 0;
+  let int multiplier = 1;
+  let int index = 0;
+  for const byte of field.payload do
+    val int part = byte - ((byte / 128) * 128);
+    decoded = decoded + part * multiplier;
+    if index < 8 then
+      multiplier = multiplier * 128;
+    fi
+    index = index + 1;
+  done
+  return decoded == field.varint_value;
+}
+
 fnc read_payload(
   ProtoCursor mut cursor,
   int length,
@@ -497,7 +524,8 @@ pub fnc proto_wire_field_valid(ProtoField field): bool {
 
   if field.wire_type == 0 then
     if field.payload.length > 0 then
-      return raw_varint_is_valid(field.payload);
+      return raw_varint_is_valid(field.payload) &&
+             raw_varint_matches_declared_int(field);
     fi
     return field.varint_fits_int && field.varint_value >= 0;
   fi
@@ -595,8 +623,9 @@ fnc encode_field(
 
   if field.wire_type == 0 then
     if field.payload.length > 0 then
-      if !raw_varint_is_valid(field.payload) then
-        writer_fail(writer, "varint_payload", "raw Protobuf varint payload is malformed");
+      if !raw_varint_is_valid(field.payload) ||
+         !raw_varint_matches_declared_int(field) then
+        writer_fail(writer, "varint_payload", "raw Protobuf varint bytes or declared integer are inconsistent");
         return;
       fi
       append_payload(writer, field.payload);
