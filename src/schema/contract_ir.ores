@@ -8,8 +8,8 @@
 
 import class Utf8Text from '../core/value';
 import fnc utf8_is_valid from '../core/utf8';
-import class CodecTypeMeta, MetadataError from './metadata';
-import fnc validate_metadata from './metadata';
+import class CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
+import fnc check_metadata from './metadata';
 
 pub define class StaticContractIR as
   pub val int version;
@@ -77,12 +77,12 @@ pub fnc validate_static_contract_ir(
       "contract_ir_open_record", -1, "Contract IR v1 requires reject-unknown closed-record metadata"
     ));
   fi
-  let Result<CodecTypeMeta, MetadataError> checked =
-    validate_metadata(rt borrow ir.codec);
-  if checked.is_err() then
-    let MetadataError error = checked.unwrap_err();
+  let MetadataCheck checked = check_metadata(rt borrow ir.codec);
+  if !checked.ok then
     return Err(new ContractIRError(
-      "contract_ir_metadata", error.field_index, error.code
+      "contract_ir_metadata",
+      checked.error.field_index,
+      checked.error.code
     ));
   fi
   return Ok(ir);
