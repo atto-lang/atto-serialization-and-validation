@@ -213,7 +213,12 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
         cursor_fail(cursor, "varint_overflow", "Protobuf uint64 varint overflow");
         return new VarintRead(false, false, 0, bytes);
       fi
-      return new VarintRead(true, fits_int, value, bytes);
+      // Ten-byte varints are raw-only: never expose a partially decoded
+      // signed value from the first nine bytes as semantic metadata.
+      if !fits_int then
+        return new VarintRead(true, false, 0, bytes);
+      fi
+      return new VarintRead(true, true, value, bytes);
     fi
 
     if count == 10 then
@@ -266,6 +271,17 @@ fnc raw_varint_is_valid(List<int> bytes): bool {
 // value while the wire carries another. raw_varint_is_valid must run first.
 // A 10-byte raw encoding is opaque even when its numeric value is small:
 // read_varint marks such input as not fitting the signed-int representation.
+// Only type-0 fields carry meaningful signed integer metadata. For an
+// opaque raw varint, and for every non-varint wire type, the integer slot
+// must be the zero sentinel. Prevent public ProtoField construction from
+// laundering unrelated integer claims into a valid wire envelope.
+fnc proto_field_metadata_shape_valid(ProtoField field): bool {
+  if field.wire_type == 0 then
+    return field.varint_fits_int || field.varint_value == 0;
+  fi
+  return !field.varint_fits_int && field.varint_value == 0;
+}
+
 fnc raw_varint_matches_declared_int(ProtoField field): bool {
   if !field.varint_fits_int then
     return true;
@@ -518,7 +534,8 @@ fnc valid_field_number(int field_number): bool {
 // Report-only syntax check for descriptor-independent field envelopes. This
 // does not validate a typed Protobuf schema or produce a Zorde Valid<T> proof.
 pub fnc proto_wire_field_valid(ProtoField field): bool {
-  if !valid_field_number(field.field_number) then
+  if !valid_field_number(field.field_number) ||
+     !proto_field_metadata_shape_valid(field) then
     return false;
   fi
 
@@ -613,6 +630,12 @@ fnc encode_field(
      field.wire_type != 2 &&
      field.wire_type != 5 then
     writer_fail(writer, "wire_type", "unsupported Protobuf wire type");
+    return;
+  fi
+
+  if !proto_field_metadata_shape_valid(field) then
+    writer_fail(writer, "varint_metadata",
+      "non-varint or opaque raw field has inconsistent signed metadata");
     return;
   fi
 
