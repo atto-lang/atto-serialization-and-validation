@@ -27,8 +27,8 @@ Current design deliberately includes no LLM requests, retries, provider credenti
 
 - Status 0: validated *dynamic* scalar record. Status 1: metadata/profile failure. Status 2: JSON/options failure. Status 3: field-validation/root-kind failure.
 - Errors leave decoded output at `consumed=0` and never return a partial successful `DecodedObject`.
-- Test source: `tests/ai_scalar_record_test.ores`, registered in `tests/main.ores`. Includes 8 positive, 16 negative payload/policy, 10 extra strict profile fixtures, 2 Result checks, exact input-size ceiling, and diagnostic code checks.
-- A separate host-side reference oracle for 34 fixtures is **not** AttoLang compiler or guest evidence.
+- Test source: `tests/ai_scalar_record_test.ores`, registered in `tests/main.ores`. Includes 8 baseline positive, 16 baseline negative, 10 strict profile fixtures, 4 extra boolean/optional-null fixtures, 2 Result checks, exact input-size ceiling, and diagnostic code checks.
+- A separate host-side reference oracle for the 38 scalar/policy fixtures is **not** AttoLang compiler or guest evidence.
 - The PR remains draft until exact-head runner-backed compiler execution, actual guest output, independent security review, and branch protections. An Actions run with `steps:null` is a **runner admission failure**, not a compiler test outcome.
 
 ## Next implementation gates
