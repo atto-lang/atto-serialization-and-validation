@@ -1,0 +1,127 @@
+import fnc require_true from './assert';
+
+import class Utf8Text from '../src/core/value';
+import class DecodeOptions from '../src/core/options';
+import fnc default_decode_options from '../src/core/options';
+import fnc any_rule, string_rule, default_validation_options from '../src/validation/validation';
+import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
+import fnc codec_field, codec_type from '../src/schema/metadata';
+import class ContractIRCheck, StaticContractIR, ContractDecodeAttempt from '../src/schema/contract_ir';
+import fnc check_static_contract_ir, decode_static_contract_json_attempt from '../src/schema/contract_ir';
+
+fnc digest_byte(int fill): Utf8Text {
+  let List<int> bytes = new List<int>();
+  for (let i = 0; i < 64; i = i + 1) { bytes.add(fill); }
+  return new Utf8Text(bytes);
+}
+
+fnc person_contract(int version, int unknown_policy, Utf8Text digest): StaticContractIR {
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.add(codec_field(
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    1,
+    true,
+    string_rule(1, 32, false, false, false, false)
+  ));
+  fields.add(codec_field(
+    new Utf8Text(new List<int>(97, 103, 101)),
+    new Utf8Text(new List<int>(97, 103, 101)),
+    2,
+    false,
+    any_rule()
+  ));
+  let CodecTypeMeta metadata = codec_type(
+    new Utf8Text(new List<int>(80, 101, 114, 115, 111, 110)),
+    fields,
+    unknown_policy
+  );
+  return new StaticContractIR(
+    version,
+    new Utf8Text(new List<int>(99, 111, 109, 46, 101, 120, 97, 109, 112, 108, 101, 46, 80, 101, 114, 115, 111, 110, 46, 118, 49)),
+    digest,
+    digest_byte(98),
+    digest_byte(99),
+    digest_byte(100),
+    metadata
+  );
+}
+
+pub fnc run_contract_ir_tests(): void {
+  val StaticContractIR valid_ir = person_contract(1, 1, digest_byte(97));
+  let ContractIRCheck valid = check_static_contract_ir(rt borrow valid_ir);
+  require_true(valid.ok, "version 1 Contract IR with three peer digests and closed metadata must pass");
+
+  let ContractIRCheck bad_version = check_static_contract_ir(
+    person_contract(2, 1, digest_byte(97))
+  );
+  require_true(!bad_version.ok && bad_version.error.code == "contract_ir_version",
+    "unsupported Contract IR version must reject");
+
+  let List<int> malformed_digest_bytes = new List<int>();
+  for (let i = 0; i < 64; i = i + 1) { malformed_digest_bytes.add(65); }
+  let ContractIRCheck bad_digest = check_static_contract_ir(
+    person_contract(1, 1, new Utf8Text(malformed_digest_bytes))
+  );
+  require_true(!bad_digest.ok && bad_digest.error.code == "contract_ir_digest",
+    "uppercase/noncanonical digest bytes must reject");
+
+  let ContractIRCheck open_record = check_static_contract_ir(
+    person_contract(1, 0, digest_byte(97))
+  );
+  require_true(!open_record.ok && open_record.error.code == "contract_ir_open_record",
+    "ignore-unknown object codec must not satisfy a closed Contract IR");
+
+  let ContractIRCheck preserve_record = check_static_contract_ir(
+    person_contract(1, 2, digest_byte(97))
+  );
+  require_true(!preserve_record.ok && preserve_record.error.code == "contract_ir_open_record",
+    "preserve-unknown object codec must not satisfy a closed Contract IR");
+
+  let List<int> valid_json = new List<int>(
+    123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 125
+  );
+  let ContractDecodeAttempt decoded = decode_static_contract_json_attempt(
+    valid_json,
+    default_decode_options(),
+    valid_ir,
+    default_validation_options()
+  );
+  require_true(decoded.status == 0 && decoded.decoded.source_object.object_value.length == 1,
+    "valid closed-record JSON decodes using the admitted static Contract IR");
+
+  let List<int> unknown_json = new List<int>(
+    123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34,
+    44, 34, 114, 111, 108, 101, 34, 58, 34, 97, 100, 109, 105, 110, 34, 125
+  );
+  let ContractDecodeAttempt unknown = decode_static_contract_json_attempt(
+    unknown_json,
+    default_decode_options(),
+    valid_ir,
+    default_validation_options()
+  );
+  require_true(unknown.status == 2,
+    "closed-record decoder rejects unknown fields before returning a decoded object");
+
+  let List<int> missing_required_json = new List<int>(
+    123, 34, 97, 103, 101, 34, 58, 52, 50, 125
+  );
+  let ContractDecodeAttempt missing = decode_static_contract_json_attempt(
+    missing_required_json,
+    default_decode_options(),
+    valid_ir,
+    default_validation_options()
+  );
+  require_true(missing.status == 2,
+    "closed-record decoder rejects missing required fields");
+
+  let ContractDecodeAttempt invalid_ir_decode = decode_static_contract_json_attempt(
+    valid_json,
+    default_decode_options(),
+    person_contract(1, 0, digest_byte(97)),
+    default_validation_options()
+  );
+  require_true(invalid_ir_decode.status == 1,
+    "invalid open Contract IR is rejected before decoding attacker payload bytes");
+  return;
+}
