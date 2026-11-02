@@ -203,7 +203,7 @@ pub fnc run_json_tests(): void {
   let List<int> json_work_below = new List<int>();
   json_work_below.add(123);
   for (let i = 0; i < 3; i++) {
-    if i > 0; then json_work_below.add(44); fi
+    if i > 0 then json_work_below.add(44); fi
     json_work_below.add(34);
     for (let j = 0; j < 60; j++) { json_work_below.add(97); }
     json_work_below.add(34); json_work_below.add(58); json_work_below.add(49);
@@ -218,7 +218,7 @@ pub fnc run_json_tests(): void {
   let List<int> json_work_over = new List<int>();
   json_work_over.add(123);
   for (let i = 0; i < 4; i++) {
-    if i > 0; then json_work_over.add(44); fi
+    if i > 0 then json_work_over.add(44); fi
     json_work_over.add(34);
     for (let j = 0; j < 60; j++) { json_work_over.add(97); }
     json_work_over.add(34); json_work_over.add(58); json_work_over.add(49);
