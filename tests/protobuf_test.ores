@@ -89,6 +89,40 @@ pub fnc run_protobuf_tests(): void {
     j = j + 1;
   done
 
+  // Only type-0 signed varints may carry integer metadata.
+  val ProtoField opaque_forged_integer = new ProtoField(
+    1, 0, false, 42, new List<int>(1)
+  );
+  require_true(!proto_wire_field_valid(opaque_forged_integer),
+    "opaque raw varint cannot carry invented integer metadata");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(opaque_forged_integer)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny invented opaque integer metadata");
+
+  val ProtoField forged_delimited_metadata = new ProtoField(
+    2, 2, true, 3, new List<int>(1, 2)
+  );
+  require_true(!proto_wire_field_valid(forged_delimited_metadata),
+    "length-delimited field cannot claim varint fit");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_delimited_metadata)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must reject varint metadata on length-delimited field");
+
+  val ProtoField forged_fixed_metadata = new ProtoField(
+    2, 5, false, 3, new List<int>(1, 2, 3, 4)
+  );
+  require_true(!proto_wire_field_valid(forged_fixed_metadata),
+    "fixed-width field cannot carry nonzero varint metadata");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_fixed_metadata)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny invented integer on fixed-width field");
+
+  require_int(raw_roundtrip.fields[0].varint_value, 0,
+    "opaque ten-byte decode must not leak a partial signed value");
+
   // A manually forged ProtoField must not claim an integer that disagrees
   // with its separately supplied raw varint bytes. Both the report-only
   // field admission and the actual encoder must refuse the mismatch.
