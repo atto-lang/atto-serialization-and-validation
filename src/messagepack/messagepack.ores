@@ -247,11 +247,17 @@ fnc map_entry_index(
   List<MapEntry> entries,
   Map<int, List<int>> buckets,
   Value key,
-  int hash,
-  int key_work
+  int hash
 ): int {
   if !buckets.contains(hash) then
     return -1;
+  fi
+
+  let int key_work = value_key_work_cost(key, cursor.map_key_work_remaining, 0);
+  if key_work < 0 then
+    cursor_fail(cursor, "map_complexity_limit",
+      "MessagePack map-key equality exceeds the configured work budget");
+    return -2;
   fi
 
   val List<int> candidates = buckets.get(hash);
@@ -308,17 +314,17 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
     fi
 
     let MapEntry entry = entries[i];
-    let int key_work = value_key_work_cost(
-      entry.key, writer.map_key_work_remaining, 0
-    );
-    if key_work < 0 || key_work > writer.map_key_work_remaining then
-      writer_fail(writer, "map_complexity_limit",
-        "MessagePack encoder key hashing exceeds the configured work budget");
-      return -1;
-    fi
     // Hash once; the work allowance bounds repeated collision comparisons.
     let int hash = value_hash(entry.key);
     if buckets.contains(hash) then
+      let int key_work = value_key_work_cost(
+        entry.key, writer.map_key_work_remaining, 0
+      );
+      if key_work < 0 then
+        writer_fail(writer, "map_complexity_limit",
+          "MessagePack encoder key equality exceeds the configured work budget");
+        return -1;
+      fi
       val List<int> candidates = buckets.get(hash);
       for const index of candidates do
         let int existing_work = value_key_work_cost(
@@ -439,17 +445,10 @@ fnc decode_map(
       all_text_keys = false;
     fi
 
-    let int key_work = value_key_work_cost(
-      key, cursor.map_key_work_remaining, 0
-    );
-    if key_work < 0 || key_work > cursor.map_key_work_remaining then
-      cursor_fail(cursor, "map_complexity_limit",
-        "MessagePack map-key hashing exceeds the configured work budget");
-      return value_map(entries);
-    fi
-    // Hash once; nested equality work is charged only for collision candidates.
+    // Hash once; nested equality work is budgeted only if a hash bucket has
+    // one or more candidates to compare.
     let int hash = value_hash(key);
-    let int existing = map_entry_index(cursor, entries, buckets, key, hash, key_work);
+    let int existing = map_entry_index(cursor, entries, buckets, key, hash);
     if cursor.failed then
       return value_map(entries);
     fi
