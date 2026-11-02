@@ -326,6 +326,18 @@ pub fnc decode_ai_scalar_record_attempt(
         "v1 requires explicitly typed bool, number or string fields"
       );
     fi
+
+    // JSON number lexemes are exact bytes, not IEEE-754 doubles. The
+    // generic ValueRule numeric min/max helpers perform float comparison.
+    // Refuse those rules in v1 rather than silently certify i64/decimal
+    // bounds through a lossy representation.
+    if kind == 2 &&
+       (field.validation.has_min_number || field.validation.has_max_number) then
+      return ai_schema_failure(
+        "ai_unsupported_numeric_range", index,
+        "AI numeric ranges require exact typed numeric validation"
+      );
+    fi
     index = index + 1;
   done
 
