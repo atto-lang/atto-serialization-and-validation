@@ -19,6 +19,42 @@ pub fnc run_protobuf_zorde_tests(): void {
   require_int(good.errors.length, 0, "known Protobuf fields should satisfy rules");
   require_true(!good.truncated, "valid Protobuf report must not be truncated");
 
+  // A caller-constructed field must not trick report-only validation into
+  // accepting integer metadata that disagrees with the serialized raw bytes.
+  val List<ProtoField> forged_metadata = new List<ProtoField>();
+  forged_metadata.add(new ProtoField(1, 0, true, 2, new List<int>(1)));
+  val ValidationReport forged_metadata_report = zorde_validate_protobuf_wire(
+    new ProtoMessage(forged_metadata), rules,
+    default_proto_decode_options(), true
+  );
+  require_int(forged_metadata_report.errors.length, 1,
+    "Zorde must reject mismatched raw varint/integer metadata");
+  require_true(forged_metadata_report.errors[0].code == "wrong-type",
+    "Zorde forged varint metadata must get a wire-shape error");
+
+  // This nonminimal raw value has the same numeric meaning as the supplied
+  // metadata and remains valid. It must not be mistaken for a forged value.
+  val List<ProtoField> matching_nonminimal = new List<ProtoField>();
+  matching_nonminimal.add(new ProtoField(1, 0, true, 1,
+    new List<int>(129, 0)));
+  val ValidationReport matching_nonminimal_report = zorde_validate_protobuf_wire(
+    new ProtoMessage(matching_nonminimal), rules,
+    default_proto_decode_options(), true
+  );
+  require_int(matching_nonminimal_report.errors.length, 0,
+    "matching nonminimal varint must remain valid data");
+
+  val List<ProtoField> false_signed_fit = new List<ProtoField>();
+  false_signed_fit.add(new ProtoField(1, 0, true, 0,
+    new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)));
+  val ValidationReport false_signed_fit_report = zorde_validate_protobuf_wire(
+    new ProtoMessage(false_signed_fit), rules,
+    default_proto_decode_options(), true
+  );
+  require_true(false_signed_fit_report.errors.length > 0 &&
+               false_signed_fit_report.errors[0].code == "wrong-type",
+    "ten-byte raw varint cannot claim signed-int fit");
+
   val List<ProtoField> missing_fields = new List<ProtoField>();
   val ValidationReport missing = zorde_validate_protobuf_wire(
     new ProtoMessage(missing_fields), rules, default_proto_decode_options(), true
