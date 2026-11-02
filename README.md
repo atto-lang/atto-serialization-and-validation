@@ -67,7 +67,7 @@ The repository now contains the native Oreslang implementation on `main`; this h
 - `src/messagepack/messagepack.ores` — native MessagePack signed-int64/bounded-uint64/string/binary/array/general-map/extension encode/decode.
 - `src/cbor/cbor.ores` — native definite-length CBOR signed-int64/bounded-uint64/text/bytes/array/general-map/bool/null encode/decode.
 - `src/protobuf/wire.ores` — native Protobuf field-key/varint/fixed32/fixed64/length-delimited wire encode/decode with exact raw uint64-varint unknown-field preservation.
-- `src/validation/validation.ores` — reflection-free validation rules, bounded error collection, object schemas, type/length/item/numeric checks, ASCII/email/UUID/URL checks, uniqueness, unknown-field policy, and `ValidValue` typestate wrappers.
+- `src/validation/validation.ores` — reflection-free validation rules, bounded error collection, object schemas, type/length/item/numeric checks, ASCII/email/UUID/URL checks, uniqueness, unknown-field policy, and `Result<Value, ValidationReport>` checked convenience APIs. These APIs do **not** mint an authoritative `Valid<T, SchemaId>` typestate witness.
 - `src/schema/metadata.ores` + `src/schema/object_codec.ores` — compiler-generated static field metadata and metadata-driven validated JSON object projection.
 - native Oreslang tests under `tests/`.
 
