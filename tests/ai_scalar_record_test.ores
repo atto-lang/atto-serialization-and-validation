@@ -10,7 +10,7 @@ import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from '../src/schema/object_codec';
 import fnc ai_scalar_decode_options, decode_ai_scalar_record_attempt, decode_ai_scalar_record from '../src/schema/object_codec';
-import fnc default_validation_options, kind_rule from '../src/validation/validation';
+import fnc default_validation_options, kind_rule, number_rule from '../src/validation/validation';
 
 fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMeta {
   val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
@@ -37,6 +37,24 @@ fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMet
 
 // Exercise the exact count boundary with distinct, well-formed keys.
 // No duplicate-name error may hide a missing AI-profile budget guard.
+fnc ai_numeric_range_metadata(): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110,97,109,101)),
+    new Utf8Text(new List<int>(110,97,109,101)),
+    1, true, kind_rule(3)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(115,99,111,114,101)),
+    new Utf8Text(new List<int>(115,99,111,114,101)),
+    2, true, number_rule(true, 0.0, false, true, 10.0, false)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,82,97,110,103,101)),
+    fields, 1
+  );
+}
+
 fnc ai_many_fields(int count): CodecTypeMeta {
   val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
   let int index = 0;
@@ -145,6 +163,21 @@ pub fnc run_ai_scalar_record_tests(): void {
     rt borrow strict, rt borrow closed, default_validation_options()
   );
   require_true(denied.is_err(), "scalar record Result wrapper propagates schema failures");
+
+  // Floating-point range checks are not a substitute for exact-number
+  // semantics: refuse a schema asking to compare JSON lexemes as doubles.
+  val CodecTypeMeta float_range = ai_numeric_range_metadata();
+  val ObjectDecodeAttempt range_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,
+      44,34,115,99,111,114,101,34,58,53,125),
+    rt borrow strict, rt borrow float_range, default_validation_options()
+  );
+  require_int(range_rejected.status, 1,
+    "floating numeric range metadata must fail before JSON decode");
+  require_true(
+    range_rejected.error.metadata_error.code == "ai_unsupported_numeric_range",
+    "lossy numeric range must be explicitly classified"
+  );
 
   // 256-field exact boundary, 257-field rejection before metadata hashing.
   val CodecTypeMeta at_field_limit = ai_many_fields(256);
