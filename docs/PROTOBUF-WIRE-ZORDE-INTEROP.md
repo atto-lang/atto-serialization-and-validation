@@ -51,6 +51,16 @@ descriptor alongside the compiled Zorde registry.
   mutable values. `fields_with_number` now returns flat per-field snapshots
   with independent payload lists, but `ProtoMessage` may still be constructed
   with aliased mutable field lists. These copies are NOT transitive immutability.
+  **Untrusted field-number queries must not use** the compatibility
+  `fields_with_number(message, field_number)` helper: it copies matching
+  payloads without caller-defined field-count or byte limits. Instead use
+  `fields_with_number_bounded(message, field_number, options)`, which
+  validates the target field number, enforces the **entire** constructed
+  message's field count and re-encoded byte budget (including nonmatches),
+  refuses malformed fields, and returns detached mutable payloads or an error.
+  Callers should set explicit, narrow `ProtoDecodeOptions`; the maximum
+  allowed global defaults are not per-tenant quotas. This operation still
+  requires exclusive access to all original mutable input during copying.
   No cross-actor sharing/proof is authorized by this change.
   Callers that need a bounded, detached **mutable** field-list projection can
   use `proto_message_copy_bounded(message, options)`. It validates
