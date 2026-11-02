@@ -27,7 +27,12 @@ descriptor alongside the compiled Zorde registry.
   The core helper `proto_descriptor_field_number_valid` enforces this separation.
 - Decoder preserves exact raw bytes of type-0 varint **values** including uint64
   above signed int64. A varint with ten bytes and terminal byte >1 rejects.
-  Nine-byte signed-int64 max must remain exact. The encoder normalizes field
+  Nine-byte signed-int64 max must remain exact. Manually constructed
+  `ProtoField` envelopes that provide both raw varint bytes and a declared
+  signed integer are rejected unless the bytes decode to that exact integer;
+  a ten-byte raw varint cannot claim `varint_fits_int=true`. Nonminimal
+  one-to-nine-byte encodings remain legal when their metadata agrees.
+  The encoder normalizes field
   **key** and length-prefix varints; byte-for-byte preservation of nonminimal
   keys/lengths is NOT promised. For signatures, retain the original input bytes.
 - `ProtoField.payload` for wire 1/5 is exact fixed-width little-endian content;
