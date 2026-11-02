@@ -86,6 +86,27 @@ pub fnc encode_error(String code, String message): EncodeError {
 }
 
 
+/**
+ * Conservative shared work allowance for hash-bucket key admission.
+ * The cap bounds collision candidate scans and the bounded structural work
+ * used by MessagePack deep-key equality. It is derived from already-validated
+ * entry and byte limits, so no new public options constructor is required.
+ */
+pub fnc map_key_work_limit(int max_entries, int max_bytes): int {
+  if max_entries < 0 || max_bytes < 0 then
+    return 0;
+  fi
+  let int by_entries = max_entries * 8;
+  let int by_bytes = max_bytes / 32;
+  let int total = by_entries + by_bytes;
+  if total < 256 then
+    return 256;
+  fi
+  if total > 8000000 then
+    return 8000000;
+  fi
+  return total;
+}
 pub fnc max_supported_depth(): int {
   return 128;
 }
