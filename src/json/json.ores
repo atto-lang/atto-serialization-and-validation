@@ -1090,6 +1090,7 @@ pub fnc decode_attempt(
     0,
     false,
     false,
+    map_key_work_limit(options.max_map_entries, options.max_input_bytes),
     empty_decode_error()
   );
 
@@ -1390,6 +1391,7 @@ pub fnc encode(
     new List<int>(),
     options,
     false,
+    map_key_work_limit(1000000, options.max_output_bytes),
     new EncodeError("", "")
   );
 
