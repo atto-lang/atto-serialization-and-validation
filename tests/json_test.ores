@@ -196,5 +196,41 @@ pub fnc run_json_tests(): void {
   );
   require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
 
+  // Adversarial JSON grammar: reject malformed tokens, never repair silently.
+  val Result<DecodedValue, DecodeError> trailing_comma = decode_default(
+    new List<int>(91, 49, 44, 93)
+  );
+  require_true(trailing_comma.is_err(), "JSON array trailing comma must reject");
+
+  val Result<DecodedValue, DecodeError> leading_zero = decode_default(
+    new List<int>(48, 49)
+  );
+  require_true(leading_zero.is_err(), "JSON number with leading zero must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_exponent = decode_default(
+    new List<int>(49, 101, 43)
+  );
+  require_true(truncated_exponent.is_err(), "JSON truncated exponent must reject");
+
+  val Result<DecodedValue, DecodeError> invalid_literal_case = decode_default(
+    new List<int>(78, 117, 108, 108)
+  );
+  require_true(invalid_literal_case.is_err(), "JSON literal case is exact");
+
+  val Result<DecodedValue, DecodeError> lone_high_surrogate = decode_default(
+    new List<int>(34, 92, 117, 68, 56, 48, 48, 34)
+  );
+  require_true(lone_high_surrogate.is_err(), "JSON lone high surrogate must reject");
+
+  val Result<DecodedValue, DecodeError> invalid_escape = decode_default(
+    new List<int>(34, 92, 120, 34)
+  );
+  require_true(invalid_escape.is_err(), "JSON invalid backslash escape must reject");
+
+  val Result<DecodedValue, DecodeError> trailing_second_value = decode_default(
+    new List<int>(116, 114, 117, 101, 102, 97, 108, 115, 101)
+  );
+  require_true(trailing_second_value.is_err(), "JSON second root value must reject");
+
   return;
 }
