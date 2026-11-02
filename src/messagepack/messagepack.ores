@@ -27,6 +27,7 @@ define class MsgpackWriter as
   pub val EncodeOptions options;
   pub let bool failed;
   pub let int map_key_work_remaining;
+  pub let int map_key_hash_work_remaining;
   pub let EncodeError error;
 end
 
@@ -314,7 +315,16 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
     fi
 
     let MapEntry entry = entries[i];
-    // Hash once; the work allowance bounds repeated collision comparisons.
+    let int hash_work = value_key_work_cost(
+      entry.key, writer.map_key_hash_work_remaining, 0
+    );
+    if hash_work < 0 then
+      writer_fail(writer, "map_complexity_limit",
+        "MessagePack encoder key hashing exceeds the configured output work budget");
+      return -1;
+    fi
+    writer.map_key_hash_work_remaining = writer.map_key_hash_work_remaining - hash_work;
+    // Hash once; repeated collision comparisons use the separate shared budget.
     let int hash = value_hash(entry.key);
     if buckets.contains(hash) then
       let int key_work = value_key_work_cost(
@@ -1117,6 +1127,7 @@ pub fnc encode(
     options,
     false,
     map_key_work_limit(1000000, options.max_output_bytes),
+    options.max_output_bytes,
     new EncodeError("", "")
   );
 
