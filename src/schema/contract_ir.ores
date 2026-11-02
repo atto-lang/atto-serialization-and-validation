@@ -10,6 +10,12 @@ import class Utf8Text from '../core/value';
 import fnc utf8_is_valid from '../core/utf8';
 import class CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
 import fnc check_metadata from './metadata';
+import class DecodeOptions, DecodeError, ValidationOptions from '../core/options';
+import class ValidationReport, ValidationError from '../validation/validation';
+import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from './object_codec';
+import fnc decode_json_object_attempt from './object_codec';
+import class Value, WireMember from '../core/value';
+import fnc value_object from '../core/value';
 
 pub define class StaticContractIR as
   pub val int version;
@@ -86,4 +92,65 @@ pub fnc validate_static_contract_ir(
     ));
   fi
   return Ok(ir);
+}
+
+/// Result of admitting static Contract IR and decoding through the existing
+/// bounded JSON/value validation pipeline. status: 0 success, 1 IR refusal,
+/// 2 decoder/closed-record validation refusal.
+pub define class ContractDecodeAttempt as
+  pub val int status;
+  pub val DecodedObject decoded;
+  pub val ContractIRError contract_error;
+  pub val ObjectCodecError codec_error;
+end
+
+fnc empty_contract_decode_object(): DecodedObject {
+  return new DecodedObject(
+    value_object(new List<WireMember>()),
+    value_object(new List<WireMember>()),
+    value_object(new List<WireMember>()),
+    0
+  );
+}
+
+fnc empty_contract_codec_error(): ObjectCodecError {
+  return new ObjectCodecError(
+    0,
+    new MetadataError("", -1, ""),
+    new DecodeError("", 0, ""),
+    new ValidationReport(new List<ValidationError>(), false)
+  );
+}
+
+/// Trusted build/loader metadata must be passed in as generated static data.
+/// The runtime never parses JSON Schema or resolves remote refs at request time.
+pub fnc decode_static_contract_json_attempt(
+  List<int> input,
+  DecodeOptions decode_options,
+  StaticContractIR ir,
+  ValidationOptions validation_options
+): ContractDecodeAttempt {
+  let Result<StaticContractIR, ContractIRError> checked =
+    validate_static_contract_ir(rt borrow ir);
+  if checked.is_err() then
+    let ContractIRError error = checked.unwrap_err();
+    return new ContractDecodeAttempt(
+      1,
+      empty_contract_decode_object(),
+      error,
+      empty_contract_codec_error()
+    );
+  fi
+  let ObjectDecodeAttempt attempt = decode_json_object_attempt(
+    input,
+    decode_options,
+    rt borrow ir.codec,
+    validation_options
+  );
+  return new ContractDecodeAttempt(
+    attempt.status == 0 ? 0 : 2,
+    attempt.decoded,
+    new ContractIRError("", -1, ""),
+    attempt.error
+  );
 }
