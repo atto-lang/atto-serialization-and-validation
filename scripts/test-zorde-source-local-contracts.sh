@@ -82,6 +82,8 @@ expect_refusal ci-zero-run 'CI run ID must be a positive decimal identifier' ZOR
 expect_refusal ci-negative-attempt 'CI run attempt must be a positive decimal identifier' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=-1 ZORDE_CI_JOB=zorde-native-source-local
 expect_refusal ci-wrong-job 'CI job identity must match the protected native job' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=1 ZORDE_CI_JOB=runner-contracts
 expect_refusal ci-attempt-only 'CI run ID must be a positive decimal identifier' ZORDE_CI_RUN_ID= ZORDE_CI_RUN_ATTEMPT=2 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-run-id-overlong 'CI run ID must be a positive decimal identifier' ZORDE_CI_RUN_ID=111111111111111111111 ZORDE_CI_RUN_ATTEMPT=1 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-attempt-overlong 'CI run attempt must be a positive decimal identifier' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=1111111 ZORDE_CI_JOB=zorde-native-source-local
 
 expect_refusal missing-source 'EXPECTED_SOURCE_SHA must' EXPECTED_SOURCE_SHA=
 expect_refusal stale-head 'checked-out head differs' EXPECTED_SOURCE_SHA=0000000000000000000000000000000000000000
