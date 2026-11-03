@@ -159,6 +159,27 @@ all Protobuf semantic constraints without additional validators.
 
 Source-local native admission and reviewer/administrator responsibilities are specified in [the Protobuf execution runbook](PROTOBUF-SOURCE-LOCAL-NATIVE-RUNBOOK.md). The focused guest entrypoint is `tests/protobuf_main.ores` and must run with a separately approved exact-head compiler before any passing native receipt can be issued.
 
+### CI provenance and source-local receipt limits
+
+The protected `zorde-native-source-local` workflow now passes the GitHub
+context's run ID, run attempt, and job ID into the scrubbed native harness.
+A CI-context receipt refuses missing/zero/overlong run identifiers and any
+job other than `zorde-native-source-local`, and includes
+`ci_run_id`, `ci_run_attempt`, and `ci_job` in the receipt.
+A separately approved manual source-local invocation may omit all three;
+partial context is forbidden. The receipt distinguishes this case with
+`ci_origin=approved-manual-source-local`.
+
+**These fields are unauthenticated context metadata**, not a GitHub-issued
+signature, a license to copy private source, or a passing job receipt.
+Even when `ci_origin=claimed-github-actions-context`, the record explicitly
+sets `ci_context_authenticated=false`. An independent reviewer must read
+GitHub's authenticated run and job APIs and verify that run ID, attempt,
+job identity, commit SHA, nonzero executed steps, and approved source/tree
+match the native receipt. A manual caller can otherwise supply arbitrary
+environment strings. Transitive compiler dependency provenance and backend
+parity remain separate release gates.
+
 ### Evidence gates / conformance plan
 
 1. `node scripts/test-protobuf-contracts.mjs` — static shape/ABI-drift
