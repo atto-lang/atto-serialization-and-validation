@@ -90,6 +90,50 @@ or publishing private guest artifacts. Use `contents: read` and the test
 repo's own read-only checkout, retain private attestations and delete the
 temporary mirror under the approved retention policy.
 
+
+## Source-local executable admission (manual, subject to admin approval)
+
+The existing default-branch workflow `.github/workflows/runner.yml` now accepts
+the `serde_source_local` manual input, mutually exclusive with the separate Zorde
+`source_local_native` input. It never runs private-source guest execution on PR
+or push events. An administrator must provision the protected
+`serde-source-local-trusted` environment and a short-lived SOURCE-ORG runner
+with the exact `serde-source-ephemeral` label. No organization-to-organization
+private-source transfer is permitted by this path.
+
+Admin-controlled environment variables, NOT untrusted workflow inputs:
+
+- `SERDE_APPROVED_SOURCE_SHA`: immutable PR source commit SHA
+- `SERDE_APPROVED_SOURCE_TREE`: immutable root Git tree SHA
+- `SERDE_APPROVED_COMPILER_SHA256`: independently approved compiler digest
+- `SERDE_APPROVED_COMPILER_PATH`: installed trusted absolute compiler path
+- `SERDE_APPROVED_EVIDENCE_ROOT`: private trusted absolute path outside checkout
+
+Before enabling manual dispatch, independently validate those pins and
+the runner/environment's source-protection permissions. Select the PR
+branch and `serde_source_local=true`, with `source_local_native=false`.
+The job checks approved SHA before checkout and then runs
+`scripts/test-serde-source-local.sh`, which performs raw Git HEAD/tree/index/blob
+validation, refuses untracked/ignored/symlinked paths and wrong executable
+modes, exercises the source/host tamper suite, verifies the approved
+compiler SHA-256, and runs the actual `tests/main.ores` guest integration entry.
+Only a zero-exit guest run with the exact completion marker can emit a
+private, non-promotable source-local receipt. The source tree is rechecked
+after running; logs remain within the approved private directory.
+
+The source-local receipt explicitly records `backend=UNVERIFIED`,
+`full_aot=false`, `asan_ubsan_verified=false`,
+`five_backend_parity=false`, and
+`artifact_promotion_allowed=false`. An approved compiler digest and
+a guest stdout marker do not on their own prove backend provenance or
+NativeAOT. A reviewer still needs job steps/logs and independent compiler
+identity verification.
+
+Local host-only verification of the raw checker and admission refusals
+does not close any native guest gate. For five-backend PASS, separately
+collect the full per-case immutable receipts and backend-appropriate
+instrumentation described above.
+
 No cross-org transfer, native guest execution, sanitizer PASS, binary
 compatibility or five-backend parity is claimed by these source changes.
 Independent review remains required before merging PR #51.
