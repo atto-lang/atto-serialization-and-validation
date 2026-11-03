@@ -2,7 +2,7 @@ import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
-import fnc encode_message, decode_message, fields_with_number, fields_with_number_bounded, proto_message_copy_bounded from '../src/protobuf/wire';
+import fnc encode_message, encode_message_bounded, decode_message, fields_with_number, fields_with_number_bounded, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
   val List<ProtoField> fields = new List<ProtoField>();
@@ -90,6 +90,63 @@ pub fnc run_protobuf_tests(): void {
     );
   require_true(lookup_invalid_other.is_err(),
     "malformed nonmatching fields must not bypass bounded selection");
+
+  // The byte-only encoder admits valid messages without a caller field
+  // limit. Use the bounded wrapper for untrusted constructed messages.
+  // Here the complete message is exactly seven bytes across two fields.
+  val Result<List<int>, ProtoError> bounded_encoded =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(7));
+  require_true(!bounded_encoded.is_err(),
+    "bounded encoder must accept exact whole-message budgets");
+  require_int(bounded_encoded.unwrap().length, 7,
+    "bounded encoder returns exactly the original canonical wire length");
+  bounded_two[0].payload.add(91);
+  require_int(bounded_encoded.unwrap().length, 7,
+    "bounded encoder output cannot alias a separate mutable selection");
+
+  val Result<List<int>, ProtoError> bounded_input_short =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(6, 2, 2),
+      new ProtoEncodeOptions(7));
+  require_true(bounded_input_short.is_err(),
+    "bounded encoding must count nonmatching field bytes");
+
+  val Result<List<int>, ProtoError> bounded_too_many =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 1, 2),
+      new ProtoEncodeOptions(7));
+  require_true(bounded_too_many.is_err(),
+    "bounded encoding must enforce total field-count quota");
+
+  val Result<List<int>, ProtoError> bounded_output_short =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(6));
+  require_true(bounded_output_short.is_err(),
+    "bounded encoding must enforce output budget independently");
+
+  val Result<List<int>, ProtoError> bounded_bad_options =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(-1));
+  require_true(bounded_bad_options.is_err(),
+    "bounded encoding must reject invalid output options first");
+
+  val Result<List<int>, ProtoError> bounded_invalid_other =
+    encode_message_bounded(new ProtoMessage(malformed_unselected_fields),
+      new ProtoDecodeOptions(16, 2, 16), new ProtoEncodeOptions(16));
+  require_true(bounded_invalid_other.is_err(),
+    "bounded encoder must validate malformed nonmatching fields before output");
+
+  val List<int> mutable_encoder_bytes = new List<int>(1);
+  val ProtoField mutable_encoder_field =
+    new ProtoField(1, 0, true, 1, mutable_encoder_bytes);
+  require_true(proto_wire_field_valid(mutable_encoder_field),
+    "mutable raw field initially agrees with declared signed value");
+  mutable_encoder_bytes[0] = 2;
+  val Result<List<int>, ProtoError> bounded_mutated =
+    encode_message_bounded(
+      new ProtoMessage(new List<ProtoField>(mutable_encoder_field)),
+      new ProtoDecodeOptions(2, 1, 2), new ProtoEncodeOptions(2));
+  require_true(bounded_mutated.is_err(),
+    "bounded encoder refuses stale raw-varint metadata after mutation");
 
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
