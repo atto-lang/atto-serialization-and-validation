@@ -598,6 +598,65 @@ reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
 reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
   'bounded_too_many.is_err()', 'bounded_too_many.is_ok()')));
 
+// An approved source-local native receipt must distinguish CI attempts
+// from approved manual executions. Run identifiers are context metadata,
+// not compiler trust or an authorizing signature by themselves.
+function nativeRunAttemptBindingGuard(h,w,fixtures) {
+  for(const token of [
+    'ZORDE_CI_RUN_ID:-',
+    'ZORDE_CI_RUN_ATTEMPT:-',
+    'ZORDE_CI_JOB:-',
+    'CI run ID must be a positive decimal identifier',
+    'CI run attempt must be a positive decimal identifier',
+    'CI job identity must match the protected native job',
+    '"ci_origin":',
+    '"ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None',
+    '"ci_run_attempt":',
+    '"ci_job": os.environ.get("ZORDE_CI_JOB") or None',
+    'approved-manual-source-local'
+  ]) {
+    assert.ok(h.includes(token), 'native receipt CI provenance missing '+token);
+  }
+  const cmd=w.slice(w.indexOf('          env -i '));
+  for(const token of [
+    'ZORDE_CI_RUN_ID="${{ github.run_id }}"',
+    'ZORDE_CI_RUN_ATTEMPT="${{ github.run_attempt }}"',
+    'ZORDE_CI_JOB="${{ github.job }}"'
+  ]) {
+    assert.ok(cmd.includes(token), 'trusted workflow context binding missing '+token);
+  }
+  for(const token of [
+    'expect_refusal ci-missing-attempt',
+    'expect_refusal ci-missing-job',
+    'expect_refusal ci-zero-run',
+    'expect_refusal ci-negative-attempt',
+    'expect_refusal ci-wrong-job',
+    'expect_refusal ci-attempt-only'
+  ]) {
+    assert.ok(fixtures.includes(token), 'source-free negative receipt fixture missing '+token);
+  }
+}
+nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,refusalFixtures);
+checks++;
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,
+  nativeWorkflow.replace('ZORDE_CI_RUN_ATTEMPT="${{ github.run_attempt }}"',
+    'ZORDE_CI_RUN_ATTEMPT="1"'),refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,
+  nativeWorkflow.replace('ZORDE_CI_JOB="${{ github.job }}"',
+    'ZORDE_CI_JOB="runner-contracts"'),refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None',
+    '"ci_run_id": None'),nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('CI run attempt must be a positive decimal identifier',
+    'CI run attempt validation disabled'),nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
+  refusalFixtures.replace('expect_refusal ci-zero-run',
+    'expect_success ci-zero-run')));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"approved-manual-source-local"',
+    '"unclassified-run"'),nativeWorkflow,refusalFixtures));
+
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
