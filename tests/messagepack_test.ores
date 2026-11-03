@@ -243,22 +243,25 @@ pub fnc run_messagepack_tests(): void {
     default_decode_options()
   );
   require_true(!array16_exact.is_err(), "MessagePack complete array16 must still decode");
-  require_int(
-    array16_exact.unwrap().value.array_value.length,
-    2,
-    "MessagePack complete array16 must preserve both values"
-  );
+  val DecodedValue array16_decoded = array16_exact.unwrap();
+  require_int(array16_decoded.value.array_value.length, 2, "MessagePack array16 length");
+  require_int(array16_decoded.value.array_value[0].kind, 2, "MessagePack array16 first integer kind");
+  require_int(array16_decoded.value.array_value[0].number_lexeme[0], 49, "MessagePack array16 first value");
+  require_int(array16_decoded.value.array_value[1].kind, 2, "MessagePack array16 second integer kind");
+  require_int(array16_decoded.value.array_value[1].number_lexeme[0], 50, "MessagePack array16 second value");
 
   val Result<DecodedValue, DecodeError> map16_exact = decode(
     new List<int>(222, 0, 1, 1, 2),
     default_decode_options()
   );
   require_true(!map16_exact.is_err(), "MessagePack complete map16 must still decode");
-  require_int(
-    map16_exact.unwrap().value.map_value.length,
-    1,
-    "MessagePack complete map16 must preserve its entry"
-  );
+  val DecodedValue map16_decoded = map16_exact.unwrap();
+  require_int(map16_decoded.value.kind, 8, "MessagePack map16 general map kind");
+  require_int(map16_decoded.value.map_value.length, 1, "MessagePack map16 length");
+  require_int(map16_decoded.value.map_value[0].key.kind, 2, "MessagePack map16 key integer kind");
+  require_int(map16_decoded.value.map_value[0].key.number_lexeme[0], 49, "MessagePack map16 key");
+  require_int(map16_decoded.value.map_value[0].value.kind, 2, "MessagePack map16 value integer kind");
+  require_int(map16_decoded.value.map_value[0].value.number_lexeme[0], 50, "MessagePack map16 value");
 
   // Exercise the same exact vectors through the native typed diagnostic API.
   require_messagepack_error(new List<int>(146, 1), "unexpected_eof");
