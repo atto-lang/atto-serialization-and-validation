@@ -22,7 +22,7 @@ jobs:
       - name: Verify shared serde guest fixture vectors (source-only)
         run: python3 -B scripts/check-serde-fixtures.py
       - name: Reject synthetic receipt tampering (host-only)
-        run: python3 -B -m unittest discover -s tests/source_free -p 'test_serde_receipt_gate.py'
+        run: python3 -B -m unittest discover -s tests/source_free -p 'test_serde_*_gate.py'
       - name: Build and test Rust audit
         run: cargo test --all-targets
       - name: Audit Oreslang source invariants
