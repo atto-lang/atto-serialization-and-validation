@@ -107,5 +107,47 @@ class SerdeSourceFixtureGateTests(unittest.TestCase):
             self.verify()
 
 
+    def test_commented_out_guest_call_is_not_admitted(self):
+        self.rewrite(
+            "tests/main.ores",
+            "  run_messagepack_tests();",
+            "  // run_messagepack_tests();",
+        )
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_commented_out_result_assertion_is_not_admitted(self):
+        self.rewrite(
+            "tests/messagepack_test.ores",
+            "  require_true(!array16_exact.is_err()",
+            "  // require_true(!array16_exact.is_err()",
+        )
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_commented_out_typed_diagnostic_is_not_admitted(self):
+        self.rewrite(
+            "tests/messagepack_test.ores",
+            '  require_messagepack_error(new List<int>(217, 2, 192, 175), "invalid_utf8");',
+            '  // require_messagepack_error(new List<int>(217, 2, 192, 175), "invalid_utf8");',
+        )
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_unterminated_block_comment_is_rejected(self):
+        path = self.root / "tests/messagepack_test.ores"
+        path.write_text(path.read_text() + "\n/* unterminated")
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_comment_tokens_inside_string_literals_are_preserved(self):
+        self.rewrite(
+            "tests/json_test.ores",
+            '"JSON second root value must reject"',
+            '"JSON // second /* root */ value must reject"',
+        )
+        self.verify()
+
+
 if __name__ == "__main__":
     unittest.main()
