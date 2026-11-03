@@ -197,5 +197,50 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(truncated_str32_header.is_err(), "MessagePack truncated str32 header must reject");
 
+  // Declared collection sizes below the configured entry limit still cannot
+  // exceed the minimum encoded bytes remaining in the guest input.
+  val Result<DecodedValue, DecodeError> array32_under_limit_but_truncated = decode(
+    new List<int>(221, 0, 0, 255, 255),
+    default_decode_options()
+  );
+  require_true(
+    array32_under_limit_but_truncated.is_err(),
+    "MessagePack array32 with plausible count but no elements must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> map32_under_limit_but_truncated = decode(
+    new List<int>(223, 0, 0, 255, 255),
+    default_decode_options()
+  );
+  require_true(
+    map32_under_limit_but_truncated.is_err(),
+    "MessagePack map32 with plausible count but no pairs must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> array16_one_short = decode(
+    new List<int>(220, 0, 2, 1),
+    default_decode_options()
+  );
+  require_true(array16_one_short.is_err(), "MessagePack array16 count must fit actual bytes");
+
+  val Result<DecodedValue, DecodeError> map16_one_short = decode(
+    new List<int>(222, 0, 2, 1, 2),
+    default_decode_options()
+  );
+  require_true(map16_one_short.is_err(), "MessagePack map16 pair count must fit actual bytes");
+
+  // Positive neighbors prove the preflight preserves valid collection headers.
+  val Result<DecodedValue, DecodeError> array16_exact = decode(
+    new List<int>(220, 0, 2, 1, 2),
+    default_decode_options()
+  );
+  require_true(!array16_exact.is_err(), "MessagePack complete array16 must still decode");
+
+  val Result<DecodedValue, DecodeError> map16_exact = decode(
+    new List<int>(222, 0, 1, 1, 2),
+    default_decode_options()
+  );
+  require_true(!map16_exact.is_err(), "MessagePack complete map16 must still decode");
+
   return;
 }
