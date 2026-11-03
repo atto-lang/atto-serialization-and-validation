@@ -607,6 +607,8 @@ function nativeRunAttemptBindingGuard(h,w,fixtures) {
     'ZORDE_CI_RUN_ATTEMPT:-',
     'ZORDE_CI_JOB:-',
     'CI run ID must be a positive decimal identifier',
+    '[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]{0,5}$ ]]',
     'CI run attempt must be a positive decimal identifier',
     'CI job identity must match the protected native job',
     '"ci_origin":',
@@ -631,6 +633,8 @@ function nativeRunAttemptBindingGuard(h,w,fixtures) {
     'expect_refusal ci-zero-run',
     'expect_refusal ci-negative-attempt',
     'expect_refusal ci-wrong-job',
+    'expect_refusal ci-run-id-overlong',
+    'expect_refusal ci-attempt-overlong',
     'expect_refusal ci-attempt-only'
   ]) {
     assert.ok(fixtures.includes(token), 'source-free negative receipt fixture missing '+token);
@@ -656,6 +660,18 @@ reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
 reject(()=>nativeRunAttemptBindingGuard(
   nativeHarness.replace('"approved-manual-source-local"',
     '"unclassified-run"'),nativeWorkflow,refusalFixtures));
+
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]]'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]{0,5}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]]'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
+  refusalFixtures.replace('expect_refusal ci-run-id-overlong',
+    'expect_success ci-run-id-overlong')));
 
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
