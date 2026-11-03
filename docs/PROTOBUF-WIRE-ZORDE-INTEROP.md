@@ -61,6 +61,18 @@ descriptor alongside the compiled Zorde registry.
   Callers should set explicit, narrow `ProtoDecodeOptions`; the maximum
   allowed global defaults are not per-tenant quotas. This operation still
   requires exclusive access to all original mutable input during copying.
+  Untrusted callers must also distinguish the byte-budget-only
+  `encode_message(message, output_limits)` compatibility entrypoint from
+  `encode_message_bounded(message, input_limits, output_limits)`. The
+  bounded encoder first validates **every** constructed field and snapshots
+  its byte payloads using `proto_message_copy_bounded`, enforcing the
+  caller's complete field-count, re-encoded input-size and per-length
+  budgets before encoding the detached copy under a separate output
+  byte limit. A malformed nonmatching field, stale raw-varint metadata or
+  oversized total message cannot bypass admission merely because the
+  output encoder has enough capacity. Returned output is detached mutable
+  bytes, **not** an immutable proof. Neither API makes concurrent mutation
+  during copying atomic; exclusive ownership is still required.
   No cross-actor sharing/proof is authorized by this change.
   Callers that need a bounded, detached **mutable** field-list projection can
   use `proto_message_copy_bounded(message, options)`. It validates
