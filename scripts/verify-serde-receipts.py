@@ -62,13 +62,24 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
         ):
             if evidence.get(key) != want:
                 raise ValueError(prefix + key + " mismatch")
-        for key in ("compiler_sha256", "guest_artifact_sha256"):
+        for key in (
+            "compiler_sha256", "guest_artifact_sha256",
+            "stdout_sha256", "stderr_sha256",
+        ):
             digest(evidence.get(key), 64, prefix + key)
         for key in ("run_id", "job_id", "executed_step_count"):
             positive(evidence.get(key), prefix + key)
-        for key in ("compiler_version", "target", "runner_os", "run_url", "job_url"):
+        for key in (
+            "compiler_version", "target", "runner_os", "run_url", "job_url",
+            "compile_command", "execute_command",
+        ):
             if not isinstance(evidence.get(key), str) or not evidence[key].strip():
                 raise ValueError(prefix + "missing " + key)
+        artifact_kind = "wasm-module" if backend == "wasm" else "native-executable"
+        if evidence.get("guest_artifact_kind") != artifact_kind:
+            raise ValueError(prefix + "wrong native guest artifact kind")
+        if type(evidence.get("guest_exit_code")) is not int or evidence["guest_exit_code"] != 0:
+            raise ValueError(prefix + "missing/nonzero guest test exit code")
         if evidence.get("compiled_native_guest") is not True:
             raise ValueError(prefix + "native guest compiler execution missing")
         if evidence.get("executed_native_guest") is not True or evidence.get("host_only") is not False:
@@ -106,6 +117,8 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
                 raise ValueError(prefix + case_id + ": unexpected Ok/Err")
             if item["expected_result"] == "Err" and row.get("error_code") != item["expected_error_code"]:
                 raise ValueError(prefix + case_id + ": error classification mismatch")
+            if item["expected_result"] == "Ok" and row.get("error_code") not in (None, ""):
+                raise ValueError(prefix + case_id + ": Ok result contains error")
         print(backend + ": structurally complete guest receipt")
     print("STRUCTURAL_RECEIPT_GATE=PASS")
     print("INDEPENDENT_RUN_AND_ARTIFACT_VERIFICATION=STILL_REQUIRED")
