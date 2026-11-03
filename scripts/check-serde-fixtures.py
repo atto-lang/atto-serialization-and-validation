@@ -87,8 +87,8 @@ def check() -> None:
         if symbol is None:
             raise ValueError(f"missing JSON diagnostics mapping: {case['id']}")
         match = re.search(
-            r"\\bval\\s+DecodeAttempt\\s+" + re.escape(symbol)
-            + r"\\s*=\\s*decode_attempt\\s*\\(\\s*new List<int>\\s*\\(([^)]*)\\)",
+            r"\bval\s+DecodeAttempt\s+" + re.escape(symbol)
+            + r"\s*=\s*decode_attempt\s*\(\s*new List<int>\s*\(([^)]*)\)",
             json_source, re.S,
         )
         if not match:
@@ -98,14 +98,14 @@ def check() -> None:
             raise ValueError(f"JSON diagnostic bytes mismatch: {case['id']}")
         expected_status = 1 if case["guest_symbol"] == "truncated_exponent" else 2
         if not re.search(
-            r"\\brequire_int\\s*\\(\\s*" + re.escape(symbol)
-            + r"\\.status\\s*,\\s*" + str(expected_status) + r"\\s*,",
+            r"\brequire_int\s*\(\s*" + re.escape(symbol)
+            + r"\.status\s*,\s*" + str(expected_status) + r"\s*,",
             json_source,
         ):
             raise ValueError(f"JSON guest DecodeAttempt status missing: {case['id']}")
         if not re.search(
-            r"\\b" + re.escape(symbol)
-            + r"\\.error\\.code\\s*==\\s*"
+            r"\b" + re.escape(symbol)
+            + r"\.error\.code\s*==\s*"
             + re.escape(json.dumps(case["expected_error_code"])),
             json_source,
         ):
@@ -114,7 +114,7 @@ def check() -> None:
     mp_source = sources["messagepack"]
     diagnostics = {}
     for match in re.finditer(
-        r"\\brequire_messagepack_error\\s*\\(\\s*new List<int>\\s*\\(([^)]*)\\)\\s*,\\s*\"([a-z_]+)\"\\s*\\)",
+        r"\brequire_messagepack_error\s*\(\s*new List<int>\s*\(([^)]*)\)\s*,\s*\"([a-z_]+)\"\s*\)",
         mp_source, re.S,
     ):
         encoded = bytes(int(part.strip()) for part in match.group(1).split(",")).hex()
