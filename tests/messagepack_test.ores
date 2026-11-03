@@ -235,12 +235,22 @@ pub fnc run_messagepack_tests(): void {
     default_decode_options()
   );
   require_true(!array16_exact.is_err(), "MessagePack complete array16 must still decode");
+  require_int(
+    array16_exact.unwrap().value.array_value.length,
+    2,
+    "MessagePack complete array16 must preserve both values"
+  );
 
   val Result<DecodedValue, DecodeError> map16_exact = decode(
     new List<int>(222, 0, 1, 1, 2),
     default_decode_options()
   );
   require_true(!map16_exact.is_err(), "MessagePack complete map16 must still decode");
+  require_int(
+    map16_exact.unwrap().value.map_value.length,
+    1,
+    "MessagePack complete map16 must preserve its entry"
+  );
 
   return;
 }
