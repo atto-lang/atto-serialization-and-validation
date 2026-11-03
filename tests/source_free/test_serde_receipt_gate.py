@@ -120,6 +120,10 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
             ("wrong_positive_value", lambda e: e["cases"][-1].update(decoded_value={"kind": "map", "integer_pairs": [[1, 3]]})),
             ("Err_leaks_value", lambda e: e["cases"][0].update(decoded_value={"kind": "int", "value": 1})),
             ("fake_run_url", lambda e: e.update(run_url="https://example.invalid/synthetic")),
+            ("noncanonical_github_port", lambda e: e.update(
+                run_url="https://github.com:444/scintilla-run/scintilla-e2e/actions/runs/1",
+                job_url="https://github.com:444/scintilla-run/scintilla-e2e/actions/runs/1/job/" + str(e["job_id"]),
+            )),
             ("wrong_job_url", lambda e: e.update(job_url="https://github.com/o/r/actions/runs/1/job/5")),
             ("duplicate_backend_job", lambda e: e.update(job_id=self.data["java-graalvm"]["job_id"])),
         ]
