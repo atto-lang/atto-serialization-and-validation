@@ -253,12 +253,13 @@ record = {
     "schema": "oreslang.zorde.source-local.native-execution/v1",
     # None distinguishes an approved *manual* run from a GitHub Actions
     # run. A CI run must include all three validated workflow context fields.
-    "ci_origin": ("github-actions" if os.environ.get("ZORDE_CI_RUN_ID")
+    "ci_origin": ("claimed-github-actions-context" if os.environ.get("ZORDE_CI_RUN_ID")
                   else "approved-manual-source-local"),
     "ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None,
     "ci_run_attempt": (int(os.environ["ZORDE_CI_RUN_ATTEMPT"])
                        if os.environ.get("ZORDE_CI_RUN_ID") else None),
     "ci_job": os.environ.get("ZORDE_CI_JOB") or None,
+    "ci_context_authenticated": False,
     "source_head_sha": os.environ["SOURCE_SHA"],
     "source_root_tree_sha": os.environ["SOURCE_TREE"],
     "compiler_executable_sha256": os.environ["COMPILER_SHA"],
