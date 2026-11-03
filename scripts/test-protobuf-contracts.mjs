@@ -550,6 +550,52 @@ reject(()=>originalWireAdmissionGuard(zorde,
     'length_over_canonical_limit')));
 reject(()=>originalWireAdmissionGuard(zorde,
   zordeTests.replaceAll('raw_after_mutation','unchecked_stale_report')));
+// Untrusted Protobuf encoding must enforce caller-supplied INPUT field-count
+// and input-wire budgets before producing output, even when the legacy
+// byte-only encoder could eventually fit. This is only a source-level
+// mutation guard; the .ores tests still need a real compiler/runner.
+function boundedEncodeAdmissionGuard(w,t) {
+  const start=w.indexOf('pub fnc encode_message_bounded(');
+  assert.ok(start>=0, 'bounded encoder entrypoint missing');
+  const checked=w.slice(start, w.indexOf('// Compatibility-only lookup',start));
+  const options=checked.indexOf('proto_encode_options_valid(output_limits)');
+  const snapshot=checked.indexOf('proto_message_copy_bounded(message, input_limits)');
+  const refuse=checked.indexOf('if detached.is_err() then');
+  const encode=checked.indexOf('return encode_message(detached.unwrap(), output_limits);');
+  assert.ok(options>=0 && snapshot>options && refuse>snapshot && encode>refuse,
+    'input limits, snapshot and malformed-message denial must precede encoding');
+  assert.ok(checked.includes('return Err(new ProtoError("invalid_message"'),
+    'bounded encoder must fail closed when detached copy is invalid');
+  for(const test of [
+    'bounded_encoded.is_err()',
+    'bounded_input_short.is_err()',
+    'bounded_too_many.is_err()',
+    'bounded_output_short.is_err()',
+    'bounded_bad_options.is_err()',
+    'bounded_invalid_other.is_err()',
+    'bounded_mutated.is_err()',
+    'mutable_encoder_bytes[0] = 2;'
+  ]) {
+    assert.ok(t.includes(test), 'native bounded-encoder regression missing: '+test);
+  }
+}
+boundedEncodeAdmissionGuard(wire,protobufWireTests);
+checks++;
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'proto_message_copy_bounded(message, input_limits)', 'Ok(message)'),
+  protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'return encode_message(detached.unwrap(), output_limits);',
+  'return encode_message(message, output_limits);'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'if detached.is_err() then','if false then'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'proto_encode_options_valid(output_limits)','true'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
+  'bounded_mutated.is_err()', 'bounded_mutated.is_ok()')));
+reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
+  'bounded_too_many.is_err()', 'bounded_too_many.is_ok()))'));
+
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,
