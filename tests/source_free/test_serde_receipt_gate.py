@@ -38,7 +38,7 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
                 "decoded_value": item.get("expected_decoded"),
             })
         self.data = {}
-        for backend in gate.BACKENDS:
+        for lane_number, backend in enumerate(gate.BACKENDS, start=1):
             self.data[backend] = {
                 "backend": backend,
                 "status": "PASS",
@@ -54,13 +54,16 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
                 "compile_command": "SYNTHETIC-ONLY compile",
                 "execute_command": "SYNTHETIC-ONLY run",
                 "run_id": 1,
-                "job_id": 2,
+                "job_id": 200 + lane_number,
                 "executed_step_count": 3,
                 "compiler_version": "SYNTHETIC-NOT-A-REAL-COMPILER",
                 "target": "synthetic",
                 "runner_os": "synthetic",
-                "run_url": "https://example.invalid/synthetic",
-                "job_url": "https://example.invalid/synthetic/job",
+                "run_url": "https://github.com/scintilla-run/scintilla-e2e/actions/runs/1",
+                "job_url": (
+                    "https://github.com/scintilla-run/scintilla-e2e/actions/runs/1/job/"
+                    + str(200 + lane_number)
+                ),
                 "compiled_native_guest": True,
                 "executed_native_guest": True,
                 "host_only": False,
@@ -116,6 +119,9 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
             ("missing_positive_value", lambda e: e["cases"][-1].pop("decoded_value")),
             ("wrong_positive_value", lambda e: e["cases"][-1].update(decoded_value={"kind": "map", "integer_pairs": [[1, 3]]})),
             ("Err_leaks_value", lambda e: e["cases"][0].update(decoded_value={"kind": "int", "value": 1})),
+            ("fake_run_url", lambda e: e.update(run_url="https://example.invalid/synthetic")),
+            ("wrong_job_url", lambda e: e.update(job_url="https://github.com/o/r/actions/runs/1/job/5")),
+            ("duplicate_backend_job", lambda e: e.update(job_id=self.data["java-graalvm"]["job_id"])),
         ]
         for label, mutate in candidates:
             with self.subTest(label=label):
@@ -134,6 +140,29 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
 
     def test_unrecognized_extra_receipt_is_rejected(self):
         (self.receipts / "unapproved-backend.json").write_text("{}")
+        with self.assertRaises(ValueError):
+            self.validate()
+
+
+    def test_oversized_receipt_is_rejected(self):
+        path = self.receipts / "llvm.json"
+        path.write_text(" " * (512 * 1024 + 1))
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_symlinked_receipt_is_rejected(self):
+        path = self.receipts / "llvm.json"
+        backup = self.receipts / "untrusted.json"
+        path.rename(backup)
+        try:
+            path.symlink_to(backup)
+        except OSError:
+            self.skipTest("platform disallows symlinks")
+        with self.assertRaises(ValueError):
+            self.validate()
+
+    def test_missing_backend_receipt_is_rejected(self):
+        (self.receipts / "llvm.json").unlink()
         with self.assertRaises(ValueError):
             self.validate()
 
