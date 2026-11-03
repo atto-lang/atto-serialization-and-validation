@@ -594,7 +594,7 @@ reject(()=>boundedEncodeAdmissionGuard(wire.replace(
 reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
   'bounded_mutated.is_err()', 'bounded_mutated.is_ok()')));
 reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
-  'bounded_too_many.is_err()', 'bounded_too_many.is_ok()))'));
+  'bounded_too_many.is_err()', 'bounded_too_many.is_ok()')));
 
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
