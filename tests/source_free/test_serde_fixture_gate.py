@@ -149,5 +149,36 @@ class SerdeSourceFixtureGateTests(unittest.TestCase):
         self.verify()
 
 
+    def test_wrong_positive_value_in_guest_is_rejected(self):
+        self.rewrite(
+            "tests/messagepack_test.ores",
+            "array16_decoded.value.array_value[1].number_lexeme[0], 50",
+            "array16_decoded.value.array_value[1].number_lexeme[0], 51",
+        )
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_commented_positive_value_assertion_is_rejected(self):
+        self.rewrite(
+            "tests/messagepack_test.ores",
+            "  require_int(map16_decoded.value.map_value[0].value.number_lexeme[0], 50",
+            "  // require_int(map16_decoded.value.map_value[0].value.number_lexeme[0], 50",
+        )
+        with self.assertRaises(ValueError):
+            self.verify()
+
+    def test_positive_manifest_value_tampering_is_rejected(self):
+        path = self.root / "fixtures/serde/adversarial-v1.json"
+        data = json.loads(path.read_text())
+        for case in data["cases"]:
+            if case["id"] == "messagepack.array16_exact":
+                case["expected_decoded"]["integer_elements"] = [1, 3]
+                break
+        path.write_text(json.dumps(data))
+        with self.assertRaises(ValueError):
+            self.verify()
+
+
+
 if __name__ == "__main__":
     unittest.main()
