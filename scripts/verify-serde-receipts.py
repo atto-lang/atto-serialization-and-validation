@@ -39,6 +39,7 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
             "input_sha256": hashlib.sha256(bytes.fromhex(item["bytes_hex"])).hexdigest(),
             "expected_result": item["expected_result"],
             "expected_error_code": item.get("expected_error_code"),
+            "expected_decoded": item.get("expected_decoded"),
         }
         for item in manifest["cases"]
     }
@@ -117,8 +118,13 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
                 raise ValueError(prefix + case_id + ": unexpected Ok/Err")
             if item["expected_result"] == "Err" and row.get("error_code") != item["expected_error_code"]:
                 raise ValueError(prefix + case_id + ": error classification mismatch")
-            if item["expected_result"] == "Ok" and row.get("error_code") not in (None, ""):
-                raise ValueError(prefix + case_id + ": Ok result contains error")
+            if item["expected_result"] == "Ok":
+                if row.get("error_code") not in (None, ""):
+                    raise ValueError(prefix + case_id + ": Ok result contains error")
+                if row.get("decoded_value") != item["expected_decoded"]:
+                    raise ValueError(prefix + case_id + ": positive decoded value mismatch")
+            elif row.get("decoded_value") is not None:
+                raise ValueError(prefix + case_id + ": Err must not publish decoded value")
         print(backend + ": structurally complete guest receipt")
     print("STRUCTURAL_RECEIPT_GATE=PASS")
     print("INDEPENDENT_RUN_AND_ARTIFACT_VERIFICATION=STILL_REQUIRED")
