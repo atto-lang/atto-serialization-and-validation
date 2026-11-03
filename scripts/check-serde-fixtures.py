@@ -184,9 +184,54 @@ def check() -> None:
         if diagnostics.get(case["bytes_hex"]) != case["expected_error_code"]:
             raise ValueError(f"MessagePack guest error classification drift: {case['id']}")
 
+    # An Ok without the right decoded data is not a positive-control pass.
+    positive_controls = {
+        "messagepack.array16_exact": {
+            "value": {"kind": "array", "integer_elements": [1, 2]},
+            "assertions": [
+                ("array16_decoded.value.array_value.length", 2),
+                ("array16_decoded.value.array_value[0].kind", 2),
+                ("array16_decoded.value.array_value[0].number_lexeme[0]", 49),
+                ("array16_decoded.value.array_value[1].kind", 2),
+                ("array16_decoded.value.array_value[1].number_lexeme[0]", 50),
+            ],
+        },
+        "messagepack.map16_exact": {
+            "value": {"kind": "map", "integer_pairs": [[1, 2]]},
+            "assertions": [
+                ("map16_decoded.value.kind", 8),
+                ("map16_decoded.value.map_value.length", 1),
+                ("map16_decoded.value.map_value[0].key.kind", 2),
+                ("map16_decoded.value.map_value[0].key.number_lexeme[0]", 49),
+                ("map16_decoded.value.map_value[0].value.kind", 2),
+                ("map16_decoded.value.map_value[0].value.number_lexeme[0]", 50),
+            ],
+        },
+    }
+    seen_positive = set()
+    for case in cases:
+        if case["expected_result"] == "Err":
+            if "expected_decoded" in case:
+                raise ValueError(f"Err must not have decoded-value expectation: {case['id']}")
+            continue
+        item = positive_controls.get(case["id"])
+        if item is None or case.get("expected_decoded") != item["value"]:
+            raise ValueError(f"missing/incorrect positive value fixture: {case['id']}")
+        seen_positive.add(case["id"])
+        source = sources[case["format"]]
+        for expression, number in item["assertions"]:
+            predicate = (
+                r"\brequire_int\s*\(\s*" + re.escape(expression)
+                + r"\s*,\s*" + str(number) + r"\s*,"
+            )
+            if not re.search(predicate, source, re.S):
+                raise ValueError(f"positive guest value assertion missing: {case['id']} {expression}")
+    if seen_positive != set(positive_controls):
+        raise ValueError("positive control coverage drift")
+
     if counts != {"Err": 19, "Ok": 2}:
         raise ValueError(f"wrong negative/positive coverage: {counts}")
-    print("SOURCE_ONLY fixture audit: PASS (21 source vectors; 19 Err, 2 Ok; 19 typed diagnostics)")
+    print("SOURCE_ONLY fixture audit: PASS (21 vectors; 19 typed Err diagnostics; 2 value-checked Ok controls)")
     print("fixture_manifest_sha256=" + hashlib.sha256(raw).hexdigest())
     print("NATIVE_GUEST_EVIDENCE=NOT_EXECUTED")
 
