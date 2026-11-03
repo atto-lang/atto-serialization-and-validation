@@ -45,6 +45,19 @@ PY
 [[ -n "${EXPECTED_COMPILER_SHA256:-}" && "${EXPECTED_COMPILER_SHA256}" =~ ^[0-9a-f]{64}$ ]] ||
   die "EXPECTED_COMPILER_SHA256 must be the independently approved compiler binary digest"
 [[ -n "${ORESLANG_BIN:-}" ]] || die "ORESLANG_BIN must identify the pinned compiler executable"
+# CI receipts must carry the exact Actions run/attempt/job identity. A
+# manual trusted source-local execution may omit ALL three, but may never
+# partially impersonate an Actions receipt. These are context/provenance labels,
+# not a substitute for independent compiler/source authorization.
+if [[ -n "${ZORDE_CI_RUN_ID:-}" || -n "${ZORDE_CI_RUN_ATTEMPT:-}" ||
+      -n "${ZORDE_CI_JOB:-}" ]]; then
+  [[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] ||
+    die "CI run ID must be a positive decimal identifier"
+  [[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]] ||
+    die "CI run attempt must be a positive decimal identifier"
+  [[ "${ZORDE_CI_JOB:-}" == "zorde-native-source-local" ]] ||
+    die "CI job identity must match the protected native job"
+fi
 [[ -n "${ZORDE_EVIDENCE_DIR:-}" ]] || die "ZORDE_EVIDENCE_DIR is required (outside checkout)"
 [[ -d "$ZORDE_EVIDENCE_DIR" ]] || die "evidence directory must exist before test execution"
 git_status="$(git status --porcelain --untracked-files=all)" ||
@@ -238,6 +251,14 @@ from pathlib import Path
 log = Path(os.environ["NATIVE_LOG"]).read_bytes()
 record = {
     "schema": "oreslang.zorde.source-local.native-execution/v1",
+    # None distinguishes an approved *manual* run from a GitHub Actions
+    # run. A CI run must include all three validated workflow context fields.
+    "ci_origin": ("github-actions" if os.environ.get("ZORDE_CI_RUN_ID")
+                  else "approved-manual-source-local"),
+    "ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None,
+    "ci_run_attempt": (int(os.environ["ZORDE_CI_RUN_ATTEMPT"])
+                       if os.environ.get("ZORDE_CI_RUN_ID") else None),
+    "ci_job": os.environ.get("ZORDE_CI_JOB") or None,
     "source_head_sha": os.environ["SOURCE_SHA"],
     "source_root_tree_sha": os.environ["SOURCE_TREE"],
     "compiler_executable_sha256": os.environ["COMPILER_SHA"],
