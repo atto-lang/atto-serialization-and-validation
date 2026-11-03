@@ -164,14 +164,30 @@
       "format": "messagepack",
       "guest_symbol": "array16_exact",
       "bytes_hex": "dc00020102",
-      "expected_result": "Ok"
+      "expected_result": "Ok",
+      "expected_decoded": {
+        "kind": "array",
+        "integer_elements": [
+          1,
+          2
+        ]
+      }
     },
     {
       "id": "messagepack.map16_exact",
       "format": "messagepack",
       "guest_symbol": "map16_exact",
       "bytes_hex": "de00010102",
-      "expected_result": "Ok"
+      "expected_result": "Ok",
+      "expected_decoded": {
+        "kind": "map",
+        "integer_pairs": [
+          [
+            1,
+            2
+          ]
+        ]
+      }
     }
   ]
 }
