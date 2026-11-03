@@ -788,6 +788,36 @@ pub fnc proto_message_copy_bounded(
   return Ok(new ProtoMessage(copy));
 }
 
+// Bounded encoding for caller-constructed, potentially untrusted messages.
+// The legacy encode_message only enforces an output byte budget; this entry
+// also refuses excessive field counts, malformed nonmatching fields and
+// re-encoded input budgets BEFORE encoding. It validates a detached snapshot,
+// not an earlier state of mutable caller-owned byte lists. This is not a
+// recursive immutable/atomic snapshot or compiler-issued Zorde proof.
+// Callers must have exclusive ownership during the copy operation.
+pub fnc encode_message_bounded(
+  ProtoMessage message,
+  ProtoDecodeOptions input_limits,
+  ProtoEncodeOptions output_limits
+): Result<List<int>, ProtoError> {
+  if !proto_encode_options_valid(output_limits) then
+    return Err(new ProtoError("invalid_options", 0,
+      "invalid or unsafe Protobuf encode options"));
+  fi
+
+  val Result<ProtoMessage, ProtoError> detached =
+    proto_message_copy_bounded(message, input_limits);
+  if detached.is_err() then
+    return Err(new ProtoError("invalid_message", 0,
+      "Protobuf bounded encoder rejected malformed or over-budget message"));
+  fi
+
+  // encode_message separately rechecks the detached bytes and the output
+  // limit. Neither a field-by-field caller alias nor stale validation report
+  // can authorize output of an inconsistent raw varint.
+  return encode_message(detached.unwrap(), output_limits);
+}
+
 // Compatibility-only lookup for ALREADY TRUSTED bounded messages.
 // This allocates independently copied matching payloads without limits.
 // Do not call it on public/untrusted ProtoMessage input; use the checked
