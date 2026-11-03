@@ -288,5 +288,50 @@ pub fnc run_json_tests(): void {
     "extra JSON root value must classify as trailing_data"
   );
 
+  // Pin the remaining malformed JSON classifications in the real guest API.
+  val DecodeAttempt trailing_comma_detail = decode_attempt(
+    new List<int>(91, 49, 44, 93),
+    default_decode_options()
+  );
+  require_int(trailing_comma_detail.status, 2, "trailing comma is a grammar error");
+  require_true(
+    trailing_comma_detail.error.code == "unexpected_token",
+    "trailing comma must classify as unexpected_token"
+  );
+
+  val DecodeAttempt invalid_literal_detail = decode_attempt(
+    new List<int>(78, 117, 108, 108),
+    default_decode_options()
+  );
+  require_int(invalid_literal_detail.status, 2, "literal case must be exact");
+  require_true(
+    invalid_literal_detail.error.code == "unexpected_token",
+    "incorrect JSON literal case must classify as unexpected_token"
+  );
+
+  // Incremental parsers may request more bytes mid-stream; EOF must commit
+  // an error, never publish a partial number as a successful root.
+  let JsonIncrementalDecoder bad_exponent_stream = new_incremental_decoder(
+    default_decode_options()
+  );
+  val DecodeStep bad_exponent_chunk = bad_exponent_stream.feed(
+    new List<int>(49, 101, 43)
+  );
+  require_int(
+    bad_exponent_chunk.status,
+    0,
+    "partial exponent must remain pending before EOF"
+  );
+  val DecodeStep bad_exponent_finish = bad_exponent_stream.finish();
+  require_int(
+    bad_exponent_finish.status,
+    2,
+    "partial exponent at EOF must fail, never decode as a number"
+  );
+  require_true(
+    bad_exponent_finish.error.code == "unexpected_eof",
+    "partial exponent finalization must retain unexpected_eof classification"
+  );
+
   return;
 }
