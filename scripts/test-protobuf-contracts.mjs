@@ -615,6 +615,8 @@ function nativeRunAttemptBindingGuard(h,w,fixtures) {
     '"ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None',
     '"ci_run_attempt":',
     '"ci_job": os.environ.get("ZORDE_CI_JOB") or None',
+    '"ci_context_authenticated": False',
+    'claimed-github-actions-context',
     'approved-manual-source-local'
   ]) {
     assert.ok(h.includes(token), 'native receipt CI provenance missing '+token);
@@ -672,6 +674,15 @@ reject(()=>nativeRunAttemptBindingGuard(
 reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
   refusalFixtures.replace('expect_refusal ci-run-id-overlong',
     'expect_success ci-run-id-overlong')));
+
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"ci_context_authenticated": False',
+    '"ci_context_authenticated": True'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('claimed-github-actions-context',
+    'github-actions-certified'),
+  nativeWorkflow,refusalFixtures));
 
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
