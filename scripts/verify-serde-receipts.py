@@ -6,6 +6,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
 MANIFEST = ROOT / "fixtures/serde/adversarial-v1.json"
@@ -46,11 +47,20 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
     if len(expected) != len(manifest["cases"]):
         raise ValueError("duplicate manifest fixture IDs")
 
-    actual_names = sorted(p.name for p in receipt_dir.iterdir() if p.is_file())
+    if not receipt_dir.is_dir() or receipt_dir.is_symlink():
+        raise ValueError("receipt directory missing or is a symlink")
+    entries = list(receipt_dir.iterdir())
+    for entry in entries:
+        if not entry.is_file() or entry.is_symlink():
+            raise ValueError("receipt directory contains an unsafe entry")
+        if entry.stat().st_size > 512 * 1024:
+            raise ValueError("receipt JSON exceeds 512 KiB size limit")
+    actual_names = sorted(entry.name for entry in entries)
     names = sorted(b + ".json" for b in BACKENDS)
     if actual_names != names:
         raise ValueError(f"expected only five receipts {names}, found {actual_names}")
 
+    seen_job_ids = set()
     for backend in BACKENDS:
         evidence = json.loads((receipt_dir / (backend + ".json")).read_text())
         prefix = backend + ": "
@@ -70,12 +80,32 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
             digest(evidence.get(key), 64, prefix + key)
         for key in ("run_id", "job_id", "executed_step_count"):
             positive(evidence.get(key), prefix + key)
+        if evidence["job_id"] in seen_job_ids:
+            raise ValueError(prefix + "job ID reused by another backend")
+        seen_job_ids.add(evidence["job_id"])
         for key in (
             "compiler_version", "target", "runner_os", "run_url", "job_url",
             "compile_command", "execute_command",
         ):
             if not isinstance(evidence.get(key), str) or not evidence[key].strip():
                 raise ValueError(prefix + "missing " + key)
+        # These are structural checks; an independent reviewer must still
+        # query GitHub and verify run, job, actual step names and artifacts.
+        run_url = evidence["run_url"]
+        job_url = evidence["job_url"]
+        parts = urlsplit(run_url)
+        if (parts.scheme != "https" or parts.hostname != "github.com"
+                or parts.username or parts.password or parts.query or parts.fragment):
+            raise ValueError(prefix + "run URL is not a canonical GitHub Actions URL")
+        match = re.fullmatch(
+            r"/([a-zA-Z0-9_.-]+)/([a-zA-Z0-9_.-]+)/actions/runs/([0-9]+)",
+            parts.path,
+        )
+        if not match or int(match.group(3)) != evidence["run_id"]:
+            raise ValueError(prefix + "run URL/ID mismatch")
+        if job_url != run_url + "/job/" + str(evidence["job_id"]):
+            raise ValueError(prefix + "job URL/ID mismatch")
+
         artifact_kind = "wasm-module" if backend == "wasm" else "native-executable"
         if evidence.get("guest_artifact_kind") != artifact_kind:
             raise ValueError(prefix + "wrong native guest artifact kind")
