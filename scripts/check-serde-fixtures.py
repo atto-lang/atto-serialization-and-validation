@@ -114,7 +114,7 @@ def check() -> None:
     mp_source = sources["messagepack"]
     diagnostics = {}
     for match in re.finditer(
-        r"\brequire_messagepack_error\s*\(\s*new List<int>\s*\(([^)]*)\)\s*,\s*\"([a-z_]+)\"\s*\)",
+        r"\brequire_messagepack_error\s*\(\s*new List<int>\s*\(([^)]*)\)\s*,\s*\"([a-z0-9_]+)\"\s*\)",
         mp_source, re.S,
     ):
         encoded = bytes(int(part.strip()) for part in match.group(1).split(",")).hex()
