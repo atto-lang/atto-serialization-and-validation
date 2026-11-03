@@ -11,6 +11,62 @@ MANIFEST = ROOT / "fixtures/serde/adversarial-v1.json"
 SUITES = {"json": "tests/json_test.ores", "messagepack": "tests/messagepack_test.ores"}
 
 
+def strip_comments(source: str) -> str:
+    """Remove Oreslang // and /* */ comments without altering string literals.
+
+    Preserve whitespace and line breaks so adjacent tokens cannot merge.
+    A dangling block comment makes the source-only audit fail closed.
+    """
+    out = []
+    index = 0
+    mode = "code"
+    quote = ""
+    escaped = False
+    while index < len(source):
+        char = source[index]
+        pair = source[index:index + 2]
+        if mode == "code":
+            if pair == "//":
+                mode = "line_comment"
+                out.extend((" ", " "))
+                index += 2
+                continue
+            if pair == "/*":
+                mode = "block_comment"
+                out.extend((" ", " "))
+                index += 2
+                continue
+            if char in ("'", '"'):
+                mode = "string"
+                quote = char
+                escaped = False
+            out.append(char)
+        elif mode == "string":
+            out.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                mode = "code"
+        elif mode == "line_comment":
+            out.append("\n" if char == "\n" else " ")
+            if char == "\n":
+                mode = "code"
+        elif mode == "block_comment":
+            if pair == "*/":
+                out.extend((" ", " "))
+                index += 2
+                mode = "code"
+                continue
+            out.append("\n" if char == "\n" else " ")
+        index += 1
+
+    if mode == "block_comment":
+        raise ValueError("unterminated guest source block comment")
+    return "".join(out)
+
+
 def check() -> None:
     raw = MANIFEST.read_bytes()
     data = json.loads(raw)
@@ -18,7 +74,7 @@ def check() -> None:
         raise ValueError("unsupported fixture manifest schema")
     if data.get("source_suites") != SUITES:
         raise ValueError("guest suite paths drifted")
-    main = (ROOT / data["guest_entrypoint"]).read_text()
+    main = strip_comments((ROOT / data["guest_entrypoint"]).read_text())
     for symbol in ("run_json_tests", "run_messagepack_tests"):
         if not re.search(r"\b" + symbol + r"\s*\(\s*\)", main):
             raise ValueError(f"{symbol} is not invoked by guest entrypoint")
@@ -28,7 +84,7 @@ def check() -> None:
         raise ValueError(f"expected 21 exact guest vectors, got {len(cases)}")
     seen = set()
     counts = {"Err": 0, "Ok": 0}
-    sources = {fmt: (ROOT / path).read_text() for fmt, path in SUITES.items()}
+    sources = {fmt: strip_comments((ROOT / path).read_text()) for fmt, path in SUITES.items()}
 
     for case in cases:
         case_id = case["id"]
