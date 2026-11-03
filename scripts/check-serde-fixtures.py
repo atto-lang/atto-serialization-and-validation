@@ -68,9 +68,69 @@ def check() -> None:
         if not re.search(predicate, source, re.S):
             raise ValueError(f"guest Result assertion missing: {case_id}")
 
+    # Verify that every negative vector's typed error classification is
+    # independently asserted by guest source, not merely listed in JSON.
+    diagnostic_symbols = {
+        "trailing_comma": "trailing_comma_detail",
+        "leading_zero": "leading_zero_detail",
+        "truncated_exponent": "incomplete_exponent_detail",
+        "invalid_literal_case": "invalid_literal_detail",
+        "lone_high_surrogate": "lone_surrogate_detail",
+        "invalid_escape": "invalid_escape_detail",
+        "trailing_second_value": "trailing_second_value_detail",
+    }
+    json_source = sources["json"]
+    for case in cases:
+        if case["format"] != "json" or case["expected_result"] != "Err":
+            continue
+        symbol = diagnostic_symbols.get(case["guest_symbol"])
+        if symbol is None:
+            raise ValueError(f"missing JSON diagnostics mapping: {case['id']}")
+        match = re.search(
+            r"\\bval\\s+DecodeAttempt\\s+" + re.escape(symbol)
+            + r"\\s*=\\s*decode_attempt\\s*\\(\\s*new List<int>\\s*\\(([^)]*)\\)",
+            json_source, re.S,
+        )
+        if not match:
+            raise ValueError(f"JSON guest typed assertion missing: {case['id']}")
+        source_bytes = bytes(int(part.strip()) for part in match.group(1).split(","))
+        if source_bytes.hex() != case["bytes_hex"]:
+            raise ValueError(f"JSON diagnostic bytes mismatch: {case['id']}")
+        expected_status = 1 if case["guest_symbol"] == "truncated_exponent" else 2
+        if not re.search(
+            r"\\brequire_int\\s*\\(\\s*" + re.escape(symbol)
+            + r"\\.status\\s*,\\s*" + str(expected_status) + r"\\s*,",
+            json_source,
+        ):
+            raise ValueError(f"JSON guest DecodeAttempt status missing: {case['id']}")
+        if not re.search(
+            r"\\b" + re.escape(symbol)
+            + r"\\.error\\.code\\s*==\\s*"
+            + re.escape(json.dumps(case["expected_error_code"])),
+            json_source,
+        ):
+            raise ValueError(f"JSON guest error code mismatch: {case['id']}")
+
+    mp_source = sources["messagepack"]
+    diagnostics = {}
+    for match in re.finditer(
+        r"\\brequire_messagepack_error\\s*\\(\\s*new List<int>\\s*\\(([^)]*)\\)\\s*,\\s*\"([a-z_]+)\"\\s*\\)",
+        mp_source, re.S,
+    ):
+        encoded = bytes(int(part.strip()) for part in match.group(1).split(",")).hex()
+        if encoded in diagnostics:
+            raise ValueError(f"duplicate MessagePack diagnostic vector: {encoded}")
+        diagnostics[encoded] = match.group(2)
+    negatives = [x for x in cases if x["format"] == "messagepack" and x["expected_result"] == "Err"]
+    if len(diagnostics) != len(negatives):
+        raise ValueError("MessagePack guest typed diagnostics count drift")
+    for case in negatives:
+        if diagnostics.get(case["bytes_hex"]) != case["expected_error_code"]:
+            raise ValueError(f"MessagePack guest error classification drift: {case['id']}")
+
     if counts != {"Err": 19, "Ok": 2}:
         raise ValueError(f"wrong negative/positive coverage: {counts}")
-    print("SOURCE_ONLY fixture audit: PASS (21 source vectors; 19 Err, 2 Ok)")
+    print("SOURCE_ONLY fixture audit: PASS (21 source vectors; 19 Err, 2 Ok; 19 typed diagnostics)")
     print("fixture_manifest_sha256=" + hashlib.sha256(raw).hexdigest())
     print("NATIVE_GUEST_EVIDENCE=NOT_EXECUTED")
 
