@@ -12,7 +12,7 @@ import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
 import fnc decode_options_valid from '../core/options';
 import fnc decode_attempt from '../json/json';
 import class ValidationOptions, ValidationReport, ValidationError, PathSegment, FieldRule, ObjectSchema from '../validation/validation';
-import fnc field_rule, object_schema, validate_object, report_is_valid from '../validation/validation';
+import fnc field_rule, object_schema, validate_object, report_is_valid, validation_options_valid from '../validation/validation';
 import class CodecFieldMeta, CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
 import fnc check_metadata, field_by_wire_name from './metadata';
 
@@ -297,6 +297,77 @@ pub fnc decode_ai_scalar_record_attempt(
     );
   fi
 
+  // Validate options and raw byte length before walking the schema or
+  // parsing the body. Even an invalid object schema cannot force expensive
+  // field-name hashing for an oversized provider response.
+  if !decode_options_valid(rt borrow decode_options) ||
+     decode_options.max_depth > 16 ||
+     decode_options.max_input_bytes > 65536 ||
+     decode_options.max_string_bytes > 16384 ||
+     decode_options.max_binary_bytes != 0 ||
+     decode_options.max_number_bytes > 1024 ||
+     decode_options.max_array_entries > 256 ||
+     decode_options.max_map_entries > 256 then
+    return ai_options_failure(
+      "ai_limits",
+      "AI scalar output exceeds the bounded decode profile"
+    );
+  fi
+
+  if decode_options.duplicate_key_policy != 0 ||
+     decode_options.allow_trailing_data then
+    return ai_options_failure(
+      "unsafe_decode_options",
+      "AI structured output requires strict duplicate rejection and full input"
+    );
+  fi
+
+  if !validation_options_valid(rt borrow validation_options) then
+    return ai_options_failure(
+      "ai_validation_options",
+      "AI validation options exceed supported bounds"
+    );
+  fi
+
+  if input.length > decode_options.max_input_bytes then
+    return ai_options_failure(
+      "input_limit",
+      "AI scalar response exceeds the configured input byte limit"
+    );
+  fi
+
+  // The generic metadata API allows 4,096-byte names and independently
+  // bounded fields. Cap this smaller product profile *before* UTF-8 scanning
+  // any name, and bound their combined size to prevent wide schemas from
+  // amplifying validation work beyond the 64 KiB response budget.
+  if metadata.type_name.bytes.length > 256 then
+    return ai_schema_failure(
+      "ai_schema_name_limit", -1,
+      "AI schema type name exceeds 256 bytes"
+    );
+  fi
+
+  let int total_name_bytes = metadata.type_name.bytes.length;
+  let int name_index = 0;
+  for const field of metadata.fields do
+    let int source_bytes = field.source_name.bytes.length;
+    let int wire_bytes = field.wire_name.bytes.length;
+    if source_bytes > 256 || wire_bytes > 256 then
+      return ai_schema_failure(
+        "ai_schema_name_limit", name_index,
+        "AI schema field name exceeds 256 bytes"
+      );
+    fi
+    total_name_bytes = total_name_bytes + source_bytes + wire_bytes;
+    if total_name_bytes > 65536 then
+      return ai_schema_failure(
+        "ai_schema_total_name_limit", name_index,
+        "AI schema names exceed 65536 aggregate bytes"
+      );
+    fi
+    name_index = name_index + 1;
+  done
+
   // Reuse the bounded, duplicate-aware metadata validation. Do not iterate
   // untrusted fields until its name/field limits have been enforced.
   val MetadataCheck checked = check_metadata(rt borrow metadata);
@@ -340,22 +411,6 @@ pub fnc decode_ai_scalar_record_attempt(
     fi
     index = index + 1;
   done
-
-  // Product-specific tight budgets, not the generic codec's 256 MiB ceiling.
-  // Refuse invalid/overly permissive configurations before parsing input.
-  if !decode_options_valid(rt borrow decode_options) ||
-     decode_options.max_depth > 16 ||
-     decode_options.max_input_bytes > 65536 ||
-     decode_options.max_string_bytes > 16384 ||
-     decode_options.max_binary_bytes != 0 ||
-     decode_options.max_number_bytes > 1024 ||
-     decode_options.max_array_entries > 256 ||
-     decode_options.max_map_entries > 256 then
-    return ai_options_failure(
-      "ai_limits",
-      "AI scalar output exceeds the bounded decode profile"
-    );
-  fi
 
   // The shared schema-bound decoder already rejects duplicate-key
   // first/last-wins, trailing data, malformed UTF-8 and failed field rules.
