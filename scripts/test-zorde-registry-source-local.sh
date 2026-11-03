@@ -51,9 +51,9 @@ PY
 # not a substitute for independent compiler/source authorization.
 if [[ -n "${ZORDE_CI_RUN_ID:-}" || -n "${ZORDE_CI_RUN_ATTEMPT:-}" ||
       -n "${ZORDE_CI_JOB:-}" ]]; then
-  [[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]] ||
+  [[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]] ||
     die "CI run ID must be a positive decimal identifier"
-  [[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]] ||
+  [[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]{0,5}$ ]] ||
     die "CI run attempt must be a positive decimal identifier"
   [[ "${ZORDE_CI_JOB:-}" == "zorde-native-source-local" ]] ||
     die "CI job identity must match the protected native job"
