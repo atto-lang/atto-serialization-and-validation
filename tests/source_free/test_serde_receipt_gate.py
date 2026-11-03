@@ -35,6 +35,7 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
                 "input_sha256": hashlib.sha256(bytes.fromhex(item["bytes_hex"])).hexdigest(),
                 "result": item["expected_result"],
                 "error_code": item.get("expected_error_code"),
+                "decoded_value": item.get("expected_decoded"),
             })
         self.data = {}
         for backend in gate.BACKENDS:
@@ -112,6 +113,9 @@ class SyntheticSerdeReceiptGateTests(unittest.TestCase):
             ("unexpected_ok", lambda e: e["cases"][0].update(result="Ok")),
             ("wrong_case_sha", lambda e: e["cases"][0].update(input_sha256="0" * 64)),
             ("wrong_error_code", lambda e: e["cases"][0].update(error_code="wrong")),
+            ("missing_positive_value", lambda e: e["cases"][-1].pop("decoded_value")),
+            ("wrong_positive_value", lambda e: e["cases"][-1].update(decoded_value={"kind": "map", "integer_pairs": [[1, 3]]})),
+            ("Err_leaks_value", lambda e: e["cases"][0].update(decoded_value={"kind": "int", "value": 1})),
         ]
         for label, mutate in candidates:
             with self.subTest(label=label):
