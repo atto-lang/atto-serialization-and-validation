@@ -1,0 +1,57 @@
+name: Serde approved source-local guest (not five-backend proof)
+
+# Never run private-source guest execution on an untrusted PR workflow.
+# An administrator must separately configure the protected environment,
+# immutable source/tree/compiler pins and an ephemeral source-org runner.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: serde-approved-guest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  serde-approved-guest:
+    environment: serde-source-local-trusted
+    runs-on: [self-hosted, linux, x64, serde-source-ephemeral]
+    timeout-minutes: 25
+    steps:
+      - name: Reject unapproved source snapshot before checkout
+        shell: bash
+        env:
+          APPROVED_SOURCE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_SHA }}
+          APPROVED_TREE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_TREE }}
+          APPROVED_COMPILER_SHA256: ${{ vars.SERDE_APPROVED_COMPILER_SHA256 }}
+          APPROVED_COMPILER_PATH: ${{ vars.SERDE_APPROVED_COMPILER_PATH }}
+          APPROVED_EVIDENCE_ROOT: ${{ vars.SERDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "ores-truffle-oreslang/oreslang-serialization-and-validation" ]] || exit 2
+          [[ "$APPROVED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_TREE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
+          [[ "$APPROVED_COMPILER_PATH" = /* ]] || exit 2
+          [[ "$APPROVED_EVIDENCE_ROOT" = /* ]] || exit 2
+          [[ "$GITHUB_SHA" == "$APPROVED_SOURCE_SHA" ]] || exit 2
+
+      - name: Checkout exact approved source commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Run real guest with raw checkout and exact compiler pins
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_SHA }}
+          EXPECTED_SOURCE_TREE: ${{ vars.SERDE_APPROVED_SOURCE_TREE }}
+          EXPECTED_COMPILER_SHA256: ${{ vars.SERDE_APPROVED_COMPILER_SHA256 }}
+          ORESLANG_BIN: ${{ vars.SERDE_APPROVED_COMPILER_PATH }}
+          SERDE_EVIDENCE_ROOT: ${{ vars.SERDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          bash scripts/test-serde-source-local.sh
