@@ -95,7 +95,7 @@ if __name__ == "__main__":
     try:
         count = verify(args.root, args.head, args.tree)
         print(f"RAW_SERDE_SOURCE_CHECK_PASS tracked={count}")
-        print("SERDE_GUEST_COMPILER_EXECUTION=NOT_EXECUTED")
+        print("RAW_SOURCE_VERIFICATION_ONLY=PASS")
     except (OSError, ValueError, subprocess.CalledProcessError) as exc:
         print("RAW_SERDE_SOURCE_CHECK_FAIL: " + str(exc), file=sys.stderr)
         sys.exit(2)
