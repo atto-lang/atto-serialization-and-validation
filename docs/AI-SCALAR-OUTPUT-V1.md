@@ -19,7 +19,7 @@ Other kinds (including untyped `any`, byte arrays, nested objects, arrays, maps,
 
 ### Limits
 
-The product profile uses: depth <=16, input <=65,536 bytes, string <=16,384 bytes, number <=1,024 bytes, and array/map entries <=256. Schema metadata is limited to 256 fields **before** scanning user-controlled names; binary decode budget must equal zero. Invalid or wider decode configuration returns `ai_limits` before parsing. The underlying strict parser checks actual input sizes; a full 65,536-byte message is permitted and 65,537 is rejected with `input_limit`. The generic codec's larger budgets do not silently apply to this AI admission boundary.
+The product profile uses: depth <=16, input <=65,536 bytes, string <=16,384 bytes, number <=1,024 bytes, and array/map entries <=256. Schema metadata is limited to **256 fields**, each type/source/wire name to **256 UTF-8 bytes**, and the aggregate encoded metadata names to **65,536 bytes**. Field count is checked before name traversal; name lengths and total size are checked before UTF-8 validation and hashing. Binary decode budget must equal zero. Invalid or wider decode configuration returns `ai_limits` before parsing. The AI entry point checks invalid decode/validation options, unsafe duplicate/trailing-data policies, and the raw response byte count **before scanning metadata**. Validation-options errors return `ai_validation_options`; unsafe policies return `unsafe_decode_options`. A full 65,536-byte message is permitted and 65,537 bytes is rejected with `input_limit`, even if metadata is malformed. Valid bounded responses then use the shared strict JSON parser. The generic codec's larger budgets do not silently apply to this AI admission boundary.
 
 Current design deliberately includes no LLM requests, retries, provider credentials, network egress, streaming partial publication, prompt interpolation, tenant permissions, or dynamic schema loading.
 
@@ -27,7 +27,7 @@ Current design deliberately includes no LLM requests, retries, provider credenti
 
 - Status 0: validated *dynamic* scalar record. Status 1: metadata/profile failure. Status 2: JSON/options failure. Status 3: field-validation/root-kind failure.
 - Errors leave decoded output at `consumed=0` and never return a partial successful `DecodedObject`.
-- Test source: `tests/ai_scalar_record_test.ores`, registered in `tests/main.ores`. Includes 8 baseline positive, 16 baseline negative, 10 strict profile fixtures, 4 extra boolean/optional-null fixtures, the 256/257-field boundary, zero-binary-budget refusal, exact-number range refusal, 2 Result checks, exact input-size ceiling, and diagnostic code checks.
+- Test source: `tests/ai_scalar_record_test.ores`, registered in `tests/main.ores`. Includes 8 baseline positive, 16 baseline negative, 10 strict profile fixtures, 4 extra boolean/optional-null fixtures, the 256/257-field boundary, exact and over-limit 256/257-byte type/field names, aggregate schema-name budget, early rejection of oversized input and invalid validation options, zero-binary-budget refusal, exact-number range refusal, 2 Result checks, exact input-size ceiling, and diagnostic code checks.
 - A separate host-side reference oracle for the 38 scalar/policy fixtures is **not** AttoLang compiler or guest evidence.
 - The PR remains draft until exact-head runner-backed compiler execution, actual guest output, independent security review, and branch protections. An Actions run with `steps:null` is a **runner admission failure**, not a compiler test outcome.
 
