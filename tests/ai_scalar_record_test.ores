@@ -10,6 +10,7 @@ import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from '../src/schema/object_codec';
 import fnc ai_scalar_decode_options, decode_ai_scalar_record_attempt, decode_ai_scalar_record from '../src/schema/object_codec';
+import class ValidationOptions from '../src/validation/validation';
 import fnc default_validation_options, kind_rule, number_rule from '../src/validation/validation';
 
 fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMeta {
@@ -68,6 +69,60 @@ fnc ai_many_fields(int count): CodecTypeMeta {
   done
   return codec_type(
     new Utf8Text(new List<int>(65, 105, 66, 111, 117, 110, 100)),
+    fields, 1
+  );
+}
+
+// Construct untrusted schema sizes without relying on a separate serializer.
+fnc ai_repeated_ascii_name(int count): Utf8Text {
+  let List<int> bytes = new List<int>();
+  let int index = 0;
+  loop do
+    if index >= count then break; fi
+    bytes.push(65);
+    index = index + 1;
+  done
+  return new Utf8Text(bytes);
+}
+
+fnc ai_name_boundary_metadata(int name_bytes, bool use_field): CodecTypeMeta {
+  if !use_field then
+    return codec_type(ai_repeated_ascii_name(name_bytes), new List<CodecFieldMeta>(), 1);
+  fi
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    ai_repeated_ascii_name(name_bytes),
+    new Utf8Text(new List<int>(120)),
+    1, false, kind_rule(3)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,78,97,109,101)),
+    fields, 1
+  );
+}
+
+fnc ai_padded_metadata(int padding): CodecTypeMeta {
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  let int index = 0;
+  loop do
+    if index >= 256 then break; fi
+    let List<int> bytes = new List<int>();
+    let int n = 0;
+    loop do
+      if n >= padding then break; fi
+      bytes.push(97);
+      n = n + 1;
+    done
+    for const digit of int_to_decimal_bytes(index) do
+      bytes.push(digit);
+    done
+    val Utf8Text key = new Utf8Text(bytes);
+    fields.push(codec_field(rt borrow key, rt borrow key,
+      index + 1, false, kind_rule(3)));
+    index = index + 1;
+  done
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,65,103,103,114,101,103,97,116,101)),
     fields, 1
   );
 }
@@ -212,6 +267,78 @@ pub fnc run_ai_scalar_record_tests(): void {
     "nonzero binary decode budget is disallowed by scalar JSON profile");
   require_true(binary_refused.error.decode_error.code == "ai_limits",
     "binary profile rejection has bounded configuration error");
+
+  // Exact byte-boundary schema names are admitted; +1 fails *before*
+  // untrusted UTF-8 scanning/hashing. These names are syntactically legal.
+  val CodecTypeMeta type_name_256 = ai_name_boundary_metadata(256, false);
+  val CodecTypeMeta type_name_257 = ai_name_boundary_metadata(257, false);
+  val CodecTypeMeta field_name_256 = ai_name_boundary_metadata(256, true);
+  val CodecTypeMeta field_name_257 = ai_name_boundary_metadata(257, true);
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_256, 0, "exact schema type name boundary");
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow field_name_256, 0, "exact schema field name boundary");
+  val ObjectDecodeAttempt type_name_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_257, default_validation_options()
+  );
+  require_int(type_name_over.status, 1, "257-byte type name fails closed");
+  require_true(type_name_over.error.metadata_error.code == "ai_schema_name_limit",
+    "oversized type name must fail before UTF-8 hashing");
+  val ObjectDecodeAttempt field_name_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow field_name_257, default_validation_options()
+  );
+  require_int(field_name_over.status, 1, "257-byte source name fails closed");
+  require_true(field_name_over.error.metadata_error.code == "ai_schema_name_limit",
+    "oversized source field name must fail before hashing");
+
+  // All individual names fit, but the combined metadata would exceed
+  // 64 KiB. Do not let 256 separately bounded fields evade the total cap.
+  val CodecTypeMeta names_within_total = ai_padded_metadata(120);
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow names_within_total, 0, "aggregate metadata below 64 KiB");
+  val CodecTypeMeta names_over_total = ai_padded_metadata(128);
+  val ObjectDecodeAttempt aggregate_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow names_over_total, default_validation_options()
+  );
+  require_int(aggregate_over.status, 1, "aggregate names above 64 KiB reject");
+  require_true(
+    aggregate_over.error.metadata_error.code == "ai_schema_total_name_limit",
+    "aggregate name byte budget must be explicit"
+  );
+
+  // Decode and validation budgets are checked before metadata hashing. A
+  // malformed 257-byte type name must not force a metadata scan of an
+  // already-oversized provider response.
+  let List<int> oversized_payload = new List<int>();
+  loop do
+    if oversized_payload.length > strict.max_input_bytes then break; fi
+    oversized_payload.push(32);
+  done
+  val ObjectDecodeAttempt early_input_reject = decode_ai_scalar_record_attempt(
+    rt borrow oversized_payload, rt borrow strict,
+    rt borrow type_name_257, default_validation_options()
+  );
+  require_int(early_input_reject.status, 2,
+    "oversized response must reject before invalid schema traversal");
+  require_true(early_input_reject.error.decode_error.code == "input_limit",
+    "response byte-budget preflight must precede metadata name validation");
+  require_int(early_input_reject.decoded.consumed, 0,
+    "over-limit preflight must not publish a dynamic Value");
+
+  val ValidationOptions invalid_validation = new ValidationOptions(false, 4097);
+  val ObjectDecodeAttempt validation_opts_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_257, rt borrow invalid_validation
+  );
+  require_int(validation_opts_reject.status, 2,
+    "invalid validation config rejects before metadata traversal");
+  require_true(
+    validation_opts_reject.error.decode_error.code == "ai_validation_options",
+    "validation option failures must be classified as admission failure"
+  );
 
   // Boundaries: full 65,536-byte message is admitted, but one extra byte is
   // refused before parsing. Padding uses trailing JSON whitespace only.
