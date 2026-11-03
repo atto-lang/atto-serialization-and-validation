@@ -287,16 +287,6 @@ pub fnc decode_ai_scalar_record_attempt(
   CodecTypeMeta metadata,
   ValidationOptions validation_options
 ): ObjectDecodeAttempt {
-  // The generic metadata codec accepts 4096 fields, but this AI profile
-  // allows at most 256. Reject the count before hashing/UTF-8-scanning
-  // individual user-controlled field names (work-before-limit hardening).
-  if metadata.fields.length > 256 then
-    return ai_schema_failure(
-      "ai_schema_field_limit", -1,
-      "AI scalar record schema exceeds 256 fields"
-    );
-  fi
-
   // Validate options and raw byte length before walking the schema or
   // parsing the body. Even an invalid object schema cannot force expensive
   // field-name hashing for an oversized provider response.
@@ -333,6 +323,16 @@ pub fnc decode_ai_scalar_record_attempt(
     return ai_options_failure(
       "input_limit",
       "AI scalar response exceeds the configured input byte limit"
+    );
+  fi
+
+  // The generic metadata codec accepts 4096 fields, but this AI profile
+  // allows at most 256. Reject the count before hashing/UTF-8-scanning
+  // individual user-controlled field names (work-before-limit hardening).
+  if metadata.fields.length > 256 then
+    return ai_schema_failure(
+      "ai_schema_field_limit", -1,
+      "AI scalar record schema exceeds 256 fields"
     );
   fi
 
