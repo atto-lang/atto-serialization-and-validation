@@ -286,8 +286,19 @@ fnc decode_array(
 ): Value {
   val List<Value> values = new List<Value>();
 
+  if cursor.failed then
+    return value_array(values);
+  fi
+
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
+    return value_array(values);
+  fi
+
+  // Every encoded value occupies at least one byte. Refuse impossible
+  // declared counts before walking or building any nested container.
+  if count > cursor.input.length - cursor.index then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack array");
     return value_array(values);
   fi
 
@@ -318,8 +329,19 @@ fnc decode_map(
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
 
+  if cursor.failed then
+    return value_map(entries);
+  fi
+
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
+    return value_map(entries);
+  fi
+
+  // Each key/value pair needs at least two bytes, including nested values.
+  // Divide rather than multiply to avoid overflow on hostile length headers.
+  if count > (cursor.input.length - cursor.index) / 2 then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack map");
     return value_map(entries);
   fi
 
