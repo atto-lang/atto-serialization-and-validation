@@ -10,12 +10,16 @@ suites are retained as legacy integration entry points during migration.
 - `fixtures/serde/adversarial-v1.json` records 21 byte-exact shared vectors:
   19 negative and two valid-neighbor controls.
 - `python3 -B scripts/check-serde-fixtures.py` fails on any manifest/guest
-  byte drift, missing test invocation or missing `is_err()` assertion.
-  **This check is source-only**; it must never be reported as a guest PASS.
-- `DecodeError.code` is the cross-backend error taxonomy; JSON source
-  tests additionally assert five exact classifications/states with
-  `decode_attempt`. MessagePack codes in the manifest are acceptance
-  expectations requiring native guest validation.
+  byte drift, missing guest invocation, missing `is_err()` assertion, or
+  mismatch in any of the **19** source-authored typed error diagnostics.
+  `tests/source_free/test_serde_fixture_gate.py` tests its fail-closed
+  behavior against deliberate tampering.
+  **These checks are source/host-only; never report them as guest PASS.**
+- `DecodeError.code` is the cross-backend error taxonomy. The JSON guest
+  suite asserts all seven negative codes and the streaming exponent EOF
+  transition; the MessagePack suite calls the typed `decode_attempt()` API
+  on all 12 malformed vectors. Actual execution and agreement between the
+  five backend compilers remain required.
 
 ## Actual native guest gate
 
