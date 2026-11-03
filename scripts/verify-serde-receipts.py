@@ -94,7 +94,7 @@ def verify(receipt_dir: Path, head: str, tree: str) -> None:
         run_url = evidence["run_url"]
         job_url = evidence["job_url"]
         parts = urlsplit(run_url)
-        if (parts.scheme != "https" or parts.hostname != "github.com"
+        if (parts.scheme != "https" or parts.netloc != "github.com"
                 or parts.username or parts.password or parts.query or parts.fragment):
             raise ValueError(prefix + "run URL is not a canonical GitHub Actions URL")
         match = re.fullmatch(
