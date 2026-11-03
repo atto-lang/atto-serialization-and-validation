@@ -284,8 +284,8 @@ reject(()=>boundedFieldLookupGuard(wire.replace(
   'for const field of detached.unwrap().fields do',
   'for const field of message.fields do'), protobufWireTests));
 reject(()=>boundedFieldLookupGuard(wire.replace(
-  'proto_message_copy_bounded(message, options);\\n  if detached.is_err() then',
-  'proto_message_copy_bounded(message, options);\\n  if false then'),
+  'proto_message_copy_bounded(message, options);\n  if detached.is_err() then',
+  'proto_message_copy_bounded(message, options);\n  if false then'),
   protobufWireTests));
 reject(()=>boundedFieldLookupGuard(wire,protobufWireTests.replace(
   'lookup_invalid_other.is_err()', 'lookup_invalid_other.is_ok()')));
