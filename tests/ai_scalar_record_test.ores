@@ -328,6 +328,38 @@ pub fnc run_ai_scalar_record_tests(): void {
   require_int(early_input_reject.decoded.consumed, 0,
     "over-limit preflight must not publish a dynamic Value");
 
+  // Admission precedence: the same hostile request may violate multiple
+  // contracts. Reject unsafe options and excessive bytes before traversing
+  // even a schema whose field count is independently over the limit.
+  val ObjectDecodeAttempt unsafe_before_field_count = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow first_wins,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(unsafe_before_field_count.status, 2,
+    "unsafe key-normalization policy must reject ahead of schema cardinality");
+  require_true(unsafe_before_field_count.error.decode_error.code == "unsafe_decode_options",
+    "unsafe policy has stable first-failure classification");
+
+  val ObjectDecodeAttempt oversized_before_field_count = decode_ai_scalar_record_attempt(
+    rt borrow oversized_payload, rt borrow strict,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(oversized_before_field_count.status, 2,
+    "overlong payload must reject ahead of schema cardinality");
+  require_true(oversized_before_field_count.error.decode_error.code == "input_limit",
+    "input byte budget has stable first-failure classification");
+  require_int(oversized_before_field_count.decoded.consumed, 0,
+    "no partial object on combined oversized input/schema failure");
+
+  val ObjectDecodeAttempt invalid_limits_before_field_count = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), default_decode_options(),
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(invalid_limits_before_field_count.status, 2,
+    "wide parser settings must reject before schema cardinality");
+  require_true(invalid_limits_before_field_count.error.decode_error.code == "ai_limits",
+    "invalid AI profile must remain a preflight configuration failure");
+
   val ValidationOptions invalid_validation = new ValidationOptions(false, 4097);
   val ObjectDecodeAttempt validation_opts_reject = decode_ai_scalar_record_attempt(
     new List<int>(123,125), rt borrow strict,
