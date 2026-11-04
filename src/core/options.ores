@@ -92,8 +92,8 @@ pub fnc encode_error(String code, String message): EncodeError {
  * used by MessagePack deep-key equality. It is derived from already-validated
  * entry and byte limits, so no new public options constructor is required.
  */
-pub fnc map_key_work_limit(int max_entries, int max_bytes): int {
-  if max_entries < 0 || max_bytes < 0 then
+pub fnc map_key_work_limit(int max_entries): int {
+  if max_entries < 0 then
     return 0;
   fi
   // Avoid '/' here: AttoLang integer division is intentionally not implicit.
