@@ -9,7 +9,7 @@ import fnc value_null, value_bool, value_number_lexeme, value_string, value_arra
 import fnc bytes_equal, text_hash from '../core/value';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
-import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit from '../core/options';
 
 define class JsonCursor as
   pub val List<int> input;
@@ -17,6 +17,7 @@ define class JsonCursor as
   pub let int index;
   pub let bool failed;
   pub let bool incomplete;
+  pub let int map_key_work_remaining;
   pub let DecodeError error;
 end
 
@@ -24,6 +25,8 @@ define class JsonWriter as
   pub let List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
+  pub let int map_key_work_remaining;
+  pub let int map_key_hash_work_remaining;
   pub let EncodeError error;
 end
 
@@ -759,19 +762,26 @@ fnc parse_number(JsonCursor mut cursor): Value {
   return value_number_lexeme(lexeme);
 }
 
-fnc member_index(
+fnc member_index_bounded(
+  JsonCursor mut cursor,
   List<WireMember> members,
   Map<int, List<int>> buckets,
+  int hash,
   Utf8Text key
 ): int {
-  let int hash = text_hash(key);
-
   if !buckets.contains(hash) then
     return -1;
   fi
 
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
+    let int cost = 1 + members[index].key.bytes.length + key.bytes.length;
+    if cost > cursor.map_key_work_remaining then
+      fail(cursor, "map_complexity_limit",
+        "JSON map-key collision work exceeds the configured admission budget");
+      return -2;
+    fi
+    cursor.map_key_work_remaining = cursor.map_key_work_remaining - cost;
     if bytes_equal(members[index].key.bytes, key.bytes) then
       return index;
     fi
@@ -782,11 +792,9 @@ fnc member_index(
 
 fnc remember_member(
   Map<int, List<int>> buckets,
-  Utf8Text key,
+  int hash,
   int index
 ): void {
-  let int hash = text_hash(key);
-
   if buckets.contains(hash) then
     val List<int> candidates = buckets.get(hash);
     candidates.add(index);
@@ -799,7 +807,8 @@ fnc remember_member(
   return;
 }
 
-fnc object_keys_unique(List<WireMember> members): bool {
+// 1 = unique, 0 = duplicate, -1 = work budget exhausted.
+fnc object_keys_unique(JsonWriter mut writer, List<WireMember> members): int {
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
@@ -809,15 +818,39 @@ fnc object_keys_unique(List<WireMember> members): bool {
     fi
 
     let WireMember member = members[i];
-    if member_index(members, buckets, member.key) >= 0 then
-      return false;
+    // Bound the one-pass hash scan separately from repeated collision work.
+    if member.key.bytes.length > writer.map_key_hash_work_remaining then
+      writer_fail(writer, "map_complexity_limit",
+        "JSON encoder key hashing exceeds the configured output work budget");
+      return -1;
     fi
-
-    remember_member(buckets, member.key, i);
+    writer.map_key_hash_work_remaining =
+      writer.map_key_hash_work_remaining - member.key.bytes.length;
+    let int hash = text_hash(member.key);
+    if buckets.contains(hash) then
+      val List<int> candidates = buckets.get(hash);
+      for const index of candidates do
+        let int cost = 1 + members[index].key.bytes.length + member.key.bytes.length;
+        if cost > writer.map_key_work_remaining then
+          writer_fail(writer, "map_complexity_limit",
+            "JSON encoder map-key collision work exceeds the configured admission budget");
+          return -1;
+        fi
+        writer.map_key_work_remaining = writer.map_key_work_remaining - cost;
+        if bytes_equal(members[index].key.bytes, member.key.bytes) then
+          return 0;
+        fi
+      done
+      candidates.add(i);
+    else
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
+      buckets.set(hash, candidates);
+    fi
     i = i + 1;
   done
 
-  return true;
+  return 1;
 }
 
 
@@ -918,7 +951,11 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int existing = member_index(members, buckets, key);
+    let int hash = text_hash(key);
+    let int existing = member_index_bounded(cursor, members, buckets, hash, key);
+    if cursor.failed then
+      return value_object(members);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(cursor, "duplicate_key", "duplicate JSON object key");
@@ -930,7 +967,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     else
       let int index = members.length;
       members.add(new WireMember(key, field_value));
-      remember_member(buckets, key, index);
+      remember_member(buckets, hash, index);
     fi
 
     skip_whitespace(cursor);
@@ -1047,6 +1084,7 @@ pub fnc decode_attempt(
     0,
     false,
     false,
+    map_key_work_limit(options.max_map_entries),
     empty_decode_error()
   );
 
@@ -1297,8 +1335,11 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
   fi
 
   if value.kind == 6 then
-    if !object_keys_unique(value.object_value) then
-      writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
+    let int uniqueness = object_keys_unique(writer, value.object_value);
+    if uniqueness != 1 then
+      if !writer.failed then
+        writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
+      fi
       return;
     fi
 
@@ -1344,6 +1385,8 @@ pub fnc encode(
     new List<int>(),
     options,
     false,
+    map_key_work_limit(1000000),
+    options.max_output_bytes,
     new EncodeError("", "")
   );
 
