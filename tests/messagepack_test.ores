@@ -152,8 +152,8 @@ pub fnc run_messagepack_tests(): void {
     1, false, 128, 4096, 32, 64, 64, 16, 16
   );
   let List<int> msgpack_work_below = new List<int>();
-  msgpack_work_below.add(132);
-  for (let i = 0; i < 4; i++) {
+  msgpack_work_below.add(134);
+  for (let i = 0; i < 6; i++) {
     msgpack_work_below.add(176);
     for (let j = 0; j < 16; j++) { msgpack_work_below.add(97); }
     msgpack_work_below.add(i + 1);
@@ -170,6 +170,19 @@ pub fnc run_messagepack_tests(): void {
   }
   val Result<DecodedValue, DecodeError> msgpack_work_limited = decode(msgpack_work_over, bounded_map_work);
   require_true(msgpack_work_limited.is_err(), "MessagePack collision work over budget fails closed");
+
+  let List<int> nested_map_work_below = new List<int>();
+  nested_map_work_below.add(149);
+  for (let i = 0; i < 5; i++) {
+    nested_map_work_below.add(130);
+    for (let n = 0; n < 2; n++) {
+      nested_map_work_below.add(176);
+      for (let j = 0; j < 16; j++) { nested_map_work_below.add(97); }
+      nested_map_work_below.add(n + 1);
+    }
+  }
+  val Result<DecodedValue, DecodeError> nested_map_work_ok = decode(nested_map_work_below, bounded_map_work);
+  require_true(!nested_map_work_ok.is_err(), "nested MessagePack maps below shared budget succeed");
 
   let List<int> nested_map_work = new List<int>();
   nested_map_work.add(150);
