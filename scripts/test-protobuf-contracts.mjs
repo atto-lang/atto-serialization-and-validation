@@ -126,6 +126,31 @@ function sourceGuard(w,z) {
     'Zorde fails to count field keys and length prefixes');
   assert.ok(z.includes('options.max_input_bytes - total_reencoded_wire_bytes'),
     'Zorde lacks overflow-safe cumulative budget');
+  assert.ok(z.includes('if field.payload.length >= remaining_bytes then'),
+    'missing cheap payload budget preflight');
+  assert.ok(z.indexOf('if field.payload.length >= remaining_bytes then') <
+    z.indexOf('proto_field_reencoded_wire_bytes(field)'),
+    'payload budget preflight occurs after shape scan');
+  const copyStart=w.indexOf('pub fnc proto_message_copy_bounded(');
+  assert.ok(copyStart>=0,'missing bounded Protobuf message copy helper');
+  const copyBudget=w.indexOf('if field.payload.length >= remaining_bytes then',copyStart);
+  const copyDetached=w.indexOf('val ProtoField detached = proto_field_snapshot(field);',copyStart);
+  const copyDetachedBudget=w.indexOf('if detached.payload.length >= remaining_bytes then',copyStart);
+  const copyScan=w.indexOf('proto_field_reencoded_wire_bytes(detached)',copyStart);
+  const copyAppend=w.indexOf('copy.add(detached);',copyStart);
+  assert.ok(copyBudget>copyStart && copyDetached>copyBudget &&
+    copyDetachedBudget>copyDetached && copyScan>copyDetachedBudget &&
+    copyAppend>copyScan,
+    'bounded copy must validate detached bytes after cheap source preflight');
+  const cappedExit='if report.truncated then\n      return report;\n    fi';
+  const fieldExit=z.indexOf(cappedExit);
+  const requiredExit=z.indexOf(cappedExit,fieldExit+1);
+  assert.ok(fieldExit>z.indexOf('val int payload_bytes = proto_field_payload_wire_bytes(field)') &&
+    fieldExit<z.indexOf('field_index = field_index + 1;'),
+    'Zorde continues scanning message.fields after report truncation');
+  assert.ok(requiredExit>z.indexOf('if rules[i].required && occurrences[i] == 0 then') &&
+    requiredExit<z.lastIndexOf('i = i + 1;'),
+    'Zorde continues scanning required rules after report truncation');
 }
 sourceGuard(wire,zorde);
 checks++;
@@ -138,6 +163,27 @@ reject(()=>sourceGuard(wire,zorde.replace('proto_field_reencoded_wire_bytes(fiel
   'proto_field_payload_wire_bytes(field)')));
 reject(()=>sourceGuard(wire,zorde.replace('options.max_input_bytes - total_reencoded_wire_bytes',
   'options.max_input_bytes')));
+reject(()=>sourceGuard(wire,zorde.replace('if field.payload.length >= remaining_bytes then',
+  'if false then')));
+reject(()=>sourceGuard(wire.replace('copy.add(detached);',
+  'copy.add(field);'),zorde));
+reject(()=>sourceGuard(wire.replace('proto_field_reencoded_wire_bytes(detached)',
+  'proto_field_reencoded_wire_bytes(field)'),zorde));
+reject(()=>sourceGuard(wire.replace('if detached.payload.length >= remaining_bytes then',
+  'if false then'),zorde));
+reject(()=>sourceGuard(wire.replace('if field.payload.length >= remaining_bytes then',
+  'if false then'),zorde));
+// Restoring the old > bound defeats the O(1) no-space-for-tag rejection.
+reject(()=>sourceGuard(wire,zorde.replace('if field.payload.length >= remaining_bytes then',
+  'if field.payload.length > remaining_bytes then')));
+reject(()=>sourceGuard(wire.replace('if field.payload.length >= remaining_bytes then',
+  'if field.payload.length > remaining_bytes then'),zorde));
+const capGuard='    if report.truncated then\n      return report;\n    fi';
+const skippedCapGuard='    if false then\n      return report;\n    fi';
+reject(()=>sourceGuard(wire,zorde.replace(capGuard,skippedCapGuard)));
+const secondCap=zorde.lastIndexOf(capGuard);
+reject(()=>sourceGuard(wire,
+  zorde.slice(0,secondCap)+zorde.slice(secondCap).replace(capGuard,skippedCapGuard)));
 
 // Source-only native admission wiring guard. This proves that the focused
 // tests/guest/harness *source* is connected; it never executes a compiler or
@@ -179,7 +225,6 @@ reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
   '"protobuf_focused_native_log_sha256"','"missing_hash"')));
 reject(()=>nativeGateGuard(focused,integrated,nativeHarness.replace(
   '"protobuf_focused_native_guest_executed": True','"protobuf_focused_native_guest_executed": False')));
-
 // The protected native job must reach the source-local attester through a
 // clean environment. This is a source-only CI configuration guard; it does
 // NOT attest that an administrator approved the runner or that it executed.
@@ -302,7 +347,6 @@ reject(()=>earlySourceIntegrityGuard(physicalVerifier.replace(
 reject(()=>earlySourceIntegrityGuard(physicalVerifier,
   refusalFixtures.replace("grep -Fq 'untracked files exist in source checkout'",
     "grep -Fq 'any diagnostic'")));
-
 // A SHA-consistent Git symlink attests a link pathname, not the source bytes
 // loaded through that link. Source-local native admission must refuse the
 // tracked symlink mode, with an independent disposable Git negative fixture.
@@ -329,7 +373,6 @@ reject(()=>trackedSymlinkGuard(physicalVerifier.replace(
 reject(()=>trackedSymlinkGuard(physicalVerifier,
   refusalFixtures.replace('ln -s ../external-unreviewed-guest "$linked_src/escape.ores"',
     'printf "safe" > "$linked_src/escape.ores"')));
-
 // The ORIGINAL-WIRE report entrypoint must decode bounded input before using
 // field-only Zorde rules. Canonicalized keys/length prefixes can otherwise
 // undercount attacker-controlled bytes. Source-only wiring checks, not a

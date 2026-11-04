@@ -148,6 +148,81 @@ pub fnc run_protobuf_zorde_tests(): void {
   require_true(aggregate_budget.errors[0].code == "out-of-range",
     "multi-field canonical total must respect max_input_bytes");
 
+  // The previous report-only check counted value bytes but forgot field
+  // tags and length prefixes. Such an apparently valid message cannot fit
+  // inside decode_message(max_input_bytes), so admission must fail closed.
+  val List<ProtoZordeFieldRule> budget_rules = new List<ProtoZordeFieldRule>();
+  budget_rules.add(new ProtoZordeFieldRule(1, 0, false, 2, 1));
+  val List<ProtoField> one_tagged_varint = new List<ProtoField>();
+  one_tagged_varint.add(proto_varint(1, 0));
+  val ValidationReport tag_over_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_tagged_varint), budget_rules,
+    new ProtoDecodeOptions(1, 2, 1), true
+  );
+  require_true(tag_over_budget.errors.length > 0 && tag_over_budget.errors[0].code == "out-of-range",
+    "one-byte budget cannot hold key plus zero varint");
+
+  val List<ProtoField> two_tagged_varints = new List<ProtoField>();
+  two_tagged_varints.add(proto_varint(1, 0));
+  two_tagged_varints.add(proto_varint(1, 1));
+  val ValidationReport pair_over_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(two_tagged_varints), budget_rules,
+    new ProtoDecodeOptions(3, 3, 3), true
+  );
+  require_true(pair_over_budget.errors.length > 0 && pair_over_budget.errors[0].code == "out-of-range",
+    "two one-byte varints plus their tags require four input bytes");
+
+  val List<ProtoZordeFieldRule> length_rules = new List<ProtoZordeFieldRule>();
+  length_rules.add(new ProtoZordeFieldRule(2, 2, false, 1, 3));
+  val List<ProtoField> one_length_field = new List<ProtoField>();
+  one_length_field.add(proto_bytes(2, new List<int>(65, 66)));
+  val ValidationReport length_over_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_length_field), length_rules,
+    new ProtoDecodeOptions(3, 3, 3), true
+  );
+  require_true(length_over_budget.errors.length > 0 && length_over_budget.errors[0].code == "out-of-range",
+    "length-delimited bytes must include tag and prefix");
+  // An otherwise-valid two-byte payload cannot occupy the entire two-byte
+  // input budget because every field must also have a tag (and length prefix).
+  val ValidationReport no_tag_space = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_length_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(2, 2, 2), false
+  );
+  require_true(no_tag_space.errors.length > 0 && no_tag_space.errors[0].code == "out-of-range",
+    "Zorde rejects payload==remaining before full payload scan");
+
+  // Large tag keys consume more bytes than the usual one-byte tag. Unknown
+  // reserved tags are still valid *wire* data and must honor the same budget.
+  val List<ProtoField> wide_tag_field = new List<ProtoField>();
+  wide_tag_field.add(proto_varint(19000, 1));
+  val ValidationReport wide_tag_over_budget = zorde_validate_protobuf_wire(
+    new ProtoMessage(wide_tag_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(3, 3, 3), false
+  );
+  require_true(wide_tag_over_budget.errors.length > 0 && wide_tag_over_budget.errors[0].code == "out-of-range",
+    "three-byte key plus value exceeds three-byte budget");
+
+  val ValidationReport exact_two_bytes = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_tagged_varint), budget_rules,
+    new ProtoDecodeOptions(2, 2, 2), true
+  );
+  require_int(exact_two_bytes.errors.length, 0,
+    "key plus value exactly within the two-byte budget must pass");
+
+  val ValidationReport exact_four_bytes = zorde_validate_protobuf_wire(
+    new ProtoMessage(one_length_field), length_rules,
+    new ProtoDecodeOptions(4, 4, 4), true
+  );
+  require_int(exact_four_bytes.errors.length, 0,
+    "tag, length prefix and two data bytes fit four-byte budget");
+
+  val ValidationReport exact_wide_tag = zorde_validate_protobuf_wire(
+    new ProtoMessage(wide_tag_field), new List<ProtoZordeFieldRule>(),
+    new ProtoDecodeOptions(4, 4, 4), false
+  );
+  require_int(exact_wide_tag.errors.length, 0,
+    "reserved unknown tag is allowed with an adequate wire budget");
+
   // Original-wire admission counts every input byte. Nonminimal field keys
   // and length prefixes get normalized when decoded into ProtoMessage;
   // validation of an already parsed envelope alone cannot prove their size.
@@ -236,5 +311,25 @@ pub fnc run_protobuf_zorde_tests(): void {
   );
   require_int(capped.errors.length, 64, "Zorde Protobuf issue budget");
   require_true(capped.truncated, "Zorde report indicates excess diagnostics");
+
+  // Missing-required diagnostics have the same bounded 64-error carrier.
+  // The validator must also stop that separate descriptor traversal at cap.
+  val List<ProtoZordeFieldRule> many_required = new List<ProtoZordeFieldRule>();
+  i = 0;
+  loop do
+    if i >= 70 then break; fi
+    many_required.add(new ProtoZordeFieldRule(i + 1, 0, true, 1, 1));
+    i = i + 1;
+  done
+  val ValidationReport required_capped = zorde_validate_protobuf_wire(
+    new ProtoMessage(new List<ProtoField>()),
+    many_required, default_proto_decode_options(), true
+  );
+  require_int(required_capped.errors.length, 64,
+    "required-field diagnostics must obey 64-error budget");
+  require_true(required_capped.truncated,
+    "missing-required overflow must mark diagnostic report truncated");
+  require_true(required_capped.errors[0].code == "missing-required",
+    "missing-required overflow must preserve its diagnostic identity");
   return;
 }

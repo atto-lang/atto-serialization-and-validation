@@ -41,6 +41,17 @@ descriptor alongside the compiled Zorde registry.
   with independent payload lists, but `ProtoMessage` may still be constructed
   with aliased mutable field lists. These copies are NOT transitive immutability.
   No cross-actor sharing/proof is authorized by this change.
+  Callers that need a bounded, detached **mutable** field-list projection can
+  use `proto_message_copy_bounded(message, options)`. It validates
+  re-encoded key/prefix/value budgets and copies each nested byte list;
+  mutation of the original after the call no longer changes the copy and
+  vice versa. The helper validates the **detached** field, not an earlier
+  version of its mutable source. It rechecks the detached byte-length before
+  scanning; this reduces a within-field validate-before-copy exposure but
+  does not provide cross-field atomicity. Concurrent mutation *during*
+  copying is not an atomic snapshot
+  and must be excluded by exclusive ownership. Neither the copy nor a prior
+  Zorde report is a frozen or authenticated value; revalidate after mutation.
 - The encoder preflights payload byte validity and available output budget
   before appending payload bytes. A failed encode returns an error, no
   partially written byte list is returned.
@@ -64,12 +75,22 @@ descriptor alongside the compiled Zorde registry.
   `encode_message` separately enforces its output budget while emitting bytes.
   Zorde's byte accounting is report-only and does not establish signature or
   authentication semantics.
+  Zorde preflights payload lengths against the remaining input budget before
+  any per-byte scan and uses one shared re-encoded-size/shape helper.
+  An untrusted payload that fills the entire remaining budget is rejected
+  immediately: at least one additional byte is always needed for its field key.
+  The bounded detached-message copy uses the same inclusive preflight.
+  Exceeded budgets stop immediately to avoid repeated work on aliased lists.
+  This does not establish deep immutability, authenticated descriptors or
+  the byte count of the original noncanonical input stream.
 
 ### Zorde admission
 
 `zorde_validate_protobuf_wire(message, rules, decodeOptions, rejectUnknown)`
 returns a bounded `ValidationReport` (up to 64 issues; `truncated` on overflow)
-with no typed value or security capability. Each `ProtoZordeFieldRule`
+with no typed value or security capability. Once a 65th issue marks the report
+truncated, both the field and required-descriptor walks stop immediately;
+this caps *post-overflow* work, not all scanning of otherwise-valid inputs. Each `ProtoZordeFieldRule`
 specifies field number, wire type, required, maximum occurrences, maximum
 payload bytes. It rejects duplicate descriptors, implementation-reserved
 descriptor tags, malformed field shapes and resource-policy inconsistencies.

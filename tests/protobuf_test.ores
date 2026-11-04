@@ -2,7 +2,7 @@ import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
 import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
-import fnc encode_message, decode_message, fields_with_number from '../src/protobuf/wire';
+import fnc encode_message, decode_message, fields_with_number, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
   val List<ProtoField> fields = new List<ProtoField>();
@@ -123,6 +123,35 @@ pub fnc run_protobuf_tests(): void {
   require_true(input_limited.is_err(), "Protobuf max_input_bytes must fail closed");
 
 
+  // Field 16 has a two-byte key (128,1); value 16384 needs three
+  // varint bytes (128,128,1). Exercises quotient/remainder lowering
+  // without the deprecated modulo operator on all supported backends.
+  val List<ProtoField> multi_key_fields = new List<ProtoField>();
+  multi_key_fields.add(proto_varint(16, 16384));
+  val Result<List<int>, ProtoError> multi_key_encoded = encode_message(
+    new ProtoMessage(multi_key_fields), default_proto_encode_options()
+  );
+  require_true(!multi_key_encoded.is_err(), "two-byte Protobuf tag must encode");
+  val List<int> multi_key_wire = multi_key_encoded.unwrap();
+  val List<int> multi_key_expected = new List<int>(128, 1, 128, 128, 1);
+  require_int(multi_key_wire.length, multi_key_expected.length,
+    "multi-byte tag and varint encoded length");
+  let int key_index = 0;
+  loop do
+    if key_index >= multi_key_expected.length then
+      break;
+    fi
+    require_int(multi_key_wire[key_index], multi_key_expected[key_index],
+      "exact multi-byte tag/value wire bytes");
+    key_index = key_index + 1;
+  done
+  val Result<ProtoMessage, ProtoError> multi_key_decoded = decode_message(
+    multi_key_wire, default_proto_decode_options()
+  );
+  require_true(!multi_key_decoded.is_err(), "multi-byte tag/value must decode");
+  require_int(multi_key_decoded.unwrap().fields[0].field_number, 16,
+    "multi-byte field key must preserve numeric field number");
+
   // Constructor byte lists are snapshots, not aliases of mutable caller input.
   val List<int> mutable_source = new List<int>(3, 7, 9, 11);
   val ProtoField copied_fixed = proto_fixed32(4, mutable_source);
@@ -134,6 +163,79 @@ pub fnc run_protobuf_tests(): void {
   val ProtoField copied_varint = proto_raw_varint(5, raw_source);
   raw_source.add(1);
   require_int(copied_varint.payload.length, 2, "raw varint constructor must snapshot byte source");
+
+  // Mutable ProtoMessage.fields can alias caller lists. An explicit bounded
+  // copy must isolate the parent list AND nested byte payloads in both directions.
+  val List<ProtoField> copy_source_fields = new List<ProtoField>();
+  copy_source_fields.add(proto_bytes(1, new List<int>(20, 30)));
+  val ProtoMessage copy_source = new ProtoMessage(copy_source_fields);
+  val Result<ProtoMessage, ProtoError> safe_copy_result = proto_message_copy_bounded(
+    copy_source, new ProtoDecodeOptions(4, 2, 2)
+  );
+  require_true(!safe_copy_result.is_err(),
+    "bounded Protobuf independent message copy must succeed");
+  val ProtoMessage isolated_copy = safe_copy_result.unwrap();
+  copy_source_fields[0].payload.add(77);
+  copy_source_fields.add(proto_varint(2, 1));
+  require_int(isolated_copy.fields.length, 1,
+    "subsequent parent-list mutation must not modify bounded copy");
+  require_int(isolated_copy.fields[0].payload.length, 2,
+    "subsequent original payload mutation must not modify bounded copy");
+  isolated_copy.fields[0].payload.add(88);
+  require_int(copy_source_fields[0].payload[2], 77,
+    "bounded copy payload mutation must not modify original bytes");
+  require_int(isolated_copy.fields[0].payload[2], 88,
+    "bounded copy independently retains its own mutation");
+
+  val Result<ProtoMessage, ProtoError> over_budget_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(3, 2, 2)
+  );
+  require_true(over_budget_copy.is_err(),
+    "bounded copy must count field key plus length prefix and payload");
+  // The payload exactly fills max_input_bytes: the required tag cannot fit.
+  // Reject before scanning the two content bytes or allocating a copy.
+  val Result<ProtoMessage, ProtoError> no_tag_space_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(2, 2, 2)
+  );
+  require_true(no_tag_space_copy.is_err(),
+    "bounded copy must fail when payload leaves zero bytes for field key");
+  val Result<ProtoMessage, ProtoError> over_length_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 30))
+    )), new ProtoDecodeOptions(4, 2, 1)
+  );
+  require_true(over_length_copy.is_err(),
+    "bounded copy must reject length-delimited payload over limit");
+  val Result<ProtoMessage, ProtoError> invalid_byte_copy = proto_message_copy_bounded(
+    new ProtoMessage(new List<ProtoField>(
+      proto_bytes(1, new List<int>(20, 256))
+    )), new ProtoDecodeOptions(4, 2, 2)
+  );
+  require_true(invalid_byte_copy.is_err(),
+    "bounded copy must reject malformed bytes without projecting");
+
+  // A new copy must reject post-copy mutation of the original. The old
+  // detached copy must remain independently valid data.
+  copy_source_fields[0].payload.add(256);
+  val Result<ProtoMessage, ProtoError> modified_source_copy = proto_message_copy_bounded(
+    copy_source, new ProtoDecodeOptions(12, 3, 10)
+  );
+  require_true(modified_source_copy.is_err(),
+    "new copy must reject invalid source bytes added after earlier copy");
+  require_int(isolated_copy.fields[0].payload.length, 3,
+    "old detached copy remains unaffected by modified original");
+
+  val List<ProtoField> invalid_raw_copy_fields = new List<ProtoField>();
+  invalid_raw_copy_fields.add(proto_raw_varint(1, new List<int>(128)));
+  val Result<ProtoMessage, ProtoError> invalid_raw_copy = proto_message_copy_bounded(
+    new ProtoMessage(invalid_raw_copy_fields), new ProtoDecodeOptions(4, 1, 4)
+  );
+  require_true(invalid_raw_copy.is_err(),
+    "copy of unterminated raw varint must fail closed");
 
   // The maximum signed i64 uses exactly nine varint bytes, not ten.
   // This boundary must retain the exact integer, without overflow or narrowing.
