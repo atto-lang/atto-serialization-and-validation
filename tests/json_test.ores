@@ -199,7 +199,7 @@ pub fnc run_json_tests(): void {
 
   // Map-key collision work uses one operation-wide budget. Repeated 60-byte
   // keys with first-wins exercise candidate equality without early duplicate
-  // rejection: two comparisons fit; the third must fail closed.
+  // rejection: two comparisons fit; the fourth candidate comparison fails.
   let List<int> json_work_below = new List<int>();
   json_work_below.add(123);
   for (let i = 0; i < 3; i++) {
