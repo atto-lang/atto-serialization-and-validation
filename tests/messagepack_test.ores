@@ -167,8 +167,8 @@ pub fnc run_messagepack_tests(): void {
     "MessagePack map-key work below budget must succeed");
 
   let List<int> msgpack_work_over = new List<int>();
-  msgpack_work_over.add(133);
-  for (let i = 0; i < 5; i++) {
+  msgpack_work_over.add(135);
+  for (let i = 0; i < 7; i++) {
     msgpack_work_over.add(176);
     for (let j = 0; j < 16; j++) { msgpack_work_over.add(97); }
     msgpack_work_over.add(i + 1);
@@ -182,8 +182,8 @@ pub fnc run_messagepack_tests(): void {
   // Nested maps share one decoder-wide counter. Four individually cheap maps
   // together exceed the total allowance; resetting per map would miss it.
   let List<int> nested_map_work = new List<int>();
-  nested_map_work.add(148);
-  for (let i = 0; i < 4; i++) {
+  nested_map_work.add(150);
+  for (let i = 0; i < 6; i++) {
     nested_map_work.add(130);
     for (let n = 0; n < 2; n++) {
       nested_map_work.add(176);
