@@ -229,5 +229,20 @@ pub fnc run_json_tests(): void {
   require_true(json_work_limited.error.code == "map_complexity_limit",
     "JSON work-budget exhaustion must have a structured diagnostic");
 
+
+  // Encoder hashing is independently bounded by max_output_bytes, before it
+  // can walk a huge caller-owned key or emit a partial object.
+  let List<int> long_key_bytes = new List<int>();
+  for (let i = 0; i < 80; i++) { long_key_bytes.add(97); }
+  let List<WireMember> long_key_members = new List<WireMember>();
+  long_key_members.add(new WireMember(new Utf8Text(long_key_bytes), value_int(1)));
+  val Result<List<int>, EncodeError> json_key_hash_limited = encode(
+    value_object(long_key_members), new EncodeOptions(128, 64)
+  );
+  require_true(json_key_hash_limited.is_err(),
+    "JSON encoder must bound caller-owned key hashing by max_output_bytes");
+  require_true(json_key_hash_limited.unwrap_err().code == "map_complexity_limit",
+    "JSON encoder key-hash exhaustion must be structured");
+
   return;
 }
