@@ -203,6 +203,21 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(nested_key_collision.is_err(),
     "MessagePack nested map-key equality must charge its internal collision scan");
+  // Encoder-side preflight must bound nested equality structures too, before
+  // hashing a caller-owned map key. 300 colliding inner keys make the
+  // conservative structural comparison estimate exceed the hash budget.
+  let List<MapEntry> very_large_nested_entries = new List<MapEntry>();
+  for (let inner = 0; inner < 300; inner++) {
+    very_large_nested_entries.add(new MapEntry(value_int(1), value_int(inner)));
+  }
+  let Value very_large_nested_key = value_map(very_large_nested_entries);
+  let List<MapEntry> very_large_outer_entries = new List<MapEntry>();
+  very_large_outer_entries.add(new MapEntry(very_large_nested_key, value_int(1)));
+  val Result<List<int>, EncodeError> nested_encoder_work_limited = encode(
+    value_map(very_large_outer_entries), new EncodeOptions(128, 16777216)
+  );
+  require_true(nested_encoder_work_limited.is_err(),
+    "MessagePack encoder bounds collision cost inside caller-owned nested map keys");
   let List<int> long_key_bytes = new List<int>();
   for (let i = 0; i < 80; i++) { long_key_bytes.add(97); }
   let List<MapEntry> long_key_entries = new List<MapEntry>();
