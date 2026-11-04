@@ -184,6 +184,25 @@ pub fnc run_messagepack_tests(): void {
   val Result<DecodedValue, DecodeError> nested_map_limited = decode(nested_map_work, bounded_map_work);
   require_true(nested_map_limited.is_err(), "nested MessagePack maps share one operation budget");
 
+  // Nested general-map keys have their own hash-bucket equality work. Two
+  // equal 16-entry map keys would make that internal scan quadratic; the
+  // outer map comparison must reject them before deep equality starts.
+  let List<int> nested_collision_wire = new List<int>();
+  nested_collision_wire.add(130);
+  for (let outer = 0; outer < 2; outer++) {
+    nested_collision_wire.add(222);
+    nested_collision_wire.add(0); nested_collision_wire.add(16);
+    for (let inner = 0; inner < 16; inner++) {
+      nested_collision_wire.add(inner);
+      nested_collision_wire.add(inner + 1);
+    }
+    nested_collision_wire.add(outer + 1);
+  }
+  val Result<DecodedValue, DecodeError> nested_key_collision = decode(
+    nested_collision_wire, bounded_map_work
+  );
+  require_true(nested_key_collision.is_err(),
+    "MessagePack nested map-key equality must charge its internal collision scan");
   let List<int> long_key_bytes = new List<int>();
   for (let i = 0; i < 80; i++) { long_key_bytes.add(97); }
   let List<MapEntry> long_key_entries = new List<MapEntry>();
