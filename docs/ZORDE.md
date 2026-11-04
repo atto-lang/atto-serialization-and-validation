@@ -175,6 +175,24 @@ initial facade does not claim compiler-generated zorde.schema<T>(), arbitrary
 where execution, regex/pattern validation, cross-field predicates, or full
 typed-object construction.
 
+## Compiler-owned constrained aliases: i64 v1 projection
+
+A report-only Oreslang adapter for the Java/LLVM
+`ores.type-constraint.v1` catalog now lives in
+[`src/zorde/compiler_constraint_v1.ores`](../src/zorde/compiler_constraint_v1.ores).
+It checks qualified alias identity and caller-provided fingerprint agreement,
+canonical one/two-sided inclusive i64 predicates and deterministic compiler
+error IDs, with exact bounded wire-int parsing. It returns a diagnostic
+`ValidationReport` or an ordinary `Result<int,ValidationReport>`.
+
+**This does not authenticate the caller-provided fingerprint or issue
+`Valid<T>` provenance.** Compiler-owned catalog admission, cryptographic
+fingerprint verification, opaque checked construction and transitive immutable
+ownership remain mandatory. Constrained-alias runtime use must keep failing
+closed with `CONSTRAINT_VALIDATION_BRIDGE_REQUIRED` until those compiler
+gates have executed successfully. See
+[`ZORDE-COMPILER-CONSTRAINT-V1.md`](ZORDE-COMPILER-CONSTRAINT-V1.md).
+
 ## Refinement-to-Zorde normalization
 
 Built-in compiler predicates should normalize mechanically. Canonical textual comparators are `eq`, `ne`, `gt`, `gte`, `lt`, and `lte`; `==`, `!=`, `>`, `>=`, `<`, and `<=` are equivalent symbolic spellings. `ge`/`le` are not supported aliases:

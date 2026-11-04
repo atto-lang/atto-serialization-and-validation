@@ -14,6 +14,7 @@ import fnc run_json_channel_tests from './json_channel_test';
 import fnc run_channel_codec_tests from './channel_codec_test';
 import fnc run_zorde_tests from './zorde_test';
 import fnc run_zorde_compiled_registry_tests from './zorde_compiled_registry_test';
+import fnc run_zorde_compiler_constraint_v1_tests from './zorde_compiler_constraint_v1_test';
 
 pub async fnc main(): void {
   run_json_tests();
@@ -30,6 +31,7 @@ pub async fnc main(): void {
   run_generated_typed_codec_tests();
   run_zorde_tests();
   run_zorde_compiled_registry_tests();
+  run_zorde_compiler_constraint_v1_tests();
 
   val Future<void> json_channel_tests = run_json_channel_tests();
   await json_channel_tests;
