@@ -253,7 +253,7 @@ pub fnc ai_scalar_decode_options(): DecodeOptions {
   // JSON root is depth 0, scalar field values depth 1. Deeper
   // documents can never match this scalar-only record schema.
   return new DecodeOptions(
-    0, false, 1, 65536, 16384, 0, 1024, 256, 256
+    0, false, 1, 65536, 16384, 0, 1024, 0, 256
   );
 }
 
@@ -289,6 +289,9 @@ pub fnc decode_ai_scalar_record_attempt(
   CodecTypeMeta metadata,
   ValidationOptions validation_options
 ): ObjectDecodeAttempt {
+  // The scalar record has no array-typed fields. An empty array remains
+  // syntactically decodable so it can fail the object-root/type gate, but
+  // nonempty arrays must fail before allocating any array elements.
   // Validate options and raw byte length before walking the schema or
   // parsing the body. Even an invalid object schema cannot force expensive
   // field-name hashing for an oversized provider response.
@@ -298,7 +301,7 @@ pub fnc decode_ai_scalar_record_attempt(
      decode_options.max_string_bytes > 16384 ||
      decode_options.max_binary_bytes != 0 ||
      decode_options.max_number_bytes > 1024 ||
-     decode_options.max_array_entries > 256 ||
+     decode_options.max_array_entries != 0 ||
      decode_options.max_map_entries > 256 then
     return ai_options_failure(
       "ai_limits",
