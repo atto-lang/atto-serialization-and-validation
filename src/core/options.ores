@@ -96,21 +96,19 @@ pub fnc map_key_work_limit(int max_entries, int max_bytes): int {
   if max_entries < 0 || max_bytes < 0 then
     return 0;
   fi
-  // Inputs from DecodeOptions/EncodeOptions are already capped, but keep this
-  // public helper safe when called independently as well.
-  if max_entries > 1000000 then max_entries = 1000000; fi
-  if max_bytes > 268435456 then max_bytes = 268435456; fi
-  let int by_entries = max_entries * 8;
-  let int by_bytes = max_bytes / 32;
-  let int total = by_entries + by_bytes;
-  if total < 256 then
-    return 256;
-  fi
+  // Avoid '/' here: AttoLang integer division is intentionally not implicit.
+  // max_entries is capped before multiplication to keep arithmetic bounded.
+  let int bounded_entries = max_entries > 1000000 ? 1000000 : max_entries;
+  let int by_entries = bounded_entries * 8;
+  // A fixed baseline plus a bounded entry allowance makes the complexity
+  // budget deterministic and independent of floating-point conversion.
+  let int total = 256 + by_entries;
   if total > 8000000 then
     return 8000000;
   fi
   return total;
 }
+
 pub fnc max_supported_depth(): int {
   return 128;
 }
