@@ -9,7 +9,7 @@ import fnc value_null, value_bool, value_number_lexeme, value_string, value_arra
 import fnc bytes_equal, text_hash from '../core/value';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
-import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit from '../core/options';
+import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit, map_key_hash_work_limit from '../core/options';
 
 define class JsonCursor as
   pub val List<int> input;
@@ -825,7 +825,7 @@ fnc object_keys_unique(JsonWriter mut writer, List<WireMember> members): int {
       return -1;
     fi
     writer.map_key_hash_work_remaining =
-      writer.map_key_hash_work_remaining - member.key.bytes.length;
+      writer.map_key_hash_work_remaining - hash_work;
     let int hash = text_hash(member.key);
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
@@ -1387,7 +1387,7 @@ pub fnc encode(
     options,
     false,
     map_key_work_limit(1000000),
-    options.max_output_bytes,
+    map_key_hash_work_limit(options.max_output_bytes),
     new EncodeError("", "")
   );
 
