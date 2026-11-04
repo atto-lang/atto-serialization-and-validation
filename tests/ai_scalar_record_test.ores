@@ -209,18 +209,30 @@ pub fnc run_ai_scalar_record_tests(): void {
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), negative_bytes, rt borrow closed, 2, "invalid_negative_budget");
 
 
-  // Protect both dimensions of the depth contract: no nested values can
-  // be parsed with max_depth=1, and changing to max_depth=2 fails at
-  // preflight rather than weakening the typed scalar-only schema.
+  // Depth=1 prevents entering grandchildren of a field value. Empty
+  // nested containers have no grandchildren and must instead be rejected
+  // by the scalar field kind rule. Neither failure path may succeed.
   check_ai_status(
     new List<int>(123,34,110,97,109,101,34,58,123,125,44,
       34,115,99,111,114,101,34,58,52,50,125),
-    rt borrow strict, rt borrow closed, 2, "nested_object_rejected_at_parse_depth"
+    rt borrow strict, rt borrow closed, 3, "empty_nested_object_type_rejected"
   );
   check_ai_status(
     new List<int>(123,34,110,97,109,101,34,58,91,93,44,
       34,115,99,111,114,101,34,58,52,50,125),
-    rt borrow strict, rt borrow closed, 2, "nested_array_rejected_at_parse_depth"
+    rt borrow strict, rt borrow closed, 3, "empty_nested_array_type_rejected"
+  );
+  // Nonempty nested objects/arrays attempt parsing grandchildren (depth 2)
+  // and must be blocked by the parser before reaching field validation.
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,123,34,120,34,58,49,125,
+      44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nonempty_nested_object_depth_rejected"
+  );
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,91,49,93,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nonempty_nested_array_depth_rejected"
   );
   val ObjectDecodeAttempt overdeep_reject = decode_ai_scalar_record_attempt(
     new List<int>(123,125), rt borrow overdeep, rt borrow closed,
