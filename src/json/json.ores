@@ -816,10 +816,16 @@ fnc object_keys_unique(JsonWriter mut writer, List<WireMember> members): int {
     if i >= members.length then
       break;
     fi
+    if i >= 1000000 then
+      writer_fail(writer, "map_complexity_limit",
+        "JSON encoder map entry count exceeds the bounded admission limit");
+      return -1;
+    fi
 
     let WireMember member = members[i];
     // Bound the one-pass hash scan separately from repeated collision work.
-    if member.key.bytes.length > writer.map_key_hash_work_remaining then
+    let int hash_work = 1 + member.key.bytes.length;
+    if hash_work > writer.map_key_hash_work_remaining then
       writer_fail(writer, "map_complexity_limit",
         "JSON encoder key hashing exceeds the configured output work budget");
       return -1;
