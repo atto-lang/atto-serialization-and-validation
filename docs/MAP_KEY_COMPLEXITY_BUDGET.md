@@ -14,7 +14,7 @@ When a candidate comparison cannot be admitted, decoding fails with structured `
 
 ## Encoder budget
 
-Each top-level JSON/MessagePack writer owns one shared collision counter and one key-hash work counter. The hash-work counter starts at `max_output_bytes`, bounding preflight of caller-owned keys before recursive hashing. The collision counter uses the fixed eight-million-entry ceiling. Nested maps share both counters through the writer.
+Each top-level JSON/MessagePack writer owns one shared collision counter and one key-hash work counter. The hash-work counter is `min(max_output_bytes, 8,000,000)`, bounding preflight of caller-owned keys before recursive hashing. The collision counter uses the fixed eight-million-entry ceiling. Encoder map admission is capped at one million entries, matching the decoder's supported container limit. Nested maps share both counters through the writer.
 
 Duplicate keys still produce `duplicate_key` when comparison work is admitted. If the work allowance is exhausted first, encoding fails with `map_complexity_limit`; it never emits an ambiguous map.
 
