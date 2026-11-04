@@ -152,11 +152,20 @@ pub fnc run_ai_scalar_record_tests(): void {
   val CodecTypeMeta null_meta = ai_fixture_metadata(1, 0, 2);
   val CodecTypeMeta bool_meta = ai_fixture_metadata(1, 3, 1);
   val DecodeOptions strict = ai_scalar_decode_options();
-  val DecodeOptions tight = new DecodeOptions(0, false, 16, 16, 16, 0, 16, 8, 8);
-  val DecodeOptions first_wins = new DecodeOptions(1, false, 16, 256, 128, 0, 128, 8, 8);
-  val DecodeOptions last_wins = new DecodeOptions(2, false, 16, 256, 128, 0, 128, 8, 8);
-  val DecodeOptions allow_trailing = new DecodeOptions(0, true, 16, 256, 128, 0, 128, 8, 8);
-  val DecodeOptions negative_bytes = new DecodeOptions(0, false, 16, -1, 128, 0, 128, 8, 8);
+  val DecodeOptions tight = new DecodeOptions(0, false, 1, 16, 16, 0, 16, 8, 8);
+  val DecodeOptions first_wins = new DecodeOptions(1, false, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions last_wins = new DecodeOptions(2, false, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions allow_trailing = new DecodeOptions(0, true, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions negative_bytes = new DecodeOptions(0, false, 1, -1, 128, 0, 128, 8, 8);
+
+  // Deliberately overbroad parse depth must be rejected even for
+  // otherwise well-formed scalar records. Scalar JSON needs depth <=1.
+  val DecodeOptions overdeep = new DecodeOptions(
+    0, false, 2, 65536, 16384, 0, 1024, 256, 256
+  );
+  val DecodeOptions no_children = new DecodeOptions(
+    0, false, 0, 65536, 16384, 0, 1024, 256, 256
+  );
 
   // Eight valid scalar-record fixtures.
 
@@ -199,6 +208,82 @@ pub fnc run_ai_scalar_record_tests(): void {
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), last_wins, rt borrow closed, 2, "unsafe_last_wins");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), negative_bytes, rt borrow closed, 2, "invalid_negative_budget");
 
+
+  // Protect both dimensions of the depth contract: no nested values can
+  // be parsed with max_depth=1, and changing to max_depth=2 fails at
+  // preflight rather than weakening the typed scalar-only schema.
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,123,125,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nested_object_rejected_at_parse_depth"
+  );
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,91,93,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nested_array_rejected_at_parse_depth"
+  );
+  val ObjectDecodeAttempt overdeep_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow overdeep, rt borrow closed,
+    default_validation_options()
+  );
+  require_int(overdeep_reject.status, 2, "overdeep config rejects");
+  require_true(overdeep_reject.error.decode_error.code == "ai_limits",
+    "depth2 cannot bypass scalar-only admission");
+
+  val ObjectDecodeAttempt no_children_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,
+      44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow no_children, rt borrow closed, default_validation_options()
+  );
+  require_int(no_children_reject.status, 2,
+    "depth0 cannot parse a nonempty scalar record");
+  require_true(no_children_reject.error.decode_error.code == "depth_limit",
+    "depth0 failure is an actual parser depth violation");
+
+  // Ensure unsafe duplicate/trailing options do not pass solely because
+  // they are also overdeep. These fixtures now stay within depth=1.
+  val ObjectDecodeAttempt last_wins_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow last_wins, rt borrow closed,
+    default_validation_options()
+  );
+  require_true(last_wins_reject.error.decode_error.code == "unsafe_decode_options",
+    "last-wins must be rejected specifically by strict-key policy");
+  val ObjectDecodeAttempt trailing_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow allow_trailing, rt borrow closed,
+    default_validation_options()
+  );
+  require_true(trailing_reject.error.decode_error.code == "unsafe_decode_options",
+    "allow-trailing must fail the full-input trust boundary");
+
+  // Zero error capacity is fail-closed, not success; a nonzero over-budget
+  // allowance (257) is rejected before schema traversal, while 256 passes
+  // configuration admission and can still report ordinary field errors.
+  val ValidationOptions no_error_slots = new ValidationOptions(false, 0);
+  val ObjectDecodeAttempt zero_capacity = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow no_error_slots
+  );
+  require_int(zero_capacity.status, 3,
+    "zero validation slots must not convert missing fields to success");
+  require_true(zero_capacity.error.validation_report.truncated,
+    "zero validation capacity must be reported as truncated");
+  val ValidationOptions over_error_budget = new ValidationOptions(false, 257);
+  val ObjectDecodeAttempt over_error_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow over_error_budget
+  );
+  require_int(over_error_reject.status, 2,
+    "257 validation error slots are outside AI-specific budget");
+  require_true(over_error_reject.error.decode_error.code == "ai_validation_options",
+    "excessive validation budget must reject at admission");
+
+  val ValidationOptions max_error_budget = new ValidationOptions(false, 256);
+  val ObjectDecodeAttempt max_errors_allowed = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow max_error_budget
+  );
+  require_int(max_errors_allowed.status, 3,
+    "256 validation error slots remain admitted but required fields fail");
 
   // Boolean-typed metadata and optional-absent versus present-null rules.
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 116, 114, 117, 101, 125), rt borrow strict, rt borrow bool_meta, 0, "boolean_true");
@@ -257,7 +342,7 @@ pub fnc run_ai_scalar_record_tests(): void {
   // Binary storage is unsupported for the scalar JSON profile. Even one
   // allowed binary byte must be refused before decoder invocation.
   val DecodeOptions nonzero_binary = new DecodeOptions(
-    0, false, 16, 65536, 16384, 1, 1024, 256, 256
+    0, false, 1, 65536, 16384, 1, 1024, 256, 256
   );
   val ObjectDecodeAttempt binary_refused = decode_ai_scalar_record_attempt(
     new List<int>(123,125), rt borrow nonzero_binary,
