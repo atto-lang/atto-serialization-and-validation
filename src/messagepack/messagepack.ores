@@ -227,8 +227,11 @@ fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): i
     let int object_count = value.object_value.length;
     if object_count > 2828 then return -1; fi
     let int object_collision_work = object_count * object_count;
+    let int object_child_work = work - 1;
     if object_collision_work > remaining - work then return -1; fi
-    work = work + object_collision_work;
+    let int repeated_object_work = object_collision_work * object_child_work;
+    if repeated_object_work > remaining - work - object_collision_work then return -1; fi
+    work = work + object_collision_work + repeated_object_work;
     for const member of value.object_value do
       let int key_bytes = member.key.bytes.length;
       if key_bytes > remaining - work then return -1; fi
@@ -243,8 +246,11 @@ fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): i
     let int map_count = value.map_value.length;
     if map_count > 2828 then return -1; fi
     let int map_collision_work = map_count * map_count;
+    let int map_child_work = work - 1;
     if map_collision_work > remaining - work then return -1; fi
-    work = work + map_collision_work;
+    let int repeated_map_work = map_collision_work * map_child_work;
+    if repeated_map_work > remaining - work - map_collision_work then return -1; fi
+    work = work + map_collision_work + repeated_map_work;
     for const entry of value.map_value do
       let int key_work = value_key_work_cost(entry.key, remaining - work, depth + 1, max_depth);
       if key_work < 0 || key_work > remaining - work then return -1; fi
