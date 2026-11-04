@@ -86,6 +86,18 @@ pub fnc encode_error(String code, String message): EncodeError {
 }
 
 
+/**
+ * Shared operation-local budget for repeated map-key collision comparisons.
+ * The entry cap keeps arithmetic bounded; input/output byte limits separately
+ * bound one-pass hashing of serialized and caller-owned key bytes.
+ */
+pub fnc map_key_work_limit(int max_entries): int {
+  if max_entries < 0 then return 0; fi
+  let int bounded_entries = max_entries > 1000000 ? 1000000 : max_entries;
+  let int total = 256 + bounded_entries * 8;
+  if total > 8000000 then return 8000000; fi
+  return total;
+}
 pub fnc max_supported_depth(): int {
   return 128;
 }
