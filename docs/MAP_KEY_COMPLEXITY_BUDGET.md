@@ -8,7 +8,7 @@ Each top-level JSON or MessagePack decode owns one mutable `map_key_work_remaini
 
 The allowance is `min(8,000,000, 256 + min(max_map_entries, 1,000,000) * 8)`. Arithmetic is integer-only. The serialized input byte limit already bounds one-pass decoder hashing; the additional budget bounds repeated hash-bucket candidate equality.
 
-JSON charges one unit plus both key byte lengths before comparing a candidate. MessagePack computes a bounded structural work estimate for dynamic keys (nodes plus string/number/binary payload bytes, recursively through arrays, objects and general maps). Before deep equality it charges the estimate and equality work for both candidate keys. The estimator stops at the remaining budget and rejects keys deeper than the configured `max_depth` before recursive equality.
+JSON charges one unit plus both key byte lengths before comparing a candidate. MessagePack computes a bounded structural work estimate for dynamic keys (nodes plus string/number/binary payload bytes, recursively through arrays, objects and general maps). For nested object/general-map keys, it also charges the square of the nested entry count as a conservative upper bound for the equality helper's worst-case hash-candidate scans. Before deep equality it charges the estimate and equality work for both candidate keys. The estimator stops at the remaining budget and rejects keys deeper than the configured `max_depth` before recursive equality.
 
 When a candidate comparison cannot be admitted, decoding fails with structured `DecodeError.code = "map_complexity_limit"`. It never skips equality, accepts a possible duplicate, changes `reject`/`first_wins`/`last_wins`, or publishes a partial decoded value.
 
@@ -22,6 +22,6 @@ Duplicate keys still produce `duplicate_key` when comparison work is admitted. I
 
 JSON tests use repeated 60-byte keys with `first_wins`: two candidate comparisons fit; the fourth candidate comparison exceeds the budget. A nested-array test proves objects share the same cursor budget, and an encoder test checks a caller-owned key larger than `max_output_bytes`.
 
-MessagePack tests use repeated 16-byte keys: a four-entry map fits; a seven-entry map exceeds the budget. Six individually cheap nested maps collectively exceed the same decoder-wide allowance. Encoder tests cover caller-owned key hashing and a nested key beyond configured `max_depth`.
+MessagePack tests use repeated 16-byte keys: a four-entry map fits; a seven-entry map exceeds the budget. Six individually cheap nested maps collectively exceed the same decoder-wide allowance. Encoder tests cover caller-owned key hashing and a nested key beyond configured `max_depth`. A decoder fixture embeds equal 16-entry general maps as outer keys to verify the nested equality scan is rejected before quadratic work.
 
 The code uses operation-local cursor/writer state and no reflection. Native `.ores` compilation and guest execution on Java/GraalVM and LLVM are still required before promotion; source review and host-only tests are not native codec evidence.
