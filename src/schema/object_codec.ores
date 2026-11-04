@@ -250,8 +250,10 @@ pub fnc decode_json_object(
 // The result is an ordinary diagnostic dynamic Value, NOT Valid<T>.
 // Generated typed construction must remain a separate compiler-owned gate.
 pub fnc ai_scalar_decode_options(): DecodeOptions {
+  // JSON root is depth 0, scalar field values depth 1. Deeper
+  // documents can never match this scalar-only record schema.
   return new DecodeOptions(
-    0, false, 16, 65536, 16384, 0, 1024, 256, 256
+    0, false, 1, 65536, 16384, 0, 1024, 256, 256
   );
 }
 
@@ -291,7 +293,7 @@ pub fnc decode_ai_scalar_record_attempt(
   // parsing the body. Even an invalid object schema cannot force expensive
   // field-name hashing for an oversized provider response.
   if !decode_options_valid(rt borrow decode_options) ||
-     decode_options.max_depth > 16 ||
+     decode_options.max_depth > 1 ||
      decode_options.max_input_bytes > 65536 ||
      decode_options.max_string_bytes > 16384 ||
      decode_options.max_binary_bytes != 0 ||
@@ -312,7 +314,10 @@ pub fnc decode_ai_scalar_record_attempt(
     );
   fi
 
-  if !validation_options_valid(rt borrow validation_options) then
+  // The AI record has at most 256 declared fields. A caller-supplied
+  // general-purpose 4096-error budget needlessly expands diagnostics.
+  if !validation_options_valid(rt borrow validation_options) ||
+     validation_options.max_errors > 256 then
     return ai_options_failure(
       "ai_validation_options",
       "AI validation options exceed supported bounds"
