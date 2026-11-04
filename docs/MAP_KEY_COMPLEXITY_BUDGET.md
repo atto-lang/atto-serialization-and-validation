@@ -8,9 +8,9 @@ Each top-level JSON or MessagePack decode owns one mutable `map_key_work_remaini
 
 The initial allowance is derived from the already validated limits:
 
-`min(8,000,000, max(256, max_map_entries * 8 + floor(max_input_bytes / 32)))`
+`min(8,000,000, 256 + min(max_map_entries, 1,000,000) * 8)`
 
-The helper clamps its independent arguments before arithmetic. The byte/input limit still bounds one-pass hashing of each input key. The additional comparison budget charges repeated hash-bucket candidates.
+The helper clamps its independent arguments before arithmetic. The byte/input limit still bounds one-pass hashing of each input key. The additional comparison budget charges repeated hash-bucket candidates. The helper uses integer-only arithmetic; it does not rely on implicit integer division or floating-point conversion.
 
 JSON charges one unit plus both key byte lengths before `bytes_equal`. MessagePack computes a bounded structural work estimate for each dynamic key (nodes plus string/number/binary payload bytes, recursively through arrays, objects and general maps). Before deep equality it charges the estimate pass and equality pass for both candidate keys. The estimator stops at the remaining budget and respects the same maximum depth as dynamic key equality.
 
@@ -24,8 +24,8 @@ Duplicate keys still produce `duplicate_key` when comparison work is admitted. I
 
 ## Tests and evidence
 
-JSON tests use repeated 60-byte string keys with `first_wins`: two candidate comparisons fit the chosen small work allowance, while the third returns `map_complexity_limit` through `DecodeAttempt`.
+JSON tests use repeated 60-byte string keys with `first_wins`: two candidate comparisons fit the chosen work allowance, while the fourth candidate comparison returns `map_complexity_limit` through `DecodeAttempt`.
 
-MessagePack tests use repeated 16-byte string keys: a four-entry map fits; a five-entry map exceeds the budget. A separate array containing four individually small nested maps exceeds the same total allowance, proving that nested decoders share one cursor counter instead of receiving fresh per-map budgets.
+MessagePack tests use repeated 16-byte string keys: a four-entry map fits; a seven-entry map exceeds the budget. A separate array containing six individually small nested maps exceeds the same total allowance, proving that nested decoders share one cursor counter instead of receiving fresh per-map budgets.
 
 The code is AOT-friendly and uses operation-local mutable cursor/writer state. It requires native `.ores` compiler execution on Java/GraalVM and LLVM before promotion; source review or host tests alone are not acceptance.
