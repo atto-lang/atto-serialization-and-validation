@@ -224,7 +224,7 @@ fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): i
     for const member of value.object_value do
       let int key_bytes = member.key.bytes.length;
       if key_bytes > remaining - work then return -1; fi
-      work = work + key_bytes;
+      work = work + 1 + key_bytes;
       let int nested = value_key_work_cost(member.value, remaining - work, depth + 1, max_depth);
       if nested < 0 || nested > remaining - work then return -1; fi
       work = work + nested;
