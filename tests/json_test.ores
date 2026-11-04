@@ -3,7 +3,7 @@ import fnc require_true, require_int from './assert';
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep, DecodeAttempt from '../src/core/options';
-import fnc default_decode_options, default_encode_options from '../src/core/options';
+import fnc default_decode_options, default_encode_options, map_key_work_limit, map_key_hash_work_limit from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
 import fnc decode, decode_default, decode_attempt, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
@@ -23,6 +23,13 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  require_int(map_key_work_limit(-1), 0, "negative map-entry budget input fails closed");
+  require_int(map_key_work_limit(16), 384, "map-key comparison budget derives from entry limit");
+  require_int(map_key_work_limit(1000000), 8000000, "map-key comparison budget caps at eight million");
+  require_int(map_key_work_limit(1000001), 8000000, "map-key comparison budget clamps before multiplication");
+  require_int(map_key_hash_work_limit(-1), 0, "negative encoder key-hash budget fails closed");
+  require_int(map_key_hash_work_limit(64), 64, "encoder key-hash budget respects small output cap");
+  require_int(map_key_hash_work_limit(16777216), 8000000, "encoder key-hash budget caps at eight million");
   // Regression for three-way merge corruption in decimal integer emission.
   require_true(
     bytes_equal(int_to_decimal_bytes(0), new List<int>(48)),
