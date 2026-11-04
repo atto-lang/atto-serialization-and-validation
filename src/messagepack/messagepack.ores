@@ -9,7 +9,7 @@ import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_deep_equal, value_hash, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit, map_key_hash_work_limit from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -314,6 +314,11 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
   loop do
     if i >= entries.length then
       break;
+    fi
+    if i >= 1000000 then
+      writer_fail(writer, "map_complexity_limit",
+        "MessagePack encoder map entry count exceeds the bounded admission limit");
+      return -1;
     fi
 
     let MapEntry entry = entries[i];
@@ -1075,7 +1080,7 @@ pub fnc encode(
     options,
     false,
     map_key_work_limit(1000000),
-    options.max_output_bytes,
+    map_key_hash_work_limit(options.max_output_bytes),
     new EncodeError("", "")
   );
 
