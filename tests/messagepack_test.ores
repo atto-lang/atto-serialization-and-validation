@@ -185,7 +185,7 @@ pub fnc run_messagepack_tests(): void {
   require_true(nested_map_limited.is_err(), "nested MessagePack maps share one operation budget");
 
   // Nested general-map keys have their own hash-bucket equality work. Two
-  // equal 16-entry map keys would make that internal scan quadratic; the
+  // equal 16-entry map keys with all-colliding duplicate integer keys would
   // outer map comparison must reject them before deep equality starts.
   let List<int> nested_collision_wire = new List<int>();
   nested_collision_wire.add(130);
@@ -193,7 +193,7 @@ pub fnc run_messagepack_tests(): void {
     nested_collision_wire.add(222);
     nested_collision_wire.add(0); nested_collision_wire.add(16);
     for (let inner = 0; inner < 16; inner++) {
-      nested_collision_wire.add(inner);
+      nested_collision_wire.add(1);
       nested_collision_wire.add(inner + 1);
     }
     nested_collision_wire.add(outer + 1);
