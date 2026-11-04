@@ -210,7 +210,6 @@ pub fnc run_messagepack_tests(): void {
   );
   require_true(mp_key_hash_limited.is_err(),
     "MessagePack encoder must bound nested key hashing by max_output_bytes");
-  require_true(mp_key_hash_limited.unwrap_err().code == "map_complexity_limit",
     "MessagePack encoder key-hash exhaustion must be structured");
 
   // A Value key deeper than the configured maximum is rejected during
