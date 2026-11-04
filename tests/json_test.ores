@@ -252,6 +252,45 @@ pub fnc run_json_tests(): void {
   require_true(json_work_limited.error.code == "map_complexity_limit",
     "JSON work exhaustion has a structured error");
 
+
+  // Nested objects share the same JsonCursor budget; they do not each receive
+  // a fresh allowance. Three two-key objects fit, four exceed it.
+  let List<int> nested_json_below = new List<int>();
+  nested_json_below.add(91);
+  for (let i = 0; i < 3; i++) {
+    if i > 0 then nested_json_below.add(44); fi
+    nested_json_below.add(123);
+    for (let n = 0; n < 2; n++) {
+      if n > 0 then nested_json_below.add(44); fi
+      nested_json_below.add(34);
+      for (let k = 0; k < 60; k++) { nested_json_below.add(97); }
+      nested_json_below.add(34); nested_json_below.add(58); nested_json_below.add(n + 49);
+    }
+    nested_json_below.add(125);
+  }
+  nested_json_below.add(93);
+  val DecodeAttempt nested_json_ok = decode_attempt(nested_json_below, bounded_map_work);
+  require_int(nested_json_ok.status, 0, "nested JSON objects below shared budget succeed");
+
+  let List<int> nested_json_over = new List<int>();
+  nested_json_over.add(91);
+  for (let i = 0; i < 4; i++) {
+    if i > 0 then nested_json_over.add(44); fi
+    nested_json_over.add(123);
+    for (let n = 0; n < 2; n++) {
+      if n > 0 then nested_json_over.add(44); fi
+      nested_json_over.add(34);
+      for (let k = 0; k < 60; k++) { nested_json_over.add(97); }
+      nested_json_over.add(34); nested_json_over.add(58); nested_json_over.add(n + 49);
+    }
+    nested_json_over.add(125);
+  }
+  nested_json_over.add(93);
+  val DecodeAttempt nested_json_limited = decode_attempt(nested_json_over, bounded_map_work);
+  require_int(nested_json_limited.status, 2, "nested JSON objects share one operation-wide budget");
+  require_true(nested_json_limited.error.code == "map_complexity_limit",
+    "nested JSON budget exhaustion has a structured error");
+
   let List<int> long_key_bytes = new List<int>();
   for (let i = 0; i < 80; i++) { long_key_bytes.add(97); }
   let List<WireMember> long_key_members = new List<WireMember>();
