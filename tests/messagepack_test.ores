@@ -277,5 +277,66 @@ pub fnc run_messagepack_tests(): void {
   require_messagepack_error(new List<int>(220, 0, 2, 1), "unexpected_eof");
   require_messagepack_error(new List<int>(222, 0, 2, 1, 2), "unexpected_eof");
 
+  // Resource-policy boundaries are independent of input-buffer truncation.
+  val DecodeOptions one_array_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 1, 16
+  );
+  val Result<DecodedValue, DecodeError> array_limit = decode(
+    new List<int>(146, 1, 2),
+    one_array_entry
+  );
+  require_true(array_limit.is_err(), "MessagePack array count must be checked against max_array_entries");
+
+  val DecodeOptions one_map_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 16, 1
+  );
+  val Result<DecodedValue, DecodeError> map_limit = decode(
+    new List<int>(130, 1, 2, 3, 4),
+    one_map_entry
+  );
+  require_true(map_limit.is_err(), "MessagePack map count must be checked against max_map_entries");
+
+  val DecodeOptions one_binary_byte = new DecodeOptions(
+    0, false, 128, 64, 64, 1, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> binary_limit = decode(
+    new List<int>(196, 2, 1, 2),
+    one_binary_byte
+  );
+  require_true(binary_limit.is_err(), "MessagePack binary length must be checked before copying");
+
+  val Result<DecodedValue, DecodeError> extension_limit = decode(
+    new List<int>(199, 2, 7, 1, 2),
+    one_binary_byte
+  );
+  require_true(extension_limit.is_err(), "MessagePack extension length must be checked before reading type or payload");
+
+  val Result<DecodedValue, DecodeError> binary32_header_truncated = decode(
+    new List<int>(198, 0, 0),
+    default_decode_options()
+  );
+  require_true(binary32_header_truncated.is_err(), "MessagePack truncated bin32 header must reject");
+
+  val Result<DecodedValue, DecodeError> extension32_header_truncated = decode(
+    new List<int>(201, 0, 0, 0),
+    default_decode_options()
+  );
+  require_true(extension32_header_truncated.is_err(), "MessagePack truncated ext32 header must reject");
+
+  val Result<DecodedValue, DecodeError> extension32_bomb = decode(
+    new List<int>(201, 255, 255, 255, 255),
+    one_binary_byte
+  );
+  require_true(extension32_bomb.is_err(), "MessagePack ext32 length bomb must reject before type or payload read");
+
+  val DecodeOptions one_string_byte = new DecodeOptions(
+    0, false, 128, 64, 1, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> string32_limit = decode(
+    new List<int>(219, 0, 0, 0, 2),
+    one_string_byte
+  );
+  require_true(string32_limit.is_err(), "MessagePack str32 declared length must obey max_string_bytes before payload read");
+
   return;
 }
