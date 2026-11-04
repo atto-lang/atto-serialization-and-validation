@@ -266,7 +266,7 @@ fnc map_entry_index(
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
     let int existing_work = value_key_work_cost(
-      entries[index].key, cursor.map_key_work_remaining, 0
+      entries[index].key, cursor.map_key_work_remaining, 0, cursor.options.max_depth
     );
     if existing_work < 0 then
       cursor_fail(cursor, "map_complexity_limit",
