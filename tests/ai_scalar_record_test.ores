@@ -1,0 +1,549 @@
+// Native .ores source-level regression cases for issue #317.
+// These assertions are NOT compiler-backed evidence until executed on an
+// exact-head trusted compiler and nonzero-step source-local runner.
+import fnc require_int, require_true from './assert';
+import class Utf8Text from '../src/core/value';
+import fnc int_to_decimal_bytes from '../src/core/value';
+import class CodecFieldMeta, CodecTypeMeta from '../src/schema/metadata';
+import fnc codec_field, codec_type from '../src/schema/metadata';
+import class DecodeOptions from '../src/core/options';
+import fnc default_decode_options from '../src/core/options';
+import class ObjectDecodeAttempt, ObjectCodecError, DecodedObject from '../src/schema/object_codec';
+import fnc ai_scalar_decode_options, decode_ai_scalar_record_attempt, decode_ai_scalar_record from '../src/schema/object_codec';
+import class ValidationOptions from '../src/validation/validation';
+import fnc default_validation_options, kind_rule, number_rule from '../src/validation/validation';
+
+fnc ai_fixture_metadata(int policy, int name_kind, int score_kind): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    1, true, kind_rule(name_kind)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(115, 99, 111, 114, 101)),
+    new Utf8Text(new List<int>(115, 99, 111, 114, 101)),
+    2, true, kind_rule(score_kind)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110, 111, 116, 101)),
+    new Utf8Text(new List<int>(110, 111, 116, 101)),
+    3, false, kind_rule(3)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65, 105, 82, 101, 112, 108, 121)),
+    fields, policy
+  );
+}
+
+// Exercise the exact count boundary with distinct, well-formed keys.
+// No duplicate-name error may hide a missing AI-profile budget guard.
+fnc ai_numeric_range_metadata(): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(110,97,109,101)),
+    new Utf8Text(new List<int>(110,97,109,101)),
+    1, true, kind_rule(3)
+  ));
+  fields.push(codec_field(
+    new Utf8Text(new List<int>(115,99,111,114,101)),
+    new Utf8Text(new List<int>(115,99,111,114,101)),
+    2, true, number_rule(true, 0.0, false, true, 10.0, false)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,82,97,110,103,101)),
+    fields, 1
+  );
+}
+
+fnc ai_many_fields(int count): CodecTypeMeta {
+  val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  let int index = 0;
+  loop do
+    if index >= count then break; fi
+    val Utf8Text key = new Utf8Text(int_to_decimal_bytes(index));
+    fields.push(codec_field(
+      rt borrow key, rt borrow key, index + 1, false, kind_rule(3)
+    ));
+    index = index + 1;
+  done
+  return codec_type(
+    new Utf8Text(new List<int>(65, 105, 66, 111, 117, 110, 100)),
+    fields, 1
+  );
+}
+
+// Construct untrusted schema sizes without relying on a separate serializer.
+fnc ai_repeated_ascii_name(int count): Utf8Text {
+  let List<int> bytes = new List<int>();
+  let int index = 0;
+  loop do
+    if index >= count then break; fi
+    bytes.push(65);
+    index = index + 1;
+  done
+  return new Utf8Text(bytes);
+}
+
+fnc ai_name_boundary_metadata(int name_bytes, bool use_field): CodecTypeMeta {
+  if !use_field then
+    return codec_type(ai_repeated_ascii_name(name_bytes), new List<CodecFieldMeta>(), 1);
+  fi
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  fields.push(codec_field(
+    ai_repeated_ascii_name(name_bytes),
+    new Utf8Text(new List<int>(120)),
+    1, false, kind_rule(3)
+  ));
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,78,97,109,101)),
+    fields, 1
+  );
+}
+
+fnc ai_padded_metadata(int padding): CodecTypeMeta {
+  let List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
+  let int index = 0;
+  loop do
+    if index >= 256 then break; fi
+    let List<int> bytes = new List<int>();
+    let int n = 0;
+    loop do
+      if n >= padding then break; fi
+      bytes.push(97);
+      n = n + 1;
+    done
+    for const digit of int_to_decimal_bytes(index) do
+      bytes.push(digit);
+    done
+    val Utf8Text key = new Utf8Text(bytes);
+    fields.push(codec_field(rt borrow key, rt borrow key,
+      index + 1, false, kind_rule(3)));
+    index = index + 1;
+  done
+  return codec_type(
+    new Utf8Text(new List<int>(65,105,65,103,103,114,101,103,97,116,101)),
+    fields, 1
+  );
+}
+
+fnc check_ai_status(
+  List<int> input,
+  DecodeOptions options,
+  CodecTypeMeta metadata,
+  int expected,
+  String label
+): void {
+  val ObjectDecodeAttempt actual = decode_ai_scalar_record_attempt(
+    input, options, metadata, default_validation_options()
+  );
+  require_int(actual.status, expected, label);
+  return;
+}
+
+pub fnc run_ai_scalar_record_tests(): void {
+  val CodecTypeMeta closed = ai_fixture_metadata(1, 3, 2);
+  val CodecTypeMeta open_ignore = ai_fixture_metadata(0, 3, 2);
+  val CodecTypeMeta open_preserve = ai_fixture_metadata(2, 3, 2);
+  val CodecTypeMeta any_name = ai_fixture_metadata(1, -1, 2);
+  val CodecTypeMeta any_score = ai_fixture_metadata(1, 3, -1);
+  val CodecTypeMeta array_meta = ai_fixture_metadata(1, 5, 2);
+  val CodecTypeMeta object_meta = ai_fixture_metadata(1, 6, 2);
+  val CodecTypeMeta null_meta = ai_fixture_metadata(1, 0, 2);
+  val CodecTypeMeta bool_meta = ai_fixture_metadata(1, 3, 1);
+  val DecodeOptions strict = ai_scalar_decode_options();
+  require_int(strict.max_depth, 1, "scalar-only decoder must fix max depth to 1");
+  require_int(strict.max_binary_bytes, 0, "scalar-only decoder forbids binary payloads");
+  require_int(strict.max_array_entries, 0, "scalar-only decoder forbids array elements");
+  val DecodeOptions tight = new DecodeOptions(0, false, 1, 16, 16, 0, 16, 8, 8);
+  val DecodeOptions first_wins = new DecodeOptions(1, false, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions last_wins = new DecodeOptions(2, false, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions allow_trailing = new DecodeOptions(0, true, 1, 256, 128, 0, 128, 8, 8);
+  val DecodeOptions negative_bytes = new DecodeOptions(0, false, 1, -1, 128, 0, 128, 8, 8);
+
+  // Deliberately overbroad parse depth must be rejected even for
+  // otherwise well-formed scalar records. Scalar JSON needs depth <=1.
+  val DecodeOptions overdeep = new DecodeOptions(
+    0, false, 2, 65536, 16384, 0, 1024, 256, 256
+  );
+  val DecodeOptions no_children = new DecodeOptions(
+    0, false, 0, 65536, 16384, 0, 1024, 256, 256
+  );
+
+  // Eight valid scalar-record fixtures.
+
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "normal_closed_record");
+  check_ai_status(new List<int>(123, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 125), rt borrow strict, rt borrow closed, 0, "reordered_fields");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 111, 116, 101, 34, 58, 34, 111, 107, 34, 125), rt borrow strict, rt borrow closed, 0, "optional_present");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 92, 117, 48, 48, 54, 52, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "escaped_string");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 195, 133, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 0, "utf8_string");
+  check_ai_status(new List<int>(32, 10, 123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125, 9, 32), rt borrow strict, rt borrow closed, 0, "whitespace");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 48, 125), rt borrow strict, rt borrow closed, 0, "number_zero");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 49, 101, 50, 125), rt borrow strict, rt borrow closed, 0, "scientific_number");
+
+  // Sixteen negative and adversarial fixtures.
+  check_ai_status(new List<int>(123, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "missing_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 125), rt borrow strict, rt borrow closed, 3, "missing_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 53, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "wrong_name_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 34, 52, 50, 34, 125), rt borrow strict, rt borrow closed, 3, "wrong_score_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 110, 117, 108, 108, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow closed, 3, "null_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 110, 117, 108, 108, 125), rt borrow strict, rt borrow closed, 3, "null_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 101, 120, 116, 114, 97, 34, 58, 49, 125), rt borrow strict, rt borrow closed, 3, "unknown_field");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "duplicate_key");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 92, 117, 48, 48, 54, 53, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "escaped_duplicate_key");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125, 32, 116, 114, 117, 101), rt borrow strict, rt borrow closed, 2, "trailing_token");
+  check_ai_status(new List<int>(91, 34, 65, 100, 97, 34, 44, 52, 50, 93), rt borrow strict, rt borrow closed, 2, "nonempty_array_root_rejected_by_array_limit");
+  check_ai_status(new List<int>(91, 93), rt borrow strict, rt borrow closed, 3, "empty_array_root_rejected_by_object_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58), rt borrow strict, rt borrow closed, 2, "truncated_json");
+  check_ai_status(new List<int>(123,34,110,97,109,101,34,58,34,192,128,34,44,34,115,99,111,114,101,34,58,52,50,125), rt borrow strict, rt borrow closed, 2, "invalid_utf8");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), tight, rt borrow closed, 2, "input_byte_limit");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), first_wins, rt borrow closed, 2, "unsafe_first_wins");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), allow_trailing, rt borrow closed, 2, "unsafe_trailing_policy");
+
+  // Ten additional explicit profile/policy denials.
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow open_ignore, 1, "reject_open_ignore");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow open_preserve, 1, "reject_open_preserve");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow any_name, 1, "reject_any_name");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow any_score, 1, "reject_any_score");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow array_meta, 1, "reject_array_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow object_meta, 1, "reject_object_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), rt borrow strict, rt borrow null_meta, 1, "reject_null_kind");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), default_decode_options(), rt borrow closed, 2, "reject_wide_generic_limits");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), last_wins, rt borrow closed, 2, "unsafe_last_wins");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), negative_bytes, rt borrow closed, 2, "invalid_negative_budget");
+
+
+  // Depth=1 prevents entering grandchildren of a field value. Empty
+  // nested containers have no grandchildren and must instead be rejected
+  // by the scalar field kind rule. Neither failure path may succeed.
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,123,125,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 3, "empty_nested_object_type_rejected"
+  );
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,91,93,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 3, "empty_nested_array_type_rejected"
+  );
+  // Nonempty nested objects require depth 2 and fail the parser's depth
+  // check. Nonempty nested arrays hit the zero-element array budget first.
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,123,34,120,34,58,49,125,
+      44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nonempty_nested_object_depth_rejected"
+  );
+  check_ai_status(
+    new List<int>(123,34,110,97,109,101,34,58,91,49,93,44,
+      34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, 2, "nonempty_nested_array_capacity_rejected"
+  );
+  val ObjectDecodeAttempt overdeep_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow overdeep, rt borrow closed,
+    default_validation_options()
+  );
+  require_int(overdeep_reject.status, 2, "overdeep config rejects");
+  require_true(overdeep_reject.error.decode_error.code == "ai_limits",
+    "depth2 cannot bypass scalar-only admission");
+
+  val ObjectDecodeAttempt no_children_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,
+      44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow no_children, rt borrow closed, default_validation_options()
+  );
+  require_int(no_children_reject.status, 2,
+    "depth0 cannot parse a nonempty scalar record");
+  require_true(no_children_reject.error.decode_error.code == "depth_limit",
+    "depth0 failure is an actual parser depth violation");
+
+  // Ensure unsafe duplicate/trailing options do not pass solely because
+  // they are also overdeep. These fixtures now stay within depth=1.
+  val ObjectDecodeAttempt last_wins_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow last_wins, rt borrow closed,
+    default_validation_options()
+  );
+  require_true(last_wins_reject.error.decode_error.code == "unsafe_decode_options",
+    "last-wins must be rejected specifically by strict-key policy");
+  val ObjectDecodeAttempt trailing_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow allow_trailing, rt borrow closed,
+    default_validation_options()
+  );
+  require_true(trailing_reject.error.decode_error.code == "unsafe_decode_options",
+    "allow-trailing must fail the full-input trust boundary");
+
+  // Zero error capacity is fail-closed, not success; a nonzero over-budget
+  // allowance (257) is rejected before schema traversal, while 256 passes
+  // configuration admission and can still report ordinary field errors.
+  val ValidationOptions no_error_slots = new ValidationOptions(false, 0);
+  val ObjectDecodeAttempt zero_capacity = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow no_error_slots
+  );
+  require_int(zero_capacity.status, 3,
+    "zero validation slots must not convert missing fields to success");
+  require_true(zero_capacity.error.validation_report.truncated,
+    "zero validation capacity must be reported as truncated");
+  val ValidationOptions over_error_budget = new ValidationOptions(false, 257);
+  val ObjectDecodeAttempt over_error_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow over_error_budget
+  );
+  require_int(over_error_reject.status, 2,
+    "257 validation error slots are outside AI-specific budget");
+  require_true(over_error_reject.error.decode_error.code == "ai_validation_options",
+    "excessive validation budget must reject at admission");
+
+  val ValidationOptions max_error_budget = new ValidationOptions(false, 256);
+  val ObjectDecodeAttempt max_errors_allowed = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict, rt borrow closed,
+    rt borrow max_error_budget
+  );
+  require_int(max_errors_allowed.status, 3,
+    "256 validation error slots remain admitted but required fields fail");
+
+  // Boolean-typed metadata and optional-absent versus present-null rules.
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 116, 114, 117, 101, 125), rt borrow strict, rt borrow bool_meta, 0, "boolean_true");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 102, 97, 108, 115, 101, 125), rt borrow strict, rt borrow bool_meta, 0, "boolean_false");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 34, 116, 114, 117, 101, 34, 125), rt borrow strict, rt borrow bool_meta, 3, "boolean_wrong_type");
+  check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 110, 111, 116, 101, 34, 58, 110, 117, 108, 108, 125), rt borrow strict, rt borrow closed, 3, "present_optional_null");
+
+  // A successful diagnostic dynamic projection must not be confused with an
+  // unforgeable Valid<T> witness or a generated nominal AttoLang record.
+  val Result<DecodedObject, ObjectCodecError> admitted = decode_ai_scalar_record(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, default_validation_options()
+  );
+  require_true(!admitted.is_err(), "scalar record Result wrapper passes valid bytes");
+  val Result<DecodedObject, ObjectCodecError> denied = decode_ai_scalar_record(
+    new List<int>(123,34,110,97,109,101,34,58,110,117,108,108,44,34,115,99,111,114,101,34,58,52,50,125),
+    rt borrow strict, rt borrow closed, default_validation_options()
+  );
+  require_true(denied.is_err(), "scalar record Result wrapper propagates schema failures");
+
+  // Floating-point range checks are not a substitute for exact-number
+  // semantics: refuse a schema asking to compare JSON lexemes as doubles.
+  val CodecTypeMeta float_range = ai_numeric_range_metadata();
+  val ObjectDecodeAttempt range_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,34,110,97,109,101,34,58,34,65,100,97,34,
+      44,34,115,99,111,114,101,34,58,53,125),
+    rt borrow strict, rt borrow float_range, default_validation_options()
+  );
+  require_int(range_rejected.status, 1,
+    "floating numeric range metadata must fail before JSON decode");
+  require_true(
+    range_rejected.error.metadata_error.code == "ai_unsupported_numeric_range",
+    "lossy numeric range must be explicitly classified"
+  );
+
+  // 256-field exact boundary, 257-field rejection before metadata hashing.
+  val CodecTypeMeta at_field_limit = ai_many_fields(256);
+  val ObjectDecodeAttempt max_fields_ok = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow at_field_limit, default_validation_options()
+  );
+  require_int(max_fields_ok.status, 0,
+    "256 distinct optional scalar fields must be accepted");
+  val CodecTypeMeta past_field_limit = ai_many_fields(257);
+  val ObjectDecodeAttempt fields_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(fields_rejected.status, 1,
+    "257 declared fields must fail before schema traversal");
+  require_true(fields_rejected.error.metadata_error.code == "ai_schema_field_limit",
+    "excessive schema must fail specifically on AI field budget");
+  require_int(fields_rejected.decoded.consumed, 0,
+    "oversized schema must never publish a decoded object");
+
+  // The scalar-only API rejects any config that would permit array
+  // elements, rather than parsing nested/array-root values for later denial.
+  val DecodeOptions allow_one_array_element = new DecodeOptions(
+    0, false, 1, 65536, 16384, 0, 1024, 1, 256
+  );
+  val ObjectDecodeAttempt arrays_config_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow allow_one_array_element,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(arrays_config_rejected.status, 2,
+    "positive array allocation budget must fail AI preflight");
+  require_true(arrays_config_rejected.error.decode_error.code == "ai_limits",
+    "array-allocation configuration rejection must be explicit");
+
+  val ObjectDecodeAttempt arrays_data_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(91,49,93), rt borrow strict, rt borrow closed,
+    default_validation_options()
+  );
+  require_int(arrays_data_rejected.status, 2,
+    "nonempty array at JSON root fails parser capacity");
+  require_true(arrays_data_rejected.error.decode_error.code == "array_limit",
+    "nonempty array cannot allocate even one element");
+
+  // Binary storage is unsupported for the scalar JSON profile. Even one
+  // allowed binary byte must be refused before decoder invocation.
+  val DecodeOptions nonzero_binary = new DecodeOptions(
+    0, false, 1, 65536, 16384, 1, 1024, 256, 256
+  );
+  val ObjectDecodeAttempt binary_refused = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow nonzero_binary,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(binary_refused.status, 2,
+    "nonzero binary decode budget is disallowed by scalar JSON profile");
+  require_true(binary_refused.error.decode_error.code == "ai_limits",
+    "binary profile rejection has bounded configuration error");
+
+  // Exact byte-boundary schema names are admitted; +1 fails *before*
+  // untrusted UTF-8 scanning/hashing. These names are syntactically legal.
+  val CodecTypeMeta type_name_256 = ai_name_boundary_metadata(256, false);
+  val CodecTypeMeta type_name_257 = ai_name_boundary_metadata(257, false);
+  val CodecTypeMeta field_name_256 = ai_name_boundary_metadata(256, true);
+  val CodecTypeMeta field_name_257 = ai_name_boundary_metadata(257, true);
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_256, 0, "exact schema type name boundary");
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow field_name_256, 0, "exact schema field name boundary");
+  val ObjectDecodeAttempt type_name_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_257, default_validation_options()
+  );
+  require_int(type_name_over.status, 1, "257-byte type name fails closed");
+  require_true(type_name_over.error.metadata_error.code == "ai_schema_name_limit",
+    "oversized type name must fail before UTF-8 hashing");
+  val ObjectDecodeAttempt field_name_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow field_name_257, default_validation_options()
+  );
+  require_int(field_name_over.status, 1, "257-byte source name fails closed");
+  require_true(field_name_over.error.metadata_error.code == "ai_schema_name_limit",
+    "oversized source field name must fail before hashing");
+
+  // All individual names fit, but the combined metadata would exceed
+  // 64 KiB. Do not let 256 separately bounded fields evade the total cap.
+  val CodecTypeMeta names_within_total = ai_padded_metadata(120);
+  check_ai_status(new List<int>(123,125), rt borrow strict,
+    rt borrow names_within_total, 0, "aggregate metadata below 64 KiB");
+  val CodecTypeMeta names_over_total = ai_padded_metadata(128);
+  val ObjectDecodeAttempt aggregate_over = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow names_over_total, default_validation_options()
+  );
+  require_int(aggregate_over.status, 1, "aggregate names above 64 KiB reject");
+  require_true(
+    aggregate_over.error.metadata_error.code == "ai_schema_total_name_limit",
+    "aggregate name byte budget must be explicit"
+  );
+
+  // Decode and validation budgets are checked before metadata hashing. A
+  // malformed 257-byte type name must not force a metadata scan of an
+  // already-oversized provider response.
+  let List<int> oversized_payload = new List<int>();
+  loop do
+    if oversized_payload.length > strict.max_input_bytes then break; fi
+    oversized_payload.push(32);
+  done
+  val ObjectDecodeAttempt early_input_reject = decode_ai_scalar_record_attempt(
+    rt borrow oversized_payload, rt borrow strict,
+    rt borrow type_name_257, default_validation_options()
+  );
+  require_int(early_input_reject.status, 2,
+    "oversized response must reject before invalid schema traversal");
+  require_true(early_input_reject.error.decode_error.code == "input_limit",
+    "response byte-budget preflight must precede metadata name validation");
+  require_int(early_input_reject.decoded.consumed, 0,
+    "over-limit preflight must not publish a dynamic Value");
+
+  // Admission precedence: the same hostile request may violate multiple
+  // contracts. Reject unsafe options and excessive bytes before traversing
+  // even a schema whose field count is independently over the limit.
+  val ObjectDecodeAttempt unsafe_before_field_count = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow first_wins,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(unsafe_before_field_count.status, 2,
+    "unsafe key-normalization policy must reject ahead of schema cardinality");
+  require_true(unsafe_before_field_count.error.decode_error.code == "unsafe_decode_options",
+    "unsafe policy has stable first-failure classification");
+
+  val ObjectDecodeAttempt oversized_before_field_count = decode_ai_scalar_record_attempt(
+    rt borrow oversized_payload, rt borrow strict,
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(oversized_before_field_count.status, 2,
+    "overlong payload must reject ahead of schema cardinality");
+  require_true(oversized_before_field_count.error.decode_error.code == "input_limit",
+    "input byte budget has stable first-failure classification");
+  require_int(oversized_before_field_count.decoded.consumed, 0,
+    "no partial object on combined oversized input/schema failure");
+
+  val ObjectDecodeAttempt invalid_limits_before_field_count = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), default_decode_options(),
+    rt borrow past_field_limit, default_validation_options()
+  );
+  require_int(invalid_limits_before_field_count.status, 2,
+    "wide parser settings must reject before schema cardinality");
+  require_true(invalid_limits_before_field_count.error.decode_error.code == "ai_limits",
+    "invalid AI profile must remain a preflight configuration failure");
+
+  val ValidationOptions invalid_validation = new ValidationOptions(false, 4097);
+  val ObjectDecodeAttempt validation_opts_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow type_name_257, rt borrow invalid_validation
+  );
+  require_int(validation_opts_reject.status, 2,
+    "invalid validation config rejects before metadata traversal");
+  require_true(
+    validation_opts_reject.error.decode_error.code == "ai_validation_options",
+    "validation option failures must be classified as admission failure"
+  );
+
+  // Boundaries: full 65,536-byte message is admitted, but one extra byte is
+  // refused before parsing. Padding uses trailing JSON whitespace only.
+  let List<int> boundary_input = new List<int>(
+    123,34,110,97,109,101,34,58,34,65,100,97,34,44,
+    34,115,99,111,114,101,34,58,52,50,125
+  );
+  loop do
+    if boundary_input.length >= strict.max_input_bytes then break; fi
+    boundary_input.push(32);
+  done
+  val ObjectDecodeAttempt boundary_ok = decode_ai_scalar_record_attempt(
+    rt borrow boundary_input, rt borrow strict,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(boundary_ok.status, 0, "exact input byte ceiling must admit");
+  require_int(boundary_ok.decoded.consumed, strict.max_input_bytes,
+    "exact-limit success must consume the entire JSON document");
+  boundary_input.push(32);
+  val ObjectDecodeAttempt boundary_reject = decode_ai_scalar_record_attempt(
+    rt borrow boundary_input, rt borrow strict,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(boundary_reject.status, 2, "one byte beyond the ceiling must reject");
+  require_true(boundary_reject.error.decode_error.code == "input_limit",
+    "over-limit failure must be a byte budget error");
+  require_int(boundary_reject.decoded.consumed, 0,
+    "rejected oversized input must not publish any decoded object");
+
+  // Typed schema denials have exact machine-readable metadata errors.
+  val ObjectDecodeAttempt open_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow open_ignore, default_validation_options()
+  );
+  require_true(open_reject.error.metadata_error.code == "ai_open_schema",
+    "open-record schema requires explicit fail-closed classification");
+  val ObjectDecodeAttempt kind_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow strict,
+    rt borrow any_name, default_validation_options()
+  );
+  require_true(kind_reject.error.metadata_error.code == "ai_unsupported_kind",
+    "untyped any is not a typed scalar output contract");
+  val ObjectDecodeAttempt options_reject = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), default_decode_options(),
+    rt borrow closed, default_validation_options()
+  );
+  require_true(options_reject.error.decode_error.code == "ai_limits",
+    "wide codec option ceiling must fail before decode");
+  require_int(options_reject.decoded.consumed, 0,
+    "unsafe decoder configuration must not publish a partial object");
+  return;
+}
