@@ -201,9 +201,11 @@ fnc read_bytes(
 // Bounded structural upper estimate for one dynamic map key. The helper
 // stops after the caller's remaining budget, so measuring a nested key is
 // itself bounded. Equality has the same maximum depth (128).
-fnc value_key_work_cost(Value value, int remaining, int depth): int {
+fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): int {
   if remaining <= 0 then return -1; fi
-  if depth > 128 then return 1; fi
+  // Do not call recursive hashing/equality on a key deeper than the caller's
+  // configured encoder/decoder depth admission.
+  if depth > max_depth then return -1; fi
   let int work = 1;
 
   if value.kind == 2 then
@@ -214,7 +216,7 @@ fnc value_key_work_cost(Value value, int remaining, int depth): int {
     work = work + value.bytes_value.length;
   elseif value.kind == 5 then
     for const item of value.array_value do
-      let int nested = value_key_work_cost(item, remaining - work, depth + 1);
+      let int nested = value_key_work_cost(item, remaining - work, depth + 1, max_depth);
       if nested < 0 || nested > remaining - work then return -1; fi
       work = work + nested;
     done
@@ -223,16 +225,16 @@ fnc value_key_work_cost(Value value, int remaining, int depth): int {
       let int key_bytes = member.key.bytes.length;
       if key_bytes > remaining - work then return -1; fi
       work = work + key_bytes;
-      let int nested = value_key_work_cost(member.value, remaining - work, depth + 1);
+      let int nested = value_key_work_cost(member.value, remaining - work, depth + 1, max_depth);
       if nested < 0 || nested > remaining - work then return -1; fi
       work = work + nested;
     done
   elseif value.kind == 8 then
     for const entry of value.map_value do
-      let int key_work = value_key_work_cost(entry.key, remaining - work, depth + 1);
+      let int key_work = value_key_work_cost(entry.key, remaining - work, depth + 1, max_depth);
       if key_work < 0 || key_work > remaining - work then return -1; fi
       work = work + key_work;
-      let int value_work = value_key_work_cost(entry.value, remaining - work, depth + 1);
+      let int value_work = value_key_work_cost(entry.value, remaining - work, depth + 1, max_depth);
       if value_work < 0 || value_work > remaining - work then return -1; fi
       work = work + value_work;
     done
@@ -254,7 +256,7 @@ fnc map_entry_index(
     return -1;
   fi
 
-  let int key_work = value_key_work_cost(key, cursor.map_key_work_remaining, 0);
+  let int key_work = value_key_work_cost(key, cursor.map_key_work_remaining, 0, cursor.options.max_depth);
   if key_work < 0 then
     cursor_fail(cursor, "map_complexity_limit",
       "MessagePack map-key equality exceeds the configured work budget");
@@ -316,7 +318,7 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
 
     let MapEntry entry = entries[i];
     let int hash_work = value_key_work_cost(
-      entry.key, writer.map_key_hash_work_remaining, 0
+      entry.key, writer.map_key_hash_work_remaining, 0, writer.options.max_depth
     );
     if hash_work < 0 then
       writer_fail(writer, "map_complexity_limit",
@@ -328,7 +330,7 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
     let int hash = value_hash(entry.key);
     if buckets.contains(hash) then
       let int key_work = value_key_work_cost(
-        entry.key, writer.map_key_work_remaining, 0
+        entry.key, writer.map_key_work_remaining, 0, writer.options.max_depth
       );
       if key_work < 0 then
         writer_fail(writer, "map_complexity_limit",
@@ -338,7 +340,7 @@ fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
       val List<int> candidates = buckets.get(hash);
       for const index of candidates do
         let int existing_work = value_key_work_cost(
-          entries[index].key, writer.map_key_work_remaining, 0
+          entries[index].key, writer.map_key_work_remaining, 0, writer.options.max_depth
         );
         if existing_work < 0 then
           writer_fail(writer, "map_complexity_limit",
