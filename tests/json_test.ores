@@ -225,7 +225,7 @@ pub fnc run_json_tests(): void {
   // Repeated 60-byte keys with first-wins consume 121 work units per candidate.
   let List<int> json_work_below = new List<int>();
   json_work_below.add(123);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
     if i > 0 then json_work_below.add(44); fi
     json_work_below.add(34);
     for (let j = 0; j < 60; j++) { json_work_below.add(97); }
