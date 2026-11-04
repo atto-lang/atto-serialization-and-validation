@@ -20,7 +20,7 @@ Duplicate keys still produce `duplicate_key` when comparison work is admitted. I
 
 ## Tests and evidence
 
-JSON tests use repeated 60-byte keys with `first_wins`: three candidate comparisons (363 of 384 units) fit; the fourth exceeds the budget. A nested-array test proves objects share the same cursor budget, and an encoder test checks a caller-owned key larger than `max_output_bytes`.
+JSON tests verify the budget helper's negative, exact, clamp and maximum inputs; repeated 60-byte keys with `first_wins` prove three candidate comparisons (363 of 384 units) fit and the fourth exceeds the budget. A nested-array test proves objects share the same cursor budget, and an encoder test checks a caller-owned key larger than `max_output_bytes`.
 
 MessagePack tests use repeated 16-byte keys: a four-entry map fits; a seven-entry map exceeds the budget. Six individually cheap nested maps collectively exceed the same decoder-wide allowance. Encoder tests cover caller-owned key hashing, a nested key beyond configured `max_depth`, and a 300-entry collision-heavy general-map key that must be rejected during bounded preflight. A decoder fixture embeds equal 16-entry general maps with duplicate/colliding inner keys as outer keys to verify nested equality scan is rejected before quadratic work.
 
