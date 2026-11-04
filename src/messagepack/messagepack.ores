@@ -8,7 +8,7 @@
 import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value';
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_deep_equal, value_hash, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
@@ -286,8 +286,19 @@ fnc decode_array(
 ): Value {
   val List<Value> values = new List<Value>();
 
+  if cursor.failed then
+    return value_array(values);
+  fi
+
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
+    return value_array(values);
+  fi
+
+  // Every encoded value occupies at least one byte. Refuse impossible
+  // declared counts before walking or building any nested container.
+  if count > cursor.input.length - cursor.index then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack array");
     return value_array(values);
   fi
 
@@ -318,8 +329,19 @@ fnc decode_map(
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
 
+  if cursor.failed then
+    return value_map(entries);
+  fi
+
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
+    return value_map(entries);
+  fi
+
+  // Each key/value pair needs at least two bytes, including nested values.
+  // Divide rather than multiply to avoid overflow on hostile length headers.
+  if count > (cursor.input.length - cursor.index) / 2 then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack map");
     return value_map(entries);
   fi
 
@@ -558,41 +580,63 @@ fnc decode_value(
   return value_null();
 }
 
+// An explicit diagnostic surface for strict, backend-portable guest assertions.
+// MessagePack is a complete-input decoder: status 0=ready, 2=failed.
+pub fnc decode_attempt(
+  List<int> input,
+  DecodeOptions options
+): DecodeAttempt {
+  if !decode_options_valid(options) then
+    return new DecodeAttempt(
+      2, value_null(), 0,
+      decode_error("invalid_options", 0, "invalid or unsafe decode options")
+    );
+  fi
+
+  if input.length > options.max_input_bytes then
+    return new DecodeAttempt(
+      2, value_null(), 0,
+      decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes")
+    );
+  fi
+
+  if !byte_list_valid(input) then
+    return new DecodeAttempt(
+      2, value_null(), 0,
+      decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255")
+    );
+  fi
+
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
+  let MsgpackCursor cursor = new MsgpackCursor(
+    input, options, 0, false, empty_decode_error()
+  );
+
+  let Value value = decode_value(cursor, 0);
+  if cursor.failed then
+    return new DecodeAttempt(2, value_null(), cursor.index, cursor.error);
+  fi
+
+  if !allow_trailing_data && cursor.index != input_length then
+    return new DecodeAttempt(
+      2, value_null(), cursor.index,
+      decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value")
+    );
+  fi
+
+  return new DecodeAttempt(0, value, cursor.index, empty_decode_error());
+}
+
 pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
-    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+  let DecodeAttempt attempt = decode_attempt(input, options);
+  if attempt.status == 0 then
+    return Ok(new DecodedValue(attempt.value, attempt.consumed));
   fi
-
-  if input.length > options.max_input_bytes then
-    return Err(decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
-  fi
-
-  if !byte_list_valid(input) then
-    return Err(decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
-  fi
-
-  let MsgpackCursor cursor = new MsgpackCursor(
-    input,
-    options,
-    0,
-    false,
-    empty_decode_error()
-  );
-
-  let Value value = decode_value(cursor, 0);
-
-  if cursor.failed then
-    return Err(cursor.error);
-  fi
-
-  if !options.allow_trailing_data && cursor.index != input.length then
-    return Err(decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
-  fi
-
-  return Ok(new DecodedValue(value, cursor.index));
+  return Err(attempt.error);
 }
 
 fnc append_byte(MsgpackWriter mut writer, int byte): void {

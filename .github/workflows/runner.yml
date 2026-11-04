@@ -10,14 +10,19 @@ on:
         type: boolean
         required: true
         default: false
+      serde_source_local:
+        description: 'Run independently approved pinned serde guest on source-org ephemeral runner'
+        type: boolean
+        required: true
+        default: false
 permissions:
   contents: read
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 jobs:
   runner-contracts:
-    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.source_local_native }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (!inputs.source_local_native && !inputs.serde_source_local) }}
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     steps:
@@ -38,7 +43,7 @@ jobs:
   # with this exact runner label. Do not install the label on shared/persistent
   # hosts or consider this job a substitute for independent approval.
   zorde-native-source-local:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_local_native }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_local_native && !inputs.serde_source_local }}
     environment: zorde-source-local-trusted
     runs-on: [self-hosted, linux, x64, zorde-source-ephemeral]
     timeout-minutes: 20
@@ -102,3 +107,49 @@ jobs:
           bash scripts/test-zorde-registry-source-local.sh
           sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"
           cat "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"
+
+  # Source-local, protected and explicitly approved. Not run on push or PR.
+  # Uses the existing workflow_dispatch path present on default branch.
+  serde-approved-source-local:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.serde_source_local && !inputs.source_local_native }}
+    environment: serde-source-local-trusted
+    runs-on: [self-hosted, linux, x64, serde-source-ephemeral]
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Refuse unapproved serde source SHA before checkout
+        shell: bash
+        env:
+          APPROVED_SOURCE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_SHA }}
+          APPROVED_TREE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_TREE }}
+          APPROVED_COMPILER_SHA256: ${{ vars.SERDE_APPROVED_COMPILER_SHA256 }}
+          APPROVED_COMPILER_PATH: ${{ vars.SERDE_APPROVED_COMPILER_PATH }}
+          APPROVED_EVIDENCE_ROOT: ${{ vars.SERDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" == "ores-truffle-oreslang/oreslang-serialization-and-validation" ]] || exit 2
+          [[ "$APPROVED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_TREE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          [[ "$APPROVED_COMPILER_SHA256" =~ ^[0-9a-f]{64}$ ]] || exit 2
+          [[ "$APPROVED_COMPILER_PATH" = /* ]] || exit 2
+          [[ "$APPROVED_EVIDENCE_ROOT" = /* ]] || exit 2
+          [[ "$GITHUB_SHA" == "$APPROVED_SOURCE_SHA" ]] || exit 2
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact source and run approved real serde guest
+        shell: bash
+        env:
+          EXPECTED_SOURCE_SHA: ${{ vars.SERDE_APPROVED_SOURCE_SHA }}
+          EXPECTED_SOURCE_TREE: ${{ vars.SERDE_APPROVED_SOURCE_TREE }}
+          EXPECTED_COMPILER_SHA256: ${{ vars.SERDE_APPROVED_COMPILER_SHA256 }}
+          ORESLANG_BIN: ${{ vars.SERDE_APPROVED_COMPILER_PATH }}
+          SERDE_EVIDENCE_ROOT: ${{ vars.SERDE_APPROVED_EVIDENCE_ROOT }}
+        run: |
+          set -euo pipefail
+          bash scripts/test-serde-source-local.sh
