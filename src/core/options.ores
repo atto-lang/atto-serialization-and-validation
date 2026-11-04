@@ -98,6 +98,10 @@ pub fnc map_key_work_limit(int max_entries): int {
   if total > 8000000 then return 8000000; fi
   return total;
 }
+pub fnc map_key_hash_work_limit(int max_output_bytes): int {
+  if max_output_bytes < 0 then return 0; fi
+  return max_output_bytes > 8000000 ? 8000000 : max_output_bytes;
+}
 pub fnc max_supported_depth(): int {
   return 128;
 }
