@@ -2,10 +2,10 @@ import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep, DecodeAttempt from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
+import fnc decode, decode_default, decode_attempt, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
 
 // Freshly decoded fixtures ensure no ownership transfer of one nested Value
@@ -219,6 +219,48 @@ pub fnc run_json_tests(): void {
     one_string_byte
   );
   require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
+
+
+  // One shared decode budget covers every object in this operation.
+  // Repeated 60-byte keys with first-wins consume 121 work units per candidate.
+  let List<int> json_work_below = new List<int>();
+  json_work_below.add(123);
+  for (let i = 0; i < 3; i++) {
+    if i > 0 then json_work_below.add(44); fi
+    json_work_below.add(34);
+    for (let j = 0; j < 60; j++) { json_work_below.add(97); }
+    json_work_below.add(34); json_work_below.add(58); json_work_below.add(49);
+  }
+  json_work_below.add(125);
+  val DecodeOptions bounded_map_work = new DecodeOptions(
+    1, false, 128, 4096, 128, 64, 64, 16, 16
+  );
+  val DecodeAttempt json_work_ok = decode_attempt(json_work_below, bounded_map_work);
+  require_int(json_work_ok.status, 0, "JSON collision work below budget succeeds");
+
+  let List<int> json_work_over = new List<int>();
+  json_work_over.add(123);
+  for (let i = 0; i < 5; i++) {
+    if i > 0 then json_work_over.add(44); fi
+    json_work_over.add(34);
+    for (let j = 0; j < 60; j++) { json_work_over.add(97); }
+    json_work_over.add(34); json_work_over.add(58); json_work_over.add(49);
+  }
+  json_work_over.add(125);
+  val DecodeAttempt json_work_limited = decode_attempt(json_work_over, bounded_map_work);
+  require_int(json_work_limited.status, 2, "JSON collision work over budget fails closed");
+  require_true(json_work_limited.error.code == "map_complexity_limit",
+    "JSON work exhaustion has a structured error");
+
+  let List<int> long_key_bytes = new List<int>();
+  for (let i = 0; i < 80; i++) { long_key_bytes.add(97); }
+  let List<WireMember> long_key_members = new List<WireMember>();
+  long_key_members.add(new WireMember(new Utf8Text(long_key_bytes), value_int(1)));
+  val Result<List<int>, EncodeError> json_key_hash_limited = encode(
+    value_object(long_key_members), new EncodeOptions(128, 64)
+  );
+  require_true(json_key_hash_limited.is_err(),
+    "JSON encoder bounds caller-owned key hashing by output budget");
 
   return;
 }
