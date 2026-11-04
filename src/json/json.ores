@@ -1148,6 +1148,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     0,
     false,
     false,
+    map_key_work_limit(options.max_map_entries),
     empty_decode_error()
   );
 
