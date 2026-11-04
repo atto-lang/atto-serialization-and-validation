@@ -200,12 +200,12 @@ fnc read_bytes(
 
 // Bounded structural upper estimate for one dynamic map key. The helper
 // stops after the caller's remaining budget, so measuring a nested key is
-// itself bounded. Equality has the same maximum depth (128).
+// itself bounded. The depth limit is supplied by the active codec operation.
 fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): int {
   if remaining <= 0 then return -1; fi
   // Do not call recursive hashing/equality on a key deeper than the caller's
   // configured encoder/decoder depth admission.
-  if depth > max_depth then return -1; fi
+  if depth > max_depth || value.kind < 0 || value.kind > 8 then return -1; fi
   let int work = 1;
 
   if value.kind == 2 then
