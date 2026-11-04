@@ -154,6 +154,7 @@ pub fnc run_ai_scalar_record_tests(): void {
   val DecodeOptions strict = ai_scalar_decode_options();
   require_int(strict.max_depth, 1, "scalar-only decoder must fix max depth to 1");
   require_int(strict.max_binary_bytes, 0, "scalar-only decoder forbids binary payloads");
+  require_int(strict.max_array_entries, 0, "scalar-only decoder forbids array elements");
   val DecodeOptions tight = new DecodeOptions(0, false, 1, 16, 16, 0, 16, 8, 8);
   val DecodeOptions first_wins = new DecodeOptions(1, false, 1, 256, 128, 0, 128, 8, 8);
   val DecodeOptions last_wins = new DecodeOptions(2, false, 1, 256, 128, 0, 128, 8, 8);
@@ -191,7 +192,8 @@ pub fnc run_ai_scalar_record_tests(): void {
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "duplicate_key");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 44, 34, 115, 99, 111, 114, 92, 117, 48, 48, 54, 53, 34, 58, 52, 51, 125), rt borrow strict, rt borrow closed, 2, "escaped_duplicate_key");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125, 32, 116, 114, 117, 101), rt borrow strict, rt borrow closed, 2, "trailing_token");
-  check_ai_status(new List<int>(91, 34, 65, 100, 97, 34, 44, 52, 50, 93), rt borrow strict, rt borrow closed, 3, "wrong_root");
+  check_ai_status(new List<int>(91, 34, 65, 100, 97, 34, 44, 52, 50, 93), rt borrow strict, rt borrow closed, 2, "nonempty_array_root_rejected_by_array_limit");
+  check_ai_status(new List<int>(91, 93), rt borrow strict, rt borrow closed, 3, "empty_array_root_rejected_by_object_kind");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58), rt borrow strict, rt borrow closed, 2, "truncated_json");
   check_ai_status(new List<int>(123,34,110,97,109,101,34,58,34,192,128,34,44,34,115,99,111,114,101,34,58,52,50,125), rt borrow strict, rt borrow closed, 2, "invalid_utf8");
   check_ai_status(new List<int>(123, 34, 110, 97, 109, 101, 34, 58, 34, 65, 100, 97, 34, 44, 34, 115, 99, 111, 114, 101, 34, 58, 52, 50, 125), tight, rt borrow closed, 2, "input_byte_limit");
@@ -224,8 +226,8 @@ pub fnc run_ai_scalar_record_tests(): void {
       34,115,99,111,114,101,34,58,52,50,125),
     rt borrow strict, rt borrow closed, 3, "empty_nested_array_type_rejected"
   );
-  // Nonempty nested objects/arrays attempt parsing grandchildren (depth 2)
-  // and must be blocked by the parser before reaching field validation.
+  // Nonempty nested objects require depth 2 and fail the parser's depth
+  // check. Nonempty nested arrays hit the zero-element array budget first.
   check_ai_status(
     new List<int>(123,34,110,97,109,101,34,58,123,34,120,34,58,49,125,
       44,34,115,99,111,114,101,34,58,52,50,125),
@@ -234,7 +236,7 @@ pub fnc run_ai_scalar_record_tests(): void {
   check_ai_status(
     new List<int>(123,34,110,97,109,101,34,58,91,49,93,44,
       34,115,99,111,114,101,34,58,52,50,125),
-    rt borrow strict, rt borrow closed, 2, "nonempty_nested_array_depth_rejected"
+    rt borrow strict, rt borrow closed, 2, "nonempty_nested_array_capacity_rejected"
   );
   val ObjectDecodeAttempt overdeep_reject = decode_ai_scalar_record_attempt(
     new List<int>(123,125), rt borrow overdeep, rt borrow closed,
@@ -352,6 +354,29 @@ pub fnc run_ai_scalar_record_tests(): void {
     "excessive schema must fail specifically on AI field budget");
   require_int(fields_rejected.decoded.consumed, 0,
     "oversized schema must never publish a decoded object");
+
+  // The scalar-only API rejects any config that would permit array
+  // elements, rather than parsing nested/array-root values for later denial.
+  val DecodeOptions allow_one_array_element = new DecodeOptions(
+    0, false, 1, 65536, 16384, 0, 1024, 1, 256
+  );
+  val ObjectDecodeAttempt arrays_config_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(123,125), rt borrow allow_one_array_element,
+    rt borrow closed, default_validation_options()
+  );
+  require_int(arrays_config_rejected.status, 2,
+    "positive array allocation budget must fail AI preflight");
+  require_true(arrays_config_rejected.error.decode_error.code == "ai_limits",
+    "array-allocation configuration rejection must be explicit");
+
+  val ObjectDecodeAttempt arrays_data_rejected = decode_ai_scalar_record_attempt(
+    new List<int>(91,49,93), rt borrow strict, rt borrow closed,
+    default_validation_options()
+  );
+  require_int(arrays_data_rejected.status, 2,
+    "nonempty array at JSON root fails parser capacity");
+  require_true(arrays_data_rejected.error.decode_error.code == "array_limit",
+    "nonempty array cannot allocate even one element");
 
   // Binary storage is unsupported for the scalar JSON profile. Even one
   // allowed binary byte must be refused before decoder invocation.
