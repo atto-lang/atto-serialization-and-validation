@@ -33,7 +33,7 @@ class CrossLineDenial(unittest.TestCase):
     def test_quoted_exact_subject_after_unrelated_line_is_accepted(self):
         self.assertTrue(gate.valid_log(
             b"note: evaluating visibility\n"
-            b"error: cannot access field \`entries\`\r\n",
+            b"error: cannot access field 'entries'\r\n",
             "private-storage-access"))
 
     def test_unknown_fixture_never_passes(self):
