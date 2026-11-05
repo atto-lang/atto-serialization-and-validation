@@ -39,7 +39,9 @@ def valid_log(content: bytes, fixture: str) -> bool:
     except UnicodeDecodeError:
         return False
     for line in data.splitlines():
-        if len(line) <= 4096 and target.search(line):
+        # Logs are bounded in bytes, not Unicode code points: multibyte UTF-8
+        # must not bypass the per-line diagnostic evidence budget.
+        if len(line.encode("utf-8")) <= 4096 and target.search(line):
             return True
     return False
 
