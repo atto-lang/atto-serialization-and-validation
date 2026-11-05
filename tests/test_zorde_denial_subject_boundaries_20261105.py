@@ -36,6 +36,22 @@ class DenialBoundary(unittest.TestCase):
         self.assertFalse(gate.valid_log(b'error: entries is private' + b'x'*4097, 'private-storage-access'))
         self.assertFalse(gate.valid_log(b'error: entries is private\n' + b'x'*gate.MAX_LOG_BYTES, 'private-storage-access'))
 
+    def test_utf8_multibyte_line_budget_is_counted_in_encoded_bytes(self):
+        subject = b'error: entries is private '
+        valid = subject + 'é'.encode('utf-8') * ((4096 - len(subject)) // 2)
+        self.assertTrue(gate.valid_log(valid, 'private-storage-access'))
+        oversized = valid + 'é'.encode('utf-8')
+        self.assertFalse(gate.valid_log(oversized, 'private-storage-access'))
+
+    def test_utf8_byte_overflow_in_earlier_line_cannot_certify_denial(self):
+        prefix = b'error: private class \'ZordePrivateCompiledEntry\' '
+        bad = prefix + 'é'.encode('utf-8') * 2500
+        self.assertFalse(gate.valid_log(bad, 'private-entry-import'))
+        self.assertTrue(gate.valid_log(
+            bad + b'\nerror: private class ZordePrivateCompiledEntry\n',
+            'private-entry-import'))
+
+
 
 if __name__ == '__main__':
     unittest.main()
