@@ -80,7 +80,7 @@ fn wit_type_and_typespec_field_drift_is_detected() {
         ("target-actor","option<string>"),("payload-utf8","option<string>"),("error-code","option<string>")
     ].into_iter().map(|(k,v)|(k.into(),v.into())).collect();
     assert_eq!(wit_fields(WIT,"actor-envelope"),expected);
-    let projection: BTreeSet<_>=expected.keys().map(|x|x.replace('-','_')).collect();
+    let projection: BTreeSet<_>=expected.keys().map(|x|x.replace('-',"_")).collect();
     let schema_fields: BTreeSet<_>=schema()["properties"].as_object().unwrap().keys().cloned().collect();
     assert_eq!(projection,schema_fields);
     assert_ne!(wit_fields(&WIT.replace("event: event-kind","event: string"),"actor-envelope"),expected);
