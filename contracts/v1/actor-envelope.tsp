@@ -21,7 +21,7 @@ model MessageEvent extends EnvelopeBase {
 
 model FailureEvent extends EnvelopeBase {
   event: "failure";
-  @pattern("^[A-Z][A-Z0-9_]{0,63}$")
+  @pattern("^[A-Z][A-Z0-9_]{0,63}(?![\\s\\S])")
   error_code: string;
 }
 
