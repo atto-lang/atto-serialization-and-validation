@@ -21,7 +21,7 @@ fn rust_is_the_only_test_and_validation_script_language() {
     let root=Path::new(env!("CARGO_MANIFEST_DIR"));
     inspect(root);
     let workflow=fs::read_to_string(root.join(".github/workflows/contract-conformance.yml")).unwrap();
-    assert!(workflow.contains("cargo +1.88.0 test --all-targets"));
+    assert!(workflow.contains("cargo +1.88.0 test --locked --all-targets"));
     assert!(!workflow.contains("setup-python"));
     assert!(!workflow.contains("python -m"));
 }
