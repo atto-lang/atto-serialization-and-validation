@@ -18,3 +18,5 @@ jobs:
           node-version: '22'
       - run: npm install --no-save --ignore-scripts --no-audit --no-fund @typespec/compiler@1.0.0
       - run: ./node_modules/.bin/tsp compile contracts/v1/actor-envelope.tsp --no-emit
+      - run: cargo install --locked --version 1.262.0 wasm-tools
+      - run: wasm-tools component wit contracts/v1 --json > /dev/null
