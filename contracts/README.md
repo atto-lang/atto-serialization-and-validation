@@ -1,14 +1,39 @@
-# Proposed portable actor-event contracts (v1)
+# Actor-event contracts — draft v1
 
-This directory establishes a **proposed** triple-format contract, not proof of a working AttoLang compiler/runtime. Do not mark any backend as implemented based on this repository alone.
+Three authored contract views are checked in: JSON Schema 2020-12 (normative JSON
+ingress), TypeSpec (typed models), and WIT (WebAssembly component boundary).
+These files do **not** certify a backend implementation or make a production
+security guarantee.
 
-- **JSON Schema 2020-12** is the normative UTF-8 JSON validation boundary; its oneOf cases are closed, event-tagged, versioned, and disallow unknown fields.
-- **TypeSpec** represents the same three cases with explicit tagged models and a union; compile it to check the IDL independently. This is not a published REST API.
-- **WIT** represents the portable Wasm component boundary. JSON snake_case members become WIT kebab-case. WIT option<T> fields map to omitted JSON properties, never JSON null. WIT does not enforce the JSON event-dependent conditions, string length limits, or version literal: validate before dispatch.
+## Rust-first verification
 
-payload_utf8 is text with a 65,536-character JSON Schema cap, **not** a promise of arbitrary binary data or a stable byte-length bound. error_code is a limited diagnostic code, never a stack trace. This proposed interface does not make a trust, ownership, or cross-tenant authorization guarantee.
+Run cargo +1.88.0 test --all-targets to execute schema and strict ingress
+tests, negative vectors, and field-type projection checks. The CI additionally
+compiles TypeSpec using tsp and parses WIT using wasm-tools.
 
-Run python -m pip install -r tests/requirements.txt and python -m unittest discover -s tests -v for schema vectors and three-format drift checks. Run tsp compile contracts/v1/actor-envelope.tsp --no-emit with @typespec/compiler for independent TypeSpec parsing. The workflow also invokes wasm-tools for WIT parsing and component-IDL validation; its GitHub-hosted execution remains **not verified**. Real Wasm guest/host adapter compilation and execution remain **not executed**. Treat the schema, TypeSpec, and WIT files as **draft v1**, not a release-qualifying compatibility guarantee.
+The Rust reference decoder rejects duplicate JSON object keys (including
+nested keys), nonintegral numeric tokens, nonfinite tokens, malformed UTF-8,
+invalid Unicode surrogates, and wire values above 1 MiB. It validates the
+decoded object against the schema. No downstream actor runtime or host adapter
+is connected to this reference decoder yet.
 
-## Hardened draft ingress
-The Python `contracts/strict_json.py` reference decoder rejects duplicate JSON members (including nested), malformed UTF-8, nonfinite/fractional numbers, invalid Unicode surrogates, and inputs over 1 MiB before applying JSON Schema. This is **not** a claim that any production AttoLang backend uses the decoder. The trailing-newline regex bypass on `error_code` is closed, and tests now lock down TypeSpec and WIT field types and optionality. These are targeted shape checks, not a complete AST-level equivalence proof. Independent review, backend adapters and version-to-version compatibility evidence remain required.
+The actor message payload_utf8 is text, not arbitrary binary. WIT optional
+fields are encoded to JSON as absent fields, not JSON null; the discriminant
+determines which fields are required. WIT itself cannot enforce version
+literals, conditional field presence, max string lengths, or Error subclass
+semantics: hosts must validate again.
+
+## Release and compatibility boundaries
+
+- message, failure, and shutdown are draft tagged variants. They are not
+  proofs of actor panic/throw/raise execution semantics or supervisor control
+  messages.
+- Source, tenant, and actor IDs are untrusted input until runtime authentication
+  and authorization are implemented.
+- Structural drift tests are not a complete semantic comparison of three ASTs.
+- Do not rename or remove v1 public fields without a new major contract version,
+  released-v1 compatibility fixtures, and cross-backend consumer verification.
+- An exact-head CI pass is not independent PR approval or runtime conformance.
+
+All repository CI/test/validation scripting is Rust-first; changes should
+preserve this policy and update Rust regression coverage.
