@@ -30,3 +30,20 @@ jobs:
       - run: ./node_modules/.bin/tsp compile contracts/v1/actor-envelope.tsp --no-emit
       - run: cargo install --locked --version 1.262.0 wasm-tools
       - run: wasm-tools component wit contracts/v1 --json > /dev/null
+
+  fast-npm-lock-bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Generate audited npm lockfile
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          echo ATTO_FAST_LOCK_BEGIN
+          cat package-lock.json
+          echo ATTO_FAST_LOCK_END
