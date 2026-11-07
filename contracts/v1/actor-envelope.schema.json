@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.atto-lang.org/actor-envelope/v1/actor-envelope.schema.json",
+  "title": "AttoLang actor event envelope v1 (proposed)",
+  "description": "Portable actor event contract. This is a proposal and not an executed-backend claim.",
+  "type": "object",
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "event": {
+      "enum": [
+        "message",
+        "failure",
+        "shutdown"
+      ]
+    },
+    "message_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_actor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target_actor": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "payload_utf8": {
+      "type": "string",
+      "maxLength": 65536
+    },
+    "error_code": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$"
+    }
+  },
+  "required": [
+    "version",
+    "event",
+    "message_id",
+    "source_actor"
+  ],
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "properties": {
+        "event": {
+          "const": "message"
+        }
+      },
+      "required": [
+        "target_actor",
+        "payload_utf8"
+      ],
+      "not": {
+        "required": [
+          "error_code"
+        ]
+      }
+    },
+    {
+      "properties": {
+        "event": {
+          "const": "failure"
+        }
+      },
+      "required": [
+        "error_code"
+      ],
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target_actor"
+            ]
+          },
+          {
+            "required": [
+              "payload_utf8"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "properties": {
+        "event": {
+          "const": "shutdown"
+        }
+      },
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "target_actor"
+            ]
+          },
+          {
+            "required": [
+              "payload_utf8"
+            ]
+          },
+          {
+            "required": [
+              "error_code"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
