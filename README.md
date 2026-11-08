@@ -146,3 +146,14 @@ sharing remain separate release gates. In particular, mutable nested
 `List` fields cannot be safely shared across actor lanes until recursive
 `rt share` / `rt take` / `rt copy` / `rt borrow` semantics are enforced
 by the compiler. See [the ownership and AOT contract](docs/DYNAMIC-AOT-OWNERSHIP.md).
+
+## Repository ownership and migration (2026-11-08)
+
+**Current repository:** `ores-truffle-oreslang/oreslang-serialization-and-validation` (legacy organization). The language is publicly **AttoLang**, formerly Oreslang. Do not remove working `.ores` source support or rename old package/CLI/repository identifiers as an incidental side effect.
+
+- **This repo should contain:** portable structured serialization, typed validation and deterministic compatibility tests.
+- **Exclude or route elsewhere:** managed ingestion pipelines and production database administration.
+- **Boundaries:** [`atto-lang`](https://github.com/atto-lang) owns language semantics, core/std, compilers, tooling, conformance and portable libraries. [`atto-co`](https://github.com/atto-co) owns separately governed hosted infrastructure, tenant cloud runtime, deployment, identity and billing. Existing new-org `atto-*` repos are distinct Git identities until reconciled; do not overwrite them.
+- **Proposed first destination:** `atto-lang/oreslang-serialization-and-validation` via **reviewed transfer of this repository identity**, not a clone, rename or direct transfer to `atto-co`. Future AttoCo product carve-outs must be authorized separately.
+
+**Owner checklist:** coordinate in [migration issue #26](https://github.com/ores-truffle-oreslang/.github/issues/26) and review the private [transfer plan #25](https://github.com/ores-truffle-oreslang/.github/pull/25). Before any migration, document stable numeric repo ID, exact head SHA/tree, open PRs/issues, tags, consumers, packages, Pages, Actions and billing, branch/ruleset enforcement, secrets and app/webhook permissions, source/target administrators, independent security reviewer and rollback plan. No unapproved private-source mirror. After the authorized GitHub transfer, verify unchanged identity/history/tree and reinstate controls, then rerun exact-head tests. Zero executed CI steps (`steps=[]` or `null`) is `NOT_EXECUTED`; structural or host-only checks are not guest-runtime parity proof. Preserve old names and `.ores` compatibility while `.atto` source support is validated per compiler.
