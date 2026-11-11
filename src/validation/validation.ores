@@ -214,11 +214,49 @@ pub fnc field_rule(
   return new FieldRule(key, required, forbidden, value_rule);
 }
 
+// Refused builders must stay invalid. Returning an empty or partially copied
+// schema would silently relax required-field or unknown-field policy.
+fnc refused_object_schema(bool reject_unknown_fields): ObjectSchema {
+  val List<FieldRule> invalid = new List<FieldRule>();
+  // 0xff is never a legal standalone UTF-8 key, so object_schema_valid()
+  // deterministically rejects this sentinel.
+  invalid.add(new FieldRule(
+    new Utf8Text(new List<int>(255)), false, false, any_rule()
+  ));
+  return new ObjectSchema(invalid, reject_unknown_fields);
+}
+
 pub fnc object_schema(
   List<FieldRule> fields,
   bool reject_unknown_fields
 ): ObjectSchema {
-  return new ObjectSchema(fields, reject_unknown_fields);
+  // A schema must not change when the originating mutable List or Utf8Text
+  // key buffer is edited after construction. Snapshot both levels rather than
+  // retaining caller-owned aliases. ValueRule stores only scalar fields.
+  // This is input detachment, NOT a frozen/shareable schema or Valid<T> proof:
+  // ObjectSchema.fields remains mutable and must remain actor-local.
+  if fields.length > max_schema_fields() then
+    return refused_object_schema(reject_unknown_fields);
+  fi
+
+  val List<FieldRule> snapshot = new List<FieldRule>();
+  for const field of fields do
+    // Bound allocation before copying a potentially attacker-sized key.
+    if field.key.bytes.length > max_schema_key_bytes() then
+      return refused_object_schema(reject_unknown_fields);
+    fi
+    val List<int> key_bytes = new List<int>();
+    for const byte of field.key.bytes do
+      key_bytes.add(byte);
+    done
+    snapshot.add(new FieldRule(
+      new Utf8Text(key_bytes),
+      field.required,
+      field.forbidden,
+      field.value_rule
+    ));
+  done
+  return new ObjectSchema(snapshot, reject_unknown_fields);
 }
 
 
