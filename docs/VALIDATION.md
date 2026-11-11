@@ -163,8 +163,12 @@ Pattern/regex engines, custom validator registries, cross-field rules, and compi
 `object_schema(fields, reject_unknown_fields)` snapshots the caller-supplied
 field collection and each field's UTF-8 key-byte list. Mutating the original
 builder list or key buffers afterward must not change which field the schema
-requires. The constructor checks the field-count and per-key byte limits
-**before** copying. Over-limit input yields an invalid-schema sentinel;
+requires. The constructor checks field count, **65,536 bytes per key**, and
+**1,048,576 total key bytes** before copying. The same aggregate budget is
+enforced independently when validating directly constructed `ObjectSchema`
+instances or untrusted dynamic object `Value` keys; bypassing the builder
+cannot bypass the quota. Checks use subtraction from the remaining allowance
+to avoid overflow. Over-limit builder input yields an invalid-schema sentinel;
 it must never become an empty, weakened, or partially copied usable schema.
 
 This is builder-input detachment, **not** an immutable schema or a trusted
