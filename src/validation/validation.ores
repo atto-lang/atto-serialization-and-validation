@@ -855,13 +855,29 @@ pub fnc parse_number(Value value): ParsedNumber {
   return new ParsedNumber(true, result);
 }
 
+// A unique-items rule is an untrusted-input work boundary even when no
+// schema max_items was requested. The cap is independent of the caller's
+// max_items and prevents an unbounded hash table on direct Value input.
+pub fnc max_unique_validation_items(): int { return 4096; }
+// Hash collisions must not turn uniqueness checks into unbounded repeated
+// deep comparisons. Exceeding the budget is a validation failure, NEVER a
+// successful "all unique" result.
+pub fnc max_unique_candidate_checks(): int { return 16384; }
+
 fnc validate_unique(
   Value value,
   ValidationReport mut report,
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  if value.array_value.length > max_unique_validation_items() then
+    add_error(report, options, "unique_items_limit", path,
+      "unique-items validation exceeds its bounded item count");
+    return;
+  fi
+
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  let int candidate_checks = 0;
 
   for const item of value.array_value do
     let int hash = value_hash(item);
@@ -869,6 +885,14 @@ fnc validate_unique(
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
       for const candidate of candidates do
+        // Charge BEFORE deep equality. No user-controlled collision pattern
+        // may bypass this counter, including a comparison that would match.
+        if candidate_checks >= max_unique_candidate_checks() then
+          add_error(report, options, "unique_items_complexity_limit", path,
+            "unique-items collision work exceeds its bounded budget");
+          return;
+        fi
+        candidate_checks = candidate_checks + 1;
         if value_deep_equal(candidate, item) then
           add_error(
             report,
