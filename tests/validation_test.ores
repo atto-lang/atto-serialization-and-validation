@@ -497,6 +497,15 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   )), "direct object Value must refuse aggregate input keys above 1 MiB");
 
+  // The aggregate budget also applies to nested objects under any_rule,
+  // not only when object-schema validation is called at the root.
+  val List<Value> nested_aggregate_objects = new List<Value>();
+  nested_aggregate_objects.add(value_object(aggregate_input_members));
+  require_true(validate_value_checked(
+    value_array(nested_aggregate_objects), any_rule(),
+    default_validation_options()
+  ).is_err(), "checked preflight rejects oversized nested object keys");
+
   // Checked dynamic APIs return plain Value, never authoritative proof.
   val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
     value_string(new Utf8Text(new List<int>(111, 107))),
@@ -596,6 +605,54 @@ pub fnc run_validation_tests(): void {
   require_true(validate_value_checked(
     value_map(invalid_map_entries), any_rule(), default_validation_options()
   ).is_err(), "checked arbitrary map keys also receive lexical preflight");
+
+  // General maps are the CBOR/MessagePack map-key domain. Two entries with
+  // the same semantic key must not pass strict checked validation even when
+  // their keys and values are individually well-formed.
+  val List<MapEntry> duplicate_general_keys = new List<MapEntry>();
+  duplicate_general_keys.add(new MapEntry(value_int(7), value_int(1)));
+  duplicate_general_keys.add(new MapEntry(value_int(7), value_int(2)));
+  require_true(validate_value_checked(
+    value_map(duplicate_general_keys), any_rule(),
+    default_validation_options()
+  ).is_err(), "checked general map refuses duplicate integer keys");
+
+  val List<Value> nested_duplicate_maps = new List<Value>();
+  nested_duplicate_maps.add(value_map(duplicate_general_keys));
+  require_true(validate_value_checked(
+    value_array(nested_duplicate_maps), any_rule(),
+    default_validation_options()
+  ).is_err(), "nested general maps also refuse duplicate semantic keys");
+
+  val List<MapEntry> distinct_general_keys = new List<MapEntry>();
+  distinct_general_keys.add(new MapEntry(value_int(7), value_int(1)));
+  distinct_general_keys.add(new MapEntry(value_int(8), value_int(2)));
+  require_true(!validate_value_checked(
+    value_map(distinct_general_keys), any_rule(),
+    default_validation_options()
+  ).is_err(), "distinct well-formed general map keys remain accepted");
+
+  // Deeply equal object keys must collide semantically even if the member
+  // insertion order differs (object-key equality is order-insensitive).
+  val List<WireMember> first_key_members = new List<WireMember>();
+  first_key_members.add(new WireMember(
+    new Utf8Text(new List<int>(97)), value_int(1)));
+  first_key_members.add(new WireMember(
+    new Utf8Text(new List<int>(98)), value_int(2)));
+  val List<WireMember> reversed_key_members = new List<WireMember>();
+  reversed_key_members.add(new WireMember(
+    new Utf8Text(new List<int>(98)), value_int(2)));
+  reversed_key_members.add(new WireMember(
+    new Utf8Text(new List<int>(97)), value_int(1)));
+  val List<MapEntry> duplicate_structural_keys = new List<MapEntry>();
+  duplicate_structural_keys.add(new MapEntry(
+    value_object(first_key_members), value_int(10)));
+  duplicate_structural_keys.add(new MapEntry(
+    value_object(reversed_key_members), value_int(20)));
+  require_true(validate_value_checked(
+    value_map(duplicate_structural_keys), any_rule(),
+    default_validation_options()
+  ).is_err(), "deep-equal reordered object keys cannot be admitted twice");
 
   // A 64-level nested tree is admitted, one extra level must fail before
   // stack exhaustion. Native compiler execution is still required.
