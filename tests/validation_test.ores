@@ -654,6 +654,74 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   ).is_err(), "deep-equal reordered object keys cannot be admitted twice");
 
+  // Hash/equality budget regressions: adversarial but well-formed dynamic
+  // Values must not trigger unbounded recursive hashing or deep comparison.
+  val List<Value> unique_budget_items = new List<Value>();
+  let int unique_budget_index = 0;
+  loop do
+    if unique_budget_index >= 4096 then break; fi
+    unique_budget_items.add(value_int(unique_budget_index));
+    unique_budget_index = unique_budget_index + 1;
+  done
+  require_true(report_is_valid(validate_value(
+    value_array(unique_budget_items), array_rule(0, -1, true),
+    default_validation_options()
+  )), "unique validation admits 4096 distinct scalar values");
+  unique_budget_items.add(value_int(4096));
+  require_true(!report_is_valid(validate_value(
+    value_array(unique_budget_items), array_rule(0, -1, true),
+    default_validation_options()
+  )), "unique validation refuses 4097 distinct items before hashing");
+
+  val List<int> equality_key_bytes = new List<int>();
+  let int equality_byte_index = 0;
+  loop do
+    if equality_byte_index >= 4096 then break; fi
+    equality_key_bytes.add(97);
+    equality_byte_index = equality_byte_index + 1;
+  done
+  val List<MapEntry> equality_size_map = new List<MapEntry>();
+  equality_size_map.add(new MapEntry(
+    value_string(new Utf8Text(equality_key_bytes)), value_int(9)
+  ));
+  require_true(!validate_value_checked(
+    value_map(equality_size_map), any_rule(), default_validation_options()
+  ).is_err(), "4096-byte general-map key stays within equality budget");
+  equality_key_bytes.add(97);
+  require_true(validate_value_checked(
+    value_map(equality_size_map), any_rule(), default_validation_options()
+  ).is_err(), "4097-byte general-map key must fail before hashing");
+
+  val List<Value> structural_key_parts = new List<Value>();
+  let int structural_key_index = 0;
+  loop do
+    if structural_key_index >= 63 then break; fi
+    structural_key_parts.add(value_int(structural_key_index));
+    structural_key_index = structural_key_index + 1;
+  done
+  val List<MapEntry> bounded_structural_map = new List<MapEntry>();
+  bounded_structural_map.add(new MapEntry(
+    value_array(structural_key_parts), value_int(10)
+  ));
+  require_true(!validate_value_checked(
+    value_map(bounded_structural_map), any_rule(),
+    default_validation_options()
+  ).is_err(), "64-node structural key remains eligible");
+  structural_key_parts.add(value_int(63));
+  require_true(validate_value_checked(
+    value_map(bounded_structural_map), any_rule(),
+    default_validation_options()
+  ).is_err(), "65-node structural key exceeds equality work budget");
+
+  val List<Value> uniqueness_large_element = new List<Value>();
+  uniqueness_large_element.add(value_string(
+    new Utf8Text(equality_key_bytes)
+  ));
+  require_true(!report_is_valid(validate_value(
+    value_array(uniqueness_large_element), array_rule(0, -1, true),
+    default_validation_options()
+  )), "unique_items refuses oversized individual deep-hash candidates");
+
   // A 64-level nested tree is admitted, one extra level must fail before
   // stack exhaustion. Native compiler execution is still required.
   let Value at_depth_limit = value_int(7);
