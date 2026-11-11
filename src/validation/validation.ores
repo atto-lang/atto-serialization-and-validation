@@ -855,14 +855,111 @@ pub fnc parse_number(Value value): ParsedNumber {
   return new ParsedNumber(true, result);
 }
 
-// A unique-items rule is an untrusted-input work boundary even when no
-// schema max_items was requested. The cap is independent of the caller's
-// max_items and prevents an unbounded hash table on direct Value input.
+// A unique-items rule is an untrusted-input work boundary even when
+// no schema max_items was requested.
 pub fnc max_unique_validation_items(): int { return 4096; }
-// Hash collisions must not turn uniqueness checks into unbounded repeated
-// deep comparisons. Exceeding the budget is a validation failure, NEVER a
-// successful "all unique" result.
 pub fnc max_unique_candidate_checks(): int { return 16384; }
+// Conservative per-operation fuel for hashing and deep equality. Cost includes
+// all active bytes/nodes and pessimistically weights nested object/map
+// collision scans; a failed estimate denies the entire validation.
+pub fnc max_unique_validation_work(): int { return 1000000; }
+
+// Returns -1 on budget denial. Multiplication is safe: both operands
+// are first <= 1,000,000, hence their product fits signed int64.
+fnc unique_work_product(int a, int b): int {
+  if a < 0 || b < 0 ||
+     a > max_unique_validation_work() ||
+     b > max_unique_validation_work() then return -1; fi
+  val int result = a * b;
+  if result > max_unique_validation_work() then return -1; fi
+  return result;
+}
+
+fnc unique_work_add(int used, int extra): int {
+  if extra < 0 || extra > max_unique_validation_work() - used then
+    return -1;
+  fi
+  return used + extra;
+}
+
+// Expanded tree walk: copies/aliases are charged on every occurrence. A
+// nested map/object may invoke many equality comparisons on hash collisions.
+// The multiplicity factor (n*n+n+1) pessimistically charges those probes
+// through every descendant before the native hash/equality routines run.
+fnc unique_value_work_cost(Value root): int {
+  val List<Value> pending = new List<Value>();
+  val List<int> weights = new List<int>();
+  pending.add(root);
+  weights.add(1);
+  let int cursor = 0;
+  let int work = 0;
+
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int weight = weights[cursor];
+    cursor = cursor + 1;
+
+    if value.kind < 0 || value.kind > 8 then return -1; fi
+    work = unique_work_add(work, weight);
+    if work < 0 then return -1; fi
+
+    if value.kind == 2 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.number_lexeme.length));
+    elif value.kind == 3 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.string_value.bytes.length));
+    elif value.kind == 4 || value.kind == 7 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.bytes_value.length));
+    fi
+    if work < 0 then return -1; fi
+
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length then
+        return -1;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        weights.add(weight);
+      done
+    fi
+
+    if value.kind == 6 then
+      val int length = value.object_value.length;
+      if length > max_checked_value_nodes() - pending.length then return -1; fi
+      val int factor = length * length + length + 1;
+      val int child_weight = unique_work_product(weight, factor);
+      if child_weight < 0 then return -1; fi
+      for const member of value.object_value do
+        work = unique_work_add(work,
+          unique_work_product(child_weight, member.key.bytes.length));
+        if work < 0 then return -1; fi
+        pending.add(member.value);
+        weights.add(child_weight);
+      done
+    fi
+
+    if value.kind == 8 then
+      val int length = value.map_value.length;
+      if length > max_checked_value_nodes() - pending.length then return -1; fi
+      if length > max_checked_value_nodes() - pending.length - length then
+        return -1;
+      fi
+      val int factor = length * length + length + 1;
+      val int child_weight = unique_work_product(weight, factor);
+      if child_weight < 0 then return -1; fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        weights.add(child_weight);
+        pending.add(entry.value);
+        weights.add(child_weight);
+      done
+    fi
+  done
+  return work;
+}
 
 fnc validate_unique(
   Value value,
@@ -877,38 +974,60 @@ fnc validate_unique(
   fi
 
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  val Map<int, List<int>> costs = new Map<int, List<int>>();
   let int candidate_checks = 0;
+  let int spent_work = 0;
 
   for const item of value.array_value do
-    let int hash = value_hash(item);
+    // Charge the entire expanded item BEFORE hashing it.
+    val int item_cost = unique_value_work_cost(rt borrow item);
+    spent_work = unique_work_add(spent_work, item_cost);
+    if spent_work < 0 then
+      add_error(report, options, "unique_items_work_limit", path,
+        "nested uniqueness hash/equality work exceeds the bounded budget");
+      return;
+    fi
 
+    let int hash = value_hash(item);
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
+      val List<int> candidate_costs = costs.get(hash);
+      let int i = 0;
       for const candidate of candidates do
-        // Charge BEFORE deep equality. No user-controlled collision pattern
-        // may bypass this counter, including a comparison that would match.
         if candidate_checks >= max_unique_candidate_checks() then
           add_error(report, options, "unique_items_complexity_limit", path,
-            "unique-items collision work exceeds its bounded budget");
+            "unique-items collision comparisons exceed the bounded budget");
           return;
         fi
         candidate_checks = candidate_checks + 1;
-        if value_deep_equal(candidate, item) then
-          add_error(
-            report,
-            options,
-            "unique_items",
-            path,
-            "array contains duplicate values"
-          );
+
+        // Conservatively account for both graphs before native deep equality.
+        spent_work = unique_work_add(spent_work, item_cost);
+        if spent_work >= 0 then
+          spent_work = unique_work_add(spent_work, candidate_costs[i]);
+        fi
+        if spent_work < 0 then
+          add_error(report, options, "unique_items_work_limit", path,
+            "nested uniqueness hash/equality work exceeds the bounded budget");
           return;
         fi
+
+        if value_deep_equal(candidate, item) then
+          add_error(report, options, "unique_items", path,
+            "array contains duplicate values");
+          return;
+        fi
+        i = i + 1;
       done
       candidates.add(item);
+      candidate_costs.add(item_cost);
     else
       val List<Value> candidates = new List<Value>();
+      val List<int> candidate_costs = new List<int>();
       candidates.add(item);
+      candidate_costs.add(item_cost);
       buckets.set(hash, candidates);
+      costs.set(hash, candidate_costs);
     fi
   done
 
@@ -1078,6 +1197,13 @@ pub fnc validate_value(
     );
   fi
 
+  if !checked_value_tree_valid(rt borrow value) then
+    return config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds validation work limits"
+    );
+  fi
+
   let ValidationReport report = new ValidationReport(
     new List<ValidationError>(),
     false
@@ -1142,19 +1268,61 @@ fnc object_field_index(
   return -1;
 }
 
-fnc object_keys_unique(Value object): bool {
-  let Map<int, List<int>> buckets = new Map<int, List<int>>();
+// One budget is carried through the entire graph preflight, including nested
+// objects. An adversary may control every key and collision bucket.
+pub fnc max_checked_key_candidate_checks(): int { return 16384; }
+pub fnc max_checked_key_compare_bytes(): int { return 1048576; }
+
+define class ZordeGraphKeyWork as
+  let int candidate_checks;
+  let int compared_bytes;
+end
+
+fnc object_keys_unique_bounded(
+  Value object,
+  ZordeGraphKeyWork mut work
+): bool {
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   for const member of object.object_value do
-    if object_field_index(object, buckets, member.key) >= 0 then
-      return false;
+    let int hash = text_hash(member.key);
+    if buckets.contains(hash) then
+      val List<int> candidates = buckets.get(hash);
+      for const index of candidates do
+        if work.candidate_checks >= max_checked_key_candidate_checks() then
+          return false;
+        fi
+        work.candidate_checks = work.candidate_checks + 1;
+        // Charge worst-case compared bytes before invoking text_equal.
+        val int a = member.key.bytes.length;
+        val int b = object.object_value[index].key.bytes.length;
+        if a > max_checked_key_compare_bytes() - work.compared_bytes then
+          return false;
+        fi
+        work.compared_bytes = work.compared_bytes + a;
+        if b > max_checked_key_compare_bytes() - work.compared_bytes then
+          return false;
+        fi
+        work.compared_bytes = work.compared_bytes + b;
+        if text_equal(object.object_value[index].key, member.key) then
+          return false;
+        fi
+      done
+      candidates.add(i);
+    else
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
+      buckets.set(hash, candidates);
     fi
-    remember_text_index(buckets, member.key, i);
     i = i + 1;
   done
-
   return true;
+}
+
+fnc object_keys_unique(Value object): bool {
+  let ZordeGraphKeyWork work = new ZordeGraphKeyWork(0, 0);
+  return object_keys_unique_bounded(rt borrow object, work);
 }
 
 pub fnc validate_object(
@@ -1173,6 +1341,13 @@ pub fnc validate_object(
     return config_report(
       "invalid_schema",
       "object schema contains duplicate, contradictory, or invalid field rules"
+    );
+  fi
+
+  if !checked_value_tree_valid(rt borrow value) then
+    return config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds validation work limits"
     );
   fi
 
@@ -1308,6 +1483,121 @@ pub fnc report_is_valid(ValidationReport report): bool {
   return report.errors.length == 0 && !report.truncated;
 }
 
+
+// These are *dynamic checked-API* work limits, not nominal typestate proof
+// limits. Caller-built Value trees can bypass all wire decoders, including
+// decoder depth and size settings. A bounded preflight is therefore required
+// before any checked API returns Ok(value). It examines only active-kind
+// payloads; the returned Value remains mutable and is never Valid<T>.
+pub fnc max_checked_value_nodes(): int { return 65536; }
+pub fnc max_checked_value_depth(): int { return 64; }
+pub fnc max_checked_value_bytes(): int { return 16777216; }
+
+// Iterative traversal avoids stack overflows on hostile nested arrays/maps.
+// A cycle or repeated shared subtree cannot cause unbounded work: the finite
+// node and depth budgets bound inspection, without relying on object identity.
+fnc checked_value_tree_valid(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+
+  let int cursor = 0;
+  let int inspected_bytes = 0;
+  let ZordeGraphKeyWork key_work = new ZordeGraphKeyWork(0, 0);
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+
+    if value.kind < 0 || value.kind > 8 then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.number_lexeme.length;
+      if !number_lexeme_valid(rt borrow value) then return false; fi
+    fi
+
+    if value.kind == 3 then
+      if value.string_value.bytes.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.string_value.bytes.length;
+      if !utf8_is_valid(value.string_value.bytes) then return false; fi
+    fi
+
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.bytes_value.length;
+      // The public Value constructor accepts List<int>, not a byte-specific
+      // type. Never allow out-of-octet numbers in raw bytes/extensions.
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.array_value.length > 0 then
+        return false;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+
+    if value.kind == 6 then
+      if value.object_value.length > max_schema_fields() ||
+         value.object_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.object_value.length > 0 then
+        return false;
+      fi
+      for const member of value.object_value do
+        if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > max_checked_value_bytes() - inspected_bytes then
+          return false;
+        fi
+        inspected_bytes = inspected_bytes + member.key.bytes.length;
+        if !utf8_is_valid(member.key.bytes) then return false; fi
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+      if !object_keys_unique_bounded(rt borrow value, key_work) then return false; fi
+    fi
+
+    if value.kind == 8 then
+      // Keep arithmetic integer-exact: in Oreslang '/' is real division,
+      // and a hostile length must never overflow the remaining node budget.
+      if value.map_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if value.map_value.length >
+         max_checked_value_nodes() - pending.length - value.map_value.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.map_value.length > 0 then
+        return false;
+      fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+  return true;
+}
 
 pub fnc validate_value_checked(
   Value value,
