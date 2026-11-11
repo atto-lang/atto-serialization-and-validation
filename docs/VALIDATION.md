@@ -132,6 +132,25 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
 
+## Unique-array validation work limits
+
+For an array schema with `unique_items=true`, the native dynamic validator
+rejects more than **4,096 elements** even if `max_items` is unspecified.
+The uniqueness algorithm also rejects after **16,384 attempted hash-bucket
+candidate comparisons**, charging each candidate before deep equality.
+These are fail-closed `unique_items_limit` and
+`unique_items_complexity_limit` diagnostics, not silent partial acceptance.
+`ValidationOptions.max_errors=0` still sets `truncated=true` so it
+cannot turn a refusal into an empty success report.
+
+These limits bound array cardinality and collision-comparison *count* only.
+They do **not** bound the bytes or nested structural work within a single
+element's hash/equality operation. Deep Value graph preflight and an overall
+byte/node/fuel budget are separate release gates; direct report-only APIs
+must not be treated as security-authoritative or actor-isolation proofs.
+Use explicit decode/schema resource limits and the planned compiled
+checked path for hostile payload admission.
+
 ## Oreslang `with` numeric refinement integration (staged exact-int kernel)
 
 The compiler/shared contract normalizes all three spellings to the **same**
