@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
+import {rejectDuplicateJsonKeys} from './zorde-static-contract-ir.mjs';
 
 function refuse(message) { throw new Error('ZORDE_WIT_STATIC_CROSSWALK_DENIED: '+message); }
 function matchesExactly(left,right) {
@@ -43,6 +44,21 @@ function exactSchemaFields(def,propertyNames,requiredNames) {
      !matchesExactly(Object.keys(def.properties||{}),propertyNames) ||
      !matchesExactly(def.required,requiredNames)) refuse('authored schema record shape changed');
 }
+// JSON.parse alone discards duplicate object members (including escaped
+// equivalents), allowing the last key to override independently authored
+// constraints. Admit raw bytes before normal JSON materialization.
+export function parseAuthoredZordeSchema(rawSource) {
+  if(typeof rawSource!=='string' ||
+     Buffer.byteLength(rawSource,'utf8')>2097152)
+    refuse('authored schema raw input exceeds bounded UTF-8 budget');
+  try {
+    rejectDuplicateJsonKeys(rawSource);
+    return JSON.parse(rawSource);
+  } catch {
+    refuse('authored schema contains duplicate, malformed or unbounded JSON');
+  }
+}
+
 export function auditZordeWitProjection(rawWit, jsonSchema) {
   if(typeof rawWit!=='string'||!jsonSchema||typeof jsonSchema!=='object')
     refuse('invalid source documents');
@@ -153,6 +169,12 @@ export function selftest(wit,schema) {
   auditZordeWitProjection(wit,schema);
   let checks=1; // canonical authored WIT and schema actually accepted
   const checkRejected=fn=>{expectRejected(fn);checks++;};
+  // Test the byte-level schema-authority admission BEFORE JSON.parse can
+  // collapse duplicate members and hide contradictory definitions.
+  checkRejected(()=>parseAuthoredZordeSchema('{"$defs":{"x":1,"x":2}}'));
+  checkRejected(()=>parseAuthoredZordeSchema(String.raw`{"$defs":{"\\u0061":1,"a":2}}`));
+  checkRejected(()=>parseAuthoredZordeSchema('{"x":1} {"x":2}'));
+  checkRejected(()=>parseAuthoredZordeSchema('['.repeat(70)+'0'+']'.repeat(70)));
   const replace=(a,b)=> {
     assert.ok(wit.includes(a),'fixture lacks expected anchor '+a);
     return wit.replace(a,b);
@@ -217,7 +239,8 @@ export function selftest(wit,schema) {
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
   try{
     const wit=readFileSync('wit/zorde-validation.wit','utf8');
-    const schema=JSON.parse(readFileSync('contracts/zorde/authored.schema.json','utf8'));
+    const schema=parseAuthoredZordeSchema(
+      readFileSync('contracts/zorde/authored.schema.json','utf8'));
     const checks=selftest(wit,schema);
     console.log(JSON.stringify({status:'STATIC_WIT_CROSSWALK_MATCH',checks,
       witSyntaxParsed:false,nativeGuestExecuted:false,
