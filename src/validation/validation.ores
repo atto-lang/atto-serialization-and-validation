@@ -914,20 +914,125 @@ pub fnc parse_number(Value value): ParsedNumber {
   return new ParsedNumber(true, result);
 }
 
+// Dynamic equality and hash probing must not be called on arbitrary
+// attacker-shaped subtrees. Each candidate is small enough for the existing
+// recursive hash/deep-equality implementation to have a finite work ceiling;
+// an over-limit candidate fails closed rather than skipping uniqueness.
+pub fnc max_equality_candidate_nodes(): int { return 64; }
+pub fnc max_equality_candidate_depth(): int { return 32; }
+pub fnc max_equality_candidate_bytes(): int { return 4096; }
+pub fnc max_equality_collision_comparisons(): int { return 256; }
+pub fnc max_unique_validation_items(): int { return 4096; }
+
+fnc equality_candidate_bounded(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+  let int cursor = 0;
+  let int remaining_bytes = max_equality_candidate_bytes();
+
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+    if value.kind < 0 || value.kind > 8 then return false; fi
+    if depth > max_equality_candidate_depth() then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > remaining_bytes ||
+         !number_lexeme_valid(rt borrow value) then return false; fi
+      remaining_bytes = remaining_bytes - value.number_lexeme.length;
+    fi
+    if value.kind == 3 then
+      if value.string_value.bytes.length > remaining_bytes ||
+         !utf8_is_valid(value.string_value.bytes) then return false; fi
+      remaining_bytes = remaining_bytes - value.string_value.bytes.length;
+    fi
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > remaining_bytes then return false; fi
+      remaining_bytes = remaining_bytes - value.bytes_value.length;
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+
+    if value.kind == 5 then
+      if value.array_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.array_value.length > 0 then return false; fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 6 then
+      if value.object_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.object_value.length > 0 then return false; fi
+      for const member of value.object_value do
+        if member.key.bytes.length > remaining_bytes ||
+           !utf8_is_valid(member.key.bytes) then return false; fi
+        remaining_bytes = remaining_bytes - member.key.bytes.length;
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 8 then
+      if value.map_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if value.map_value.length >
+         max_equality_candidate_nodes() - pending.length -
+         value.map_value.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.map_value.length > 0 then return false; fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+
+  return true;
+}
+
 fnc validate_unique(
   Value value,
   ValidationReport mut report,
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  if value.array_value.length > max_unique_validation_items() then
+    add_error(report, options, "unique_work_limit", path,
+      "array has too many elements for bounded uniqueness checking");
+    return;
+  fi
+
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  let int remaining_comparisons = max_equality_collision_comparisons();
 
   for const item of value.array_value do
+    if !equality_candidate_bounded(rt borrow item) then
+      add_error(report, options, "unique_work_limit", path,
+        "array element exceeds bounded equality domain");
+      return;
+    fi
     let int hash = value_hash(item);
 
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
       for const candidate of candidates do
+        if remaining_comparisons <= 0 then
+          add_error(report, options, "unique_work_limit", path,
+            "array uniqueness collision budget exceeded");
+          return;
+        fi
+        remaining_comparisons = remaining_comparisons - 1;
         if value_deep_equal(candidate, item) then
           add_error(
             report,
@@ -1490,6 +1595,11 @@ fnc checked_value_tree_valid(Value root): bool {
     val Map<int, List<int>> buckets = new Map<int, List<int>>();
     let int entry_index = 0;
     for const entry of general_map.map_value do
+      // Bound the cost of every hash and candidate equality, not merely
+      // the number of hash-bucket comparisons.
+      if !equality_candidate_bounded(rt borrow entry.key) then
+        return false;
+      fi
       val int hash = value_hash(entry.key);
       if buckets.contains(hash) then
         val List<int> candidates = buckets.get(hash);
