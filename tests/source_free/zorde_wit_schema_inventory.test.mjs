@@ -30,7 +30,7 @@ test('original five-type authored schema passes the conservative WIT projection'
 test('rejects duplicate raw authored schema keys before last-wins JSON.parse', () => {
   for(const raw of [
     '{"$defs":{"x":1,"x":2}}',
-    String.raw`{"$defs":{"\\u0061":1,"a":2}}`,
+    String.raw`{"$defs":{"\u0061":1,"a":2}}`,
     '{"$defs":{"x":{"v":1,"v":2}}}',
     '{"x":1}{"x":2}',
   ]) {
