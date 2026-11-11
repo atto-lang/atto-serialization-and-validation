@@ -1365,12 +1365,19 @@ pub fnc max_checked_value_nodes(): int { return 65536; }
 pub fnc max_checked_value_depth(): int { return 64; }
 pub fnc max_checked_value_bytes(): int { return 16777216; }
 
+// Bounded semantic equality after hash collisions; this is a whole-checked-
+// operation budget shared across every general map in the Value graph.
+pub fnc max_checked_map_key_comparisons(): int { return 256; }
+
 // Iterative traversal avoids stack overflows on hostile nested arrays/maps.
 // A cycle or repeated shared subtree cannot cause unbounded work: the finite
 // node and depth budgets bound inspection, without relying on object identity.
 fnc checked_value_tree_valid(Value root): bool {
   val List<Value> pending = new List<Value>();
   val List<int> depths = new List<int>();
+  // Delay general-map key equality until after the entire graph has passed
+  // discriminant, byte, nesting, and numeric-lexeme validation.
+  val List<Value> general_maps = new List<Value>();
   pending.add(root);
   depths.add(0);
 
@@ -1433,11 +1440,15 @@ fnc checked_value_tree_valid(Value root): bool {
       if depth >= max_checked_value_depth() && value.object_value.length > 0 then
         return false;
       fi
+      let int remaining_object_key_bytes = max_schema_total_key_bytes();
       for const member of value.object_value do
         if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > remaining_object_key_bytes ||
            member.key.bytes.length > max_checked_value_bytes() - inspected_bytes then
           return false;
         fi
+        remaining_object_key_bytes =
+          remaining_object_key_bytes - member.key.bytes.length;
         inspected_bytes = inspected_bytes + member.key.bytes.length;
         if !utf8_is_valid(member.key.bytes) then return false; fi
         pending.add(member.value);
@@ -1459,6 +1470,7 @@ fnc checked_value_tree_valid(Value root): bool {
       if depth >= max_checked_value_depth() && value.map_value.length > 0 then
         return false;
       fi
+      general_maps.add(value);
       for const entry of value.map_value do
         pending.add(entry.key);
         depths.add(depth + 1);
@@ -1467,6 +1479,39 @@ fnc checked_value_tree_valid(Value root): bool {
       done
     fi
   done
+
+  // JSON objects already enforce unique text keys. A directly constructed
+  // general map (CBOR/MessagePack key domain) must obey the same strict
+  // duplicate-key policy; otherwise a checked result can contain two
+  // conflicting definitions of one semantic key. Use hash buckets plus
+  // semantic equality, never hash equality alone.
+  let int remaining_comparisons = max_checked_map_key_comparisons();
+  for const general_map of general_maps do
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    let int entry_index = 0;
+    for const entry of general_map.map_value do
+      val int hash = value_hash(entry.key);
+      if buckets.contains(hash) then
+        val List<int> candidates = buckets.get(hash);
+        for const candidate_index of candidates do
+          if remaining_comparisons <= 0 then return false; fi
+          remaining_comparisons = remaining_comparisons - 1;
+          if value_deep_equal(
+            general_map.map_value[candidate_index].key, entry.key
+          ) then
+            return false;
+          fi
+        done
+        candidates.add(entry_index);
+      else
+        val List<int> candidates = new List<int>();
+        candidates.add(entry_index);
+        buckets.set(hash, candidates);
+      fi
+      entry_index = entry_index + 1;
+    done
+  done
+
   return true;
 }
 
