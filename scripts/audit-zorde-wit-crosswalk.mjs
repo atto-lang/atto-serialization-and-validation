@@ -172,7 +172,7 @@ export function selftest(wit,schema) {
   // Test the byte-level schema-authority admission BEFORE JSON.parse can
   // collapse duplicate members and hide contradictory definitions.
   checkRejected(()=>parseAuthoredZordeSchema('{"$defs":{"x":1,"x":2}}'));
-  checkRejected(()=>parseAuthoredZordeSchema(String.raw`{"$defs":{"\\u0061":1,"a":2}}`));
+  checkRejected(()=>parseAuthoredZordeSchema(String.raw`{"$defs":{"\u0061":1,"a":2}}`));
   checkRejected(()=>parseAuthoredZordeSchema('{"x":1} {"x":2}'));
   checkRejected(()=>parseAuthoredZordeSchema('['.repeat(70)+'0'+']'.repeat(70)));
   const replace=(a,b)=> {
