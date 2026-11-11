@@ -80,6 +80,32 @@ compiler-minted with inaccessible constructors, no forged casts/subclasses,
 frozen/owned nested graph, schema digest/version/generation binding, and
 lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
 
+## Checked dynamic wire-graph preflight (experimental)
+
+Directly constructed `Value` trees bypass all JSON/CBOR/MessagePack decoder
+limits and well-formedness checks. Before returning `Ok(Value)`, the two
+dynamic checked validators now inspect the **entire active-kind graph** using
+an iterative, bounded queue: at most 65,536 visited nodes, at most 64 nested
+container edges, and at most 16,777,216 inspected payload/key bytes.
+Oversized or invalid trees return a payload-free `invalid_value_tree`
+`ValidationReport` and never return `Ok`.
+
+The walk checks wire kinds (0..8), numeric JSON lexemes, UTF-8 strings and
+object keys, **0..255 octets for raw binary and extension payloads**, duplicate
+object keys at every depth, child arrays, object values, and both map keys
+and values. It does **not** recursively apply an arbitrary
+object or element schema, authenticate an authoring authority or freeze the
+returned mutable `Value`. Higher-level typed schema validation and
+immutable compiler-minted `Valid<T, SchemaId>` remain separate release gates.
+The quota is deliberately enforced on the direct checked APIs, not claimed
+for all lower-level report-only validators or all decoder paths. A caller must
+not rely on report-only validation as an authoritative trust boundary.
+
+The preflight does not preserve/prove graph identity, schema freshness or
+alias stability. Revalidate on later trust boundaries until ownership and
+schema provenance are enforced by the compiler/loader. No native compiler
+test result is implied merely by the presence of guest-source regressions.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
@@ -188,8 +214,8 @@ schema fingerprint **never** mint compiler-authoritative
 `with` parsing, static implication and checked-constructor codegen,
 trusted schema-identity admission, generated decode-time dispatch, and
 Java/LLVM executable parity are still pending. The existing
-`validate_value_checked` / `ValidValue` path is an ordinary dynamic
-validation report wrapper, not a substitute for the reserved proof type.
+`validate_value_checked` API returns an ordinary dynamic `Value` after
+checking, not a substitute for the reserved proof type.
 Do not silently lower a refined `int` to plain `int` or route exact bounds
 through float-based `number_rule`; fail compilation instead until typed
 end-to-end lowering is verified.
