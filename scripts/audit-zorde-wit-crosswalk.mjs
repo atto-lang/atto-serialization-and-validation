@@ -65,7 +65,40 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
   exactSchemaKeys(jsonSchema,['$schema','$id','$defs'],'root');
   exactSchemaMetadata(jsonSchema,'https://oreslang.dev/schemas/zorde-validation-v1.schema.json');
   const defs=jsonSchema.$defs;
-  if(!defs || typeof defs!=='object') refuse('missing authored JSON Schema definitions');
+  // The JSON Schema is wider than the exported WIT validation interface:
+  // comparison types are legitimate authored schema-only declarations. Do
+  // not mistake that for permission to add unreviewed $defs or silently
+  // narrow comparison evidence. Admit exactly the five reviewed definitions.
+  exactSchemaKeys(defs,
+    ['ErrorCode','ComparisonStatus','ValidationIssue','ValidationReport','SchemaComparison'],
+    'authored $defs inventory');
+  exactSchemaKeys(defs.ComparisonStatus,
+    ['$schema','$id','type','enum'], 'ComparisonStatus');
+  exactSchemaMetadata(defs.ComparisonStatus,'ComparisonStatus');
+  if(defs.ComparisonStatus.type!=='string' ||
+     !matchesExactly(defs.ComparisonStatus.enum,['equivalent','different','refused']))
+    refuse('authored comparison status values changed');
+  exactSchemaKeys(defs.SchemaComparison,
+    ['$schema','$id','type','properties','required','unevaluatedProperties'],
+    'SchemaComparison');
+  exactSchemaMetadata(defs.SchemaComparison,'SchemaComparison');
+  exactSchemaFields(defs.SchemaComparison,
+    ['schemaVersion','status','authoredDigest','generatedDigest','mismatchPaths'],
+    ['schemaVersion','status','authoredDigest','generatedDigest','mismatchPaths']);
+  const comparison=defs.SchemaComparison.properties;
+  exactSchemaKeys(comparison.schemaVersion,['const'],'SchemaComparison.schemaVersion');
+  exactSchemaKeys(comparison.status,['$ref'],'SchemaComparison.status');
+  exactSchemaKeys(comparison.authoredDigest,['type'],'SchemaComparison.authoredDigest');
+  exactSchemaKeys(comparison.generatedDigest,['type'],'SchemaComparison.generatedDigest');
+  exactSchemaKeys(comparison.mismatchPaths,['type','items'],'SchemaComparison.mismatchPaths');
+  exactSchemaKeys(comparison.mismatchPaths.items,['type'],'SchemaComparison.mismatchPaths.items');
+  if(comparison.schemaVersion.const!==1 ||
+     comparison.status.$ref!=='ComparisonStatus' ||
+     comparison.authoredDigest.type!=='string' ||
+     comparison.generatedDigest.type!=='string' ||
+     comparison.mismatchPaths.type!=='array' ||
+     comparison.mismatchPaths.items.type!=='string')
+    refuse('authored comparison record type drift');
   exactSchemaKeys(defs.ErrorCode,['$schema','$id','type','enum'],'ErrorCode');
   exactSchemaMetadata(defs.ErrorCode,'ErrorCode');
   exactSchemaKeys(defs.ValidationIssue,
@@ -162,7 +195,37 @@ export function selftest(wit,schema) {
   mutateSchema(s=>{delete s.$schema;});
   mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.items.$dynamicRef='#next';});
   mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.format='uri';});
-  return 26; // one positive plus 25 adverse tests
+  // The earlier WIT projection silently ignored unreviewed schema types and
+  // could approve additional or narrower comparison evidence definitions.
+  mutateSchema(s=>{s.$defs.UnreviewedSecret={type:'string'};});
+  mutateSchema(s=>{delete s.$defs.ComparisonStatus;});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.enum.push('trusted');});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.enum[0]='different';});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.title='unreviewed';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.status.$ref='Injected';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.authoredDigest.maxLength=1;});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.generatedDigest.pattern='^x
+}
+
+if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
+  try{
+    const wit=readFileSync('wit/zorde-validation.wit','utf8');
+    const schema=JSON.parse(readFileSync('contracts/zorde/authored.schema.json','utf8'));
+    const checks=selftest(wit,schema);
+    console.log(JSON.stringify({status:'STATIC_WIT_CROSSWALK_MATCH',checks,
+      witSyntaxParsed:false,nativeGuestExecuted:false,
+      canonicalAbiImplemented:false,releaseReady:false}));
+  }catch(e){
+    console.error(e?.message||'ZORDE_WIT_STATIC_CROSSWALK_DENIED');
+    process.exitCode=1;
+  }
+}
+;});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.mismatchPaths.items.format='email';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.unevaluatedProperties=true;});
+  mutateSchema(s=>{s.$defs.SchemaComparison.required.pop();});
+  mutateSchema(s=>{delete s.$defs.SchemaComparison;});
+  return 38; // original 26 plus twelve new adverse tests
 }
 
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
