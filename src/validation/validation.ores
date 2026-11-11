@@ -239,6 +239,18 @@ pub fnc object_schema(
     return refused_object_schema(reject_unknown_fields);
   fi
 
+  // Bound the aggregate *before* copying anything. Per-key limits alone
+  // permit 4096 x 65536 bytes of schema metadata. Check with subtraction,
+  // never with a potentially overflowing accumulated byte count.
+  let int remaining_key_bytes = max_schema_total_key_bytes();
+  for const field of fields do
+    if field.key.bytes.length > max_schema_key_bytes() ||
+       field.key.bytes.length > remaining_key_bytes then
+      return refused_object_schema(reject_unknown_fields);
+    fi
+    remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
+  done
+
   val List<FieldRule> snapshot = new List<FieldRule>();
   for const field of fields do
     // Bound allocation before copying a potentially attacker-sized key.
@@ -367,6 +379,12 @@ pub fnc max_schema_key_bytes(): int {
   return 65536;
 }
 
+// One MiB across all schema field keys, independent of the per-key ceiling.
+// Also applies to directly constructed schemas and input objects.
+pub fnc max_schema_total_key_bytes(): int {
+  return 1048576;
+}
+
 fnc object_schema_valid(ObjectSchema schema): bool {
   if schema.fields.length > max_schema_fields() then
     return false;
@@ -374,6 +392,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
 
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
+  let int remaining_key_bytes = max_schema_total_key_bytes();
 
   loop do
     if i >= schema.fields.length then
@@ -383,9 +402,11 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     let FieldRule field = schema.fields[i];
 
     if field.key.bytes.length > max_schema_key_bytes() ||
+       field.key.bytes.length > remaining_key_bytes ||
        !utf8_is_valid(field.key.bytes) then
       return false;
     fi
+    remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
 
     if field.required && field.forbidden then
       return false;
@@ -1222,15 +1243,20 @@ pub fnc validate_object(
     return report;
   fi
 
-  // Do not permit malformed bytes in object keys, even when unknown fields
-  // are allowed. Unknown-schema keys would otherwise evade field rules.
+  // Enforce both per-key and aggregate key-byte budgets for direct Values.
+  // Checking only individual keys allows a 4096-field object to carry
+  // hundreds of MiB in keys before the collision check or schema lookup.
+  let int remaining_input_key_bytes = max_schema_total_key_bytes();
   for const member of value.object_value do
     if member.key.bytes.length > max_schema_key_bytes() ||
+       member.key.bytes.length > remaining_input_key_bytes ||
        !utf8_is_valid(member.key.bytes) then
       add_error(report, options, "invalid_object_key", new List<PathSegment>(),
-        "input object key is oversized or is not valid UTF-8");
+        "input object keys exceed size limits or contain invalid UTF-8");
       return report;
     fi
+    remaining_input_key_bytes =
+      remaining_input_key_bytes - member.key.bytes.length;
   done
 
   if !object_keys_unique(value) then
