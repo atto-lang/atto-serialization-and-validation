@@ -439,6 +439,64 @@ pub fnc run_validation_tests(): void {
   require_true(!report_is_valid(rt borrow refused_snapshot_report),
     "oversized key must not be converted into a permissive empty schema");
 
+  // An exact 1 MiB aggregate of distinct, legal 64 KiB keys is
+  // admissible; the 17th key must be refused *before* schema cloning.
+  // These keys differ in their first ASCII byte to rule out an accidental
+  // duplicate-key rejection masking the aggregate-budget gate.
+  val List<FieldRule> aggregate_budget_fields = new List<FieldRule>();
+  val List<WireMember> aggregate_input_members = new List<WireMember>();
+  let int aggregate_index = 0;
+  loop do
+    if aggregate_index >= 17 then break; fi
+    if aggregate_index == 16 then
+      val ObjectSchema exact_budget_schema =
+        object_schema(aggregate_budget_fields, false);
+      val ValidationReport exact_budget_report = validate_object(
+        value_object(new List<WireMember>()),
+        rt borrow exact_budget_schema, default_validation_options()
+      );
+      require_true(report_is_valid(rt borrow exact_budget_report),
+        "aggregate key limit must admit exactly 1 MiB of legal keys");
+    fi
+    val List<int> aggregate_key_bytes = new List<int>();
+    aggregate_key_bytes.add(65 + aggregate_index);
+    let int aggregate_byte_index = 1;
+    loop do
+      if aggregate_byte_index >= 65536 then break; fi
+      aggregate_key_bytes.add(97);
+      aggregate_byte_index = aggregate_byte_index + 1;
+    done
+    val Utf8Text aggregate_key = new Utf8Text(aggregate_key_bytes);
+    aggregate_budget_fields.add(field_rule(
+      aggregate_key, false, false, any_rule()
+    ));
+    aggregate_input_members.add(new WireMember(
+      aggregate_key, value_int(1)
+    ));
+    aggregate_index = aggregate_index + 1;
+  done
+
+  val ObjectSchema aggregate_builder_refusal =
+    object_schema(aggregate_budget_fields, false);
+  require_true(!report_is_valid(validate_object(
+    value_object(new List<WireMember>()),
+    rt borrow aggregate_builder_refusal, default_validation_options()
+  )), "schema builder must refuse aggregate key bytes above 1 MiB");
+
+  // A caller can bypass object_schema() using the public constructor:
+  // the object validator must independently enforce the same quota.
+  val ObjectSchema directly_constructed_schema =
+    new ObjectSchema(aggregate_budget_fields, false);
+  require_true(!report_is_valid(validate_object(
+    value_object(new List<WireMember>()),
+    rt borrow directly_constructed_schema, default_validation_options()
+  )), "direct schema construction must not bypass aggregate key budget");
+
+  require_true(!report_is_valid(validate_object(
+    value_object(aggregate_input_members), rt borrow open_schema,
+    default_validation_options()
+  )), "direct object Value must refuse aggregate input keys above 1 MiB");
+
   // Checked dynamic APIs return plain Value, never authoritative proof.
   val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
     value_string(new Utf8Text(new List<int>(111, 107))),
