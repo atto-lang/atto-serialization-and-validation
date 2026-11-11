@@ -936,6 +936,13 @@ fnc validate_rule_at(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  // Any-kind rules must not admit a caller-forged discriminant. A malformed
+  // Value is not a valid wire value even when no schema field is constrained.
+  if value.kind < 0 || value.kind > 8 then
+    add_error(report, options, "invalid_value_kind", path,
+      "value has an unsupported wire kind");
+    return;
+  fi
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
@@ -1323,11 +1330,131 @@ pub fnc report_is_valid(ValidationReport report): bool {
 }
 
 
+// These are *dynamic checked-API* work limits, not nominal typestate proof
+// limits. Caller-built Value trees can bypass all wire decoders, including
+// decoder depth and size settings. A bounded preflight is therefore required
+// before any checked API returns Ok(value). It examines only active-kind
+// payloads; the returned Value remains mutable and is never Valid<T>.
+pub fnc max_checked_value_nodes(): int { return 65536; }
+pub fnc max_checked_value_depth(): int { return 64; }
+pub fnc max_checked_value_bytes(): int { return 16777216; }
+
+// Iterative traversal avoids stack overflows on hostile nested arrays/maps.
+// A cycle or repeated shared subtree cannot cause unbounded work: the finite
+// node and depth budgets bound inspection, without relying on object identity.
+fnc checked_value_tree_valid(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+
+  let int cursor = 0;
+  let int inspected_bytes = 0;
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+
+    if value.kind < 0 || value.kind > 8 then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.number_lexeme.length;
+      if !number_lexeme_valid(rt borrow value) then return false; fi
+    fi
+
+    if value.kind == 3 then
+      if value.string_value.bytes.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.string_value.bytes.length;
+      if !utf8_is_valid(value.string_value.bytes) then return false; fi
+    fi
+
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.bytes_value.length;
+      // The public Value constructor accepts List<int>, not a byte-specific
+      // type. Never allow out-of-octet numbers in raw bytes/extensions.
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.array_value.length > 0 then
+        return false;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+
+    if value.kind == 6 then
+      if value.object_value.length > max_schema_fields() ||
+         value.object_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.object_value.length > 0 then
+        return false;
+      fi
+      for const member of value.object_value do
+        if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > max_checked_value_bytes() - inspected_bytes then
+          return false;
+        fi
+        inspected_bytes = inspected_bytes + member.key.bytes.length;
+        if !utf8_is_valid(member.key.bytes) then return false; fi
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+      if !object_keys_unique(rt borrow value) then return false; fi
+    fi
+
+    if value.kind == 8 then
+      // Keep arithmetic integer-exact: in Oreslang '/' is real division,
+      // and a hostile length must never overflow the remaining node budget.
+      if value.map_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if value.map_value.length >
+         max_checked_value_nodes() - pending.length - value.map_value.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.map_value.length > 0 then
+        return false;
+      fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+  return true;
+}
+
 pub fnc validate_value_checked(
   Value value,
   ValueRule rule,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"
+    ));
+  fi
   let ValidationReport report = validate_value(value, rule, options);
   if report_is_valid(report) then
     return Ok(value);
@@ -1340,6 +1467,12 @@ pub fnc validate_object_checked(
   ObjectSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"
+    ));
+  fi
   let ValidationReport report = validate_object(value, schema, options);
   if report_is_valid(report) then
     return Ok(value);
