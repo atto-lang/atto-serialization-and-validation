@@ -174,6 +174,17 @@ pub fnc run_validation_tests(): void {
   require_true(allowed_long_equal.completed && allowed_long_equal.equal,
     "identical strings must pass with sufficient shared operation fuel");
 
+  // The budget belongs to the whole operation, not to each element.
+  // A second independent hash must see the remaining fuel from the first.
+  let ValueWorkFuel shared_fuel = new ValueWorkFuel(3);
+  val ValueHashAttempt first_hash = value_hash_with_fuel(
+    value_int(1), shared_fuel);
+  val ValueHashAttempt second_hash = value_hash_with_fuel(
+    value_int(2), shared_fuel);
+  require_true(first_hash.completed && !second_hash.completed &&
+    shared_fuel.remaining == 0,
+    "metered hashing must share its exhausted budget across calls");
+
   let ValueWorkFuel negative_fuel = new ValueWorkFuel(-1);
   require_true(!value_hash_with_fuel(
     value_int(1), negative_fuel
