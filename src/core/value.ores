@@ -688,12 +688,13 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     if key.kind != 3 then
       return Err("string-key object requires a UTF-8 string key");
     fi
-    return object_get(container, key.string_value);
+    // Lookups inspect the container and key; neither is transferred.
+    return object_get(rt borrow container, rt borrow key.string_value);
   fi
 
   if container.kind == 8 then
     for const entry of container.map_value do
-      if value_deep_equal(entry.key, key) then
+      if value_deep_equal(rt borrow entry.key, rt borrow key) then
         return Ok(entry.value);
       fi
     done
@@ -701,7 +702,7 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
   fi
 
   if container.kind == 5 then
-    let IntParse index = parse_int(key);
+    let IntParse index = parse_int(rt borrow key);
     if !index.ok || index.value < 0 ||
        index.value >= container.array_value.length then
       return Err("array index must be an in-bounds integer");
