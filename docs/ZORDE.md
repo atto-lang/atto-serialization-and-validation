@@ -157,8 +157,11 @@ preflight and bounded uniqueness-work checks described in
 active data, 4,096 unique-array members, 16,384 outer candidates, and
 1,000,000 conservatively estimated uniqueness structural-work units.
 Additional bounded schema-key comparison and lookup budgets fail closed.
-These are work admission limits, **not** `Valid<T>` provenance, a guaranteed
-instruction quota, or a replacement for actor isolation and cancellation.
+In addition, the `unique_items` path uses shared operation-local
+`ValueWorkFuel` for each recursive hash, byte and deep-equality candidate;
+exhaustion returns a distinct failed attempt and a validation error. These
+are bounded native work units, **not** `Valid<T>` provenance, a guaranteed
+CPU-time quota, or a replacement for actor isolation and cancellation.
 
 ## Current native facade
 
