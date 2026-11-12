@@ -752,6 +752,37 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   )), "unique_items refuses oversized individual deep-hash candidates");
 
+  // Public Value factories allow arbitrary integers as extension types,
+  // but the wire format has only a signed int8 extension-type domain.
+  // Neither report-only nor checked validation may admit unencodable types.
+  require_true(validate_value_checked(
+    value_extension(-129, new List<int>(0)),
+    any_rule(), default_validation_options()
+  ).is_err(), "checked extension rejects type below signed byte");
+  require_true(validate_value_checked(
+    value_extension(128, new List<int>(0)),
+    any_rule(), default_validation_options()
+  ).is_err(), "checked extension rejects type above signed byte");
+  require_true(!report_is_valid(validate_value(
+    value_extension(128, new List<int>(0)),
+    any_rule(), default_validation_options()
+  )), "report-only extension refuses out-of-range type");
+  require_true(!validate_value_checked(
+    value_extension(-128, new List<int>(0)),
+    any_rule(), default_validation_options()
+  ).is_err(), "checked extension admits -128 boundary");
+  require_true(!validate_value_checked(
+    value_extension(127, new List<int>(255)),
+    any_rule(), default_validation_options()
+  ).is_err(), "checked extension admits 127 boundary");
+
+  val List<Value> invalid_extension_type_nested = new List<Value>();
+  invalid_extension_type_nested.add(value_extension(128, new List<int>(0)));
+  require_true(validate_value_checked(
+    value_array(invalid_extension_type_nested), any_rule(),
+    default_validation_options()
+  ).is_err(), "nested extension type cannot bypass checked preflight");
+
   // A 64-level nested tree is admitted, one extra level must fail before
   // stack exhaustion. Native compiler execution is still required.
   let Value at_depth_limit = value_int(7);
