@@ -919,10 +919,10 @@ fnc unique_value_work_cost(Value root): int {
     if value.kind == 2 then
       work = unique_work_add(work,
         unique_work_product(weight, value.number_lexeme.length));
-    elif value.kind == 3 then
+    elseif value.kind == 3 then
       work = unique_work_add(work,
         unique_work_product(weight, value.string_value.bytes.length));
-    elif value.kind == 4 || value.kind == 7 then
+    elseif value.kind == 4 || value.kind == 7 then
       work = unique_work_add(work,
         unique_work_product(weight, value.bytes_value.length));
     fi
