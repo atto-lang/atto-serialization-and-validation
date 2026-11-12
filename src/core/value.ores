@@ -829,7 +829,12 @@ fnc value_equal_fuel_depth(
       return new ValueEqualAttempt(true, false);
     fi
     val List<bool> used = new List<bool>();
-    for const member of right.object_value do used.add(false); done
+    for const member of right.object_value do
+      if !value_fuel_charge(fuel, 1) then
+        return new ValueEqualAttempt(false, false);
+      fi
+      used.add(false);
+    done
     for const a of left.object_value do
       let bool matched = false;
       let int index = 0;
@@ -866,7 +871,12 @@ fnc value_equal_fuel_depth(
       return new ValueEqualAttempt(true, false);
     fi
     val List<bool> used = new List<bool>();
-    for const entry of right.map_value do used.add(false); done
+    for const entry of right.map_value do
+      if !value_fuel_charge(fuel, 1) then
+        return new ValueEqualAttempt(false, false);
+      fi
+      used.add(false);
+    done
     for const a of left.map_value do
       let bool matched = false;
       let int index = 0;
