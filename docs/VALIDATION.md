@@ -132,24 +132,51 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
 
-## Unique-array validation work limits
+## Unified dynamic Value graph and uniqueness budgets
 
-For an array schema with `unique_items=true`, the native dynamic validator
-rejects more than **4,096 elements** even if `max_items` is unspecified.
-The uniqueness algorithm also rejects after **16,384 attempted hash-bucket
-candidate comparisons**, charging each candidate before deep equality.
-These are fail-closed `unique_items_limit` and
-`unique_items_complexity_limit` diagnostics, not silent partial acceptance.
-`ValidationOptions.max_errors=0` still sets `truncated=true` so it
-cannot turn a refusal into an empty success report.
+All dynamic validation entrypoints (`validate_value`, `validate_object`,
+and their checked `Result` counterparts) perform **one source-level bounded
+graph preflight before rule evaluation**, even for `any_rule()`, open objects,
+and arrays with no declared `max_items`. This is a runtime-input guard, not a
+compiler-issued proof of `Valid<T, SchemaId>`.
 
-These limits bound array cardinality and collision-comparison *count* only.
-They do **not** bound the bytes or nested structural work within a single
-element's hash/equality operation. Deep Value graph preflight and an overall
-byte/node/fuel budget are separate release gates; direct report-only APIs
-must not be treated as security-authoritative or actor-isolation proofs.
-Use explicit decode/schema resource limits and the planned compiled
-checked path for hostile payload admission.
+The graph walk is iterative, permits **65,536 visited Value nodes**, up to
+**64 nested container edges**, and at most **16 MiB aggregate active
+payload/key bytes**. It rejects unknown `Value.kind`, noncanonical JSON
+number lexemes, malformed UTF-8 strings or keys, out-of-octet binary or
+extension payloads, duplicate nested object keys, and over-budget trees.
+Shared subgraphs count on each traversal, so aliases do not exempt work from
+the budget. Refusal returns an `invalid_value_tree` report; neither a
+report-only call nor a checked call returns success on a malformed graph.
+
+Object schema admission additionally caps aggregate schema-key bytes at
+16 MiB. Schema collision checks, nested object duplicate-key checks, and
+object field lookups each have a **16,384 candidate / 1 MiB compared-byte**
+budget for their respective operation. A lookup work refusal is
+`schema_lookup_work_limit`; it cannot be treated as an absent optional
+field. A schema admission failure remains `invalid_schema`.
+
+For a `unique_items=true` array the validator additionally enforces:
+
+- at most **4,096 elements**, including when schema `max_items` is unset;
+- at most **16,384 outer hash-bucket candidate comparisons**;
+- **1,000,000 estimated structural-work units** across item hashing and
+  equality, charged *before* each operation, including active bytes, nodes,
+  and pessimistic multipliers for nested object/map collision scans.
+
+Failures are `unique_items_limit`, `unique_items_complexity_limit`,
+or `unique_items_work_limit`, respectively. If
+`ValidationOptions.max_errors=0`, `report.truncated=true` still makes
+`report_is_valid` false. Errors never retain untrusted payload values.
+
+**Boundaries:** these are conservative admission/fuel estimates, not actual
+instruction-count, CPU, memory or cancellation enforcement. The native
+`value_hash`/`value_deep_equal` routines are not instrumented at each
+recursive operation, and runtime/compiler/actor stack quotas remain separate.
+No proof of arbitrary sharing, cycles, TOCTOU freedom, compiler parity,
+schema authority or immutable validated typestate follows from these guards.
+They require compiled guest tests before release, including worst-case
+collision mutants and exact backend evidence.
 
 ## Oreslang `with` numeric refinement integration (staged exact-int kernel)
 
