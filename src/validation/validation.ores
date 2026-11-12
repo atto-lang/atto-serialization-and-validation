@@ -3,8 +3,8 @@
 // Generated typed validators can lower annotations/contracts into the same rule
 // records so standalone validation and decode-time validation share semantics.
 
-import class Value, Utf8Text, WireMember from '../core/value';
-import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
+import class Value, Utf8Text, WireMember, ValueWorkFuel, ValueHashAttempt, ValueEqualAttempt from '../core/value';
+import fnc bytes_equal, text_equal, text_hash, value_hash_with_fuel, value_deep_equal_with_fuel from '../core/value';
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
@@ -989,6 +989,10 @@ fnc validate_unique(
   val Map<int, List<int>> costs = new Map<int, List<int>>();
   let int candidate_checks = 0;
   let int spent_work = 0;
+  // One caller-owned meter spans every hash and equality in this admission.
+  // Conservative structural estimates remain an additional defense-in-depth
+  // limit; actual metered operations fail closed on fuel exhaustion.
+  let ValueWorkFuel fuel = new ValueWorkFuel(max_unique_validation_work());
 
   for const item of value.array_value do
     // Charge the entire expanded item BEFORE hashing it.
@@ -1000,7 +1004,14 @@ fnc validate_unique(
       return;
     fi
 
-    let int hash = value_hash(item);
+    val ValueHashAttempt hash_attempt = value_hash_with_fuel(
+      rt borrow item, fuel);
+    if !hash_attempt.completed then
+      add_error(report, options, "unique_items_work_limit", path,
+        "metered Value hashing exhausted the operation work budget");
+      return;
+    fi
+    val int hash = hash_attempt.hash;
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
       val List<int> candidate_costs = costs.get(hash);
@@ -1024,7 +1035,14 @@ fnc validate_unique(
           return;
         fi
 
-        if value_deep_equal(candidate, item) then
+        val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(
+          rt borrow candidate, rt borrow item, fuel);
+        if !equal_attempt.completed then
+          add_error(report, options, "unique_items_work_limit", path,
+            "metered Value comparison exhausted the operation work budget");
+          return;
+        fi
+        if equal_attempt.equal then
           add_error(report, options, "unique_items", path,
             "array contains duplicate values");
           return;
