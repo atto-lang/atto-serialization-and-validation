@@ -276,3 +276,37 @@ The validator does not mint typed `Valid<T,S>`, dispatch automatically from
 guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
+
+## Exact-head source-local test and release evidence (PR #75)
+
+The `static-audit` workflow checks out `github.event.pull_request.head.sha`
+on pull requests rather than testing only GitHub's synthetic merge commit.
+It verifies `git rev-parse HEAD`, records the source commit/tree in the
+workflow summary, and requires `cargo fmt --all -- --check`, strict
+`cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`
+and the Rust `audit` executable. These are **Rust source/audit gates**,
+not native AttoLang guest/compiler proof.
+
+For source-local compiler proof, `runner.yml` still requires a protected
+`zorde-source-local-trusted` environment, an approved ephemeral runner and
+administrator-supplied exact source SHA, root Git tree, compiler path and
+compiler SHA-256. The approved native suite runs first with the existing
+privacy-preserving receipt script. The same job then invokes offline Cargo
+formatting, strict Clippy, source-contract tests and audit, with Cargo build
+output placed outside the checkout.
+
+**Unresolved dependency provenance:** The repository does not currently
+commit `Cargo.lock`. Offline Cargo requires an independently provisioned,
+approved local dependency cache and may fail when it is absent. Until a lock
+file and complete transitive Rust/compiler dependency identities are reviewed
+and approved, an executed Cargo job is useful test evidence but does not
+establish a reproducible release artifact. Do not fetch unreviewed packages
+from the network on the private source-local runner to bypass this gate.
+
+**Admission is not execution:** Jobs with `steps=null`, skipped native jobs,
+a checked-in test file or source-only structural assertions are never a
+successful Rust, Java or LLVM test receipt. Keep PR #75 draft until exact-head
+native tests execute, negative controls pass, provenance is reviewed and an
+independent reviewer approves. No private source is to be copied to another
+organization without authorization.
+
