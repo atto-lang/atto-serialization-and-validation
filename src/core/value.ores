@@ -691,10 +691,17 @@ fnc value_hash_fuel_depth(
   int depth,
   ValueWorkFuel mut fuel
 ): ValueHashAttempt {
-  if depth > 64 || !value_fuel_charge(fuel, 1) then
+  // A structural refusal consumes the caller-owned budget just like an
+  // exhausted attempt. An incomplete result must not leave reusable fuel.
+  if depth > 64 then
+    fuel.remaining = 0;
+    return new ValueHashAttempt(false, 0);
+  fi
+  if !value_fuel_charge(fuel, 1) then
     return new ValueHashAttempt(false, 0);
   fi
   if value.kind < 0 || value.kind > 8 then
+    fuel.remaining = 0;
     return new ValueHashAttempt(false, 0);
   fi
   let int hash = hash_mix(1469598103934665603, value.kind);
@@ -760,6 +767,7 @@ fnc value_hash_fuel_depth(
     hash = hash_mix(hash, aggregate_sum);
     return new ValueHashAttempt(true, hash_mix(hash, value.map_value.length));
   fi
+  fuel.remaining = 0;
   return new ValueHashAttempt(false, 0);
 }
 
@@ -778,11 +786,16 @@ fnc value_equal_fuel_depth(
   int depth,
   ValueWorkFuel mut fuel
 ): ValueEqualAttempt {
-  if depth > 64 || !value_fuel_charge(fuel, 1) then
+  if depth > 64 then
+    fuel.remaining = 0;
+    return new ValueEqualAttempt(false, false);
+  fi
+  if !value_fuel_charge(fuel, 1) then
     return new ValueEqualAttempt(false, false);
   fi
   if left.kind < 0 || left.kind > 8 ||
      right.kind < 0 || right.kind > 8 then
+    fuel.remaining = 0;
     return new ValueEqualAttempt(false, false);
   fi
   if left.kind != right.kind then
@@ -907,6 +920,7 @@ fnc value_equal_fuel_depth(
     done
     return new ValueEqualAttempt(true, true);
   fi
+  fuel.remaining = 0;
   return new ValueEqualAttempt(false, false);
 }
 
