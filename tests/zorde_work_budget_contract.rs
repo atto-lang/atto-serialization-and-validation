@@ -133,3 +133,80 @@ fn budget_math_rejects_overflow_and_never_recovers_denial() {
     assert_eq!(add(1_000_000, 1), None);
     assert_eq!(add(-1, 1), None);
 }
+
+#[test]
+fn metered_value_hash_and_equality_have_tristate_exhaustion() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/core/value.ores");
+    let src = fs::read_to_string(path).expect("metered Value core is present");
+    let hash = section(
+        &src,
+        "fnc value_hash_fuel_depth(",
+        "pub fnc value_hash_with_fuel(",
+    );
+    let equal = section(
+        &src,
+        "fnc value_equal_fuel_depth(",
+        "pub fnc value_deep_equal_with_fuel(",
+    );
+    assert!(src.contains("pub define class ValueWorkFuel as"));
+    assert!(src.contains("pub define class ValueHashAttempt as"));
+    assert!(src.contains("pub define class ValueEqualAttempt as"));
+    assert!(src.contains("pub fnc value_hash_with_fuel("));
+    assert!(src.contains("pub fnc value_deep_equal_with_fuel("));
+    assert!(hash.contains("!value_fuel_charge(fuel, 1)"));
+    assert!(equal.contains("!value_fuel_charge(fuel, 1)"));
+    assert!(!equal.contains("if left == right then"),
+        "identity short-circuit must not evade budget");
+}
+
+#[test]
+fn every_byte_and_container_candidate_is_charged() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("src/core/value.ores");
+    let src = fs::read_to_string(path).expect("metered Value core is present");
+    let bh = section(&src, "fnc fuel_hash_bytes(", "fnc fuel_equal_bytes(");
+    let be = section(&src, "fnc fuel_equal_bytes(", "fnc value_hash_fuel_depth(");
+    let eq = section(&src, "fnc value_equal_fuel_depth(", "pub fnc value_deep_equal_with_fuel(");
+    before(bh, "value_fuel_charge(fuel, 1)", "hash = hash_mix(hash, byte)");
+    before(be, "value_fuel_charge(fuel, 1)", "if left[i] != right[i]");
+    assert!(eq.contains("if !used[index] then"));
+    assert!(eq.contains("if !value_fuel_charge(fuel, 1) then"));
+    assert!(eq.matches("used.add(false);").count() == 2);
+}
+
+#[test]
+fn validator_refuses_unfinished_hash_and_equality() {
+    let src = validator();
+    let body = section(&src, "fnc validate_unique(", "fnc validate_rule_at(");
+    before(body, "val ValueHashAttempt hash_attempt = value_hash_with_fuel(",
+        "val int hash = hash_attempt.hash;");
+    before(body, "if !hash_attempt.completed then",
+        "val int hash = hash_attempt.hash;");
+    before(body, "if !equal_attempt.completed then",
+        "if equal_attempt.equal then");
+    assert!(body.contains(
+        "let ValueWorkFuel fuel = new ValueWorkFuel(max_unique_validation_work())"
+    ));
+    assert!(!body.contains("value_hash(item)"));
+    assert!(!body.contains("value_deep_equal(candidate, item)"));
+    assert!(body.contains("\"unique_items_work_limit\""));
+}
+
+#[test]
+fn native_guest_source_covers_metered_fuel_and_equivalence() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/validation_test.ores");
+    let src = fs::read_to_string(path).expect("Zorde guest source is present");
+    for check in [
+        "zero fuel cannot return a successful object hash",
+        "metered hash must match canonical unordered object hash",
+        "metered arbitrary-map equality must be order-insensitive",
+        "string hashing must stop as soon as byte fuel is exhausted",
+        "identical aliased strings must not bypass metered byte comparisons",
+        "metered hashing must share its exhausted budget across calls",
+        "negative fuel must fail closed",
+    ] {
+        assert!(src.contains(check), "missing native negative case: {check}");
+    }
+}
