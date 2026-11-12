@@ -217,6 +217,8 @@ fn native_guest_source_covers_metered_fuel_and_equivalence() {
         "metered Value hash accepts exactly 64 nested levels",
         "metered Value hash rejects 65 nested levels",
         "metered equality rejects even same-reference deep graphs",
+        "metered one-digit hash must match pinned wrapping reference",
+        "metered two-digit hash must match pinned wrapping reference",
     ] {
         assert!(src.contains(check), "missing native negative case: {check}");
     }
@@ -318,4 +320,63 @@ fn rust_audit_dependency_lock_has_complete_checked_registry_closure() {
             "registry checksum mismatch: {name}");
     }
     assert!(lock.contains("name = \"oreslang-serialization-audit\"\nversion = \"0.1.0\""));
+}
+
+
+#[test]
+fn independent_numeric_hash_oracle_requires_byte_fuel_and_wrapping_parity() {
+    // Executable Rust reference for the documented 64-bit Value hash mix.
+    // Unlike source-contract text assertions, this calculates real hashes;
+    // it is not a substitute for actual AttoLang guest compiler execution.
+    const SEED: i64 = 1_469_598_103_934_665_603;
+    const PRIME: i64 = 1_099_511_628_211;
+
+    fn charge_one(remaining: &mut i64) -> bool {
+        if *remaining <= 0 {
+            *remaining = 0;
+            return false;
+        }
+        *remaining -= 1;
+        true
+    }
+    fn mix(hash: i64, value: i64) -> i64 {
+        hash.wrapping_mul(PRIME) ^ value
+    }
+    fn hash_number_lexeme(lexeme: &[u8], remaining: &mut i64) -> Option<i64> {
+        if !charge_one(remaining) {
+            return None;
+        }
+        let mut bytes_hash = SEED;
+        for &byte in lexeme {
+            if !charge_one(remaining) {
+                return None;
+            }
+            bytes_hash = mix(bytes_hash, i64::from(byte));
+        }
+        Some(mix(mix(SEED, 2), bytes_hash))
+    }
+
+    let mut one_short = 1;
+    assert_eq!(hash_number_lexeme(b"1", &mut one_short), None);
+    assert_eq!(one_short, 0, "fuel must not recover after denial");
+
+    let mut one_exact = 2;
+    assert_eq!(hash_number_lexeme(b"1", &mut one_exact),
+        Some(-2_390_216_418_910_778_423));
+    assert_eq!(one_exact, 0);
+
+    let mut two_exact = 3;
+    assert_eq!(hash_number_lexeme(b"12", &mut two_exact),
+        Some(60_473_139_555_883));
+    assert_eq!(two_exact, 0);
+
+    let mut shared = 3;
+    assert!(hash_number_lexeme(b"1", &mut shared).is_some());
+    assert_eq!(shared, 1);
+    assert_eq!(hash_number_lexeme(b"2", &mut shared), None);
+    assert_eq!(shared, 0);
+
+    let mut negative = -5;
+    assert_eq!(hash_number_lexeme(b"1", &mut negative), None);
+    assert_eq!(negative, 0);
 }
