@@ -185,6 +185,20 @@ pub fnc run_validation_tests(): void {
     shared_fuel.remaining == 0,
     "metered hashing must share its exhausted budget across calls");
 
+  // Exact fuel boundary for a single-digit canonical numeric value:
+  // one node visit plus one lexical octet = two metered charges.
+  let ValueWorkFuel one_unit_hash_fuel = new ValueWorkFuel(1);
+  require_true(!value_hash_with_fuel(
+    value_int(1), one_unit_hash_fuel
+  ).completed && one_unit_hash_fuel.remaining == 0,
+    "numeric hash must reject one unit below its exact budget");
+  let ValueWorkFuel exact_hash_fuel = new ValueWorkFuel(2);
+  val ValueHashAttempt exact_numeric_hash = value_hash_with_fuel(
+    value_int(1), exact_hash_fuel);
+  require_true(exact_numeric_hash.completed &&
+    exact_hash_fuel.remaining == 0,
+    "numeric hash must accept exactly its two-unit budget");
+
   let ValueWorkFuel negative_fuel = new ValueWorkFuel(-1);
   require_true(!value_hash_with_fuel(
     value_int(1), negative_fuel
@@ -683,10 +697,25 @@ pub fnc run_validation_tests(): void {
   require_true(!validate_value_checked(
     rt borrow at_depth_limit, any_rule(), default_validation_options()
   ).is_err(), "checked dynamic tree accepts its inclusive depth boundary");
+  // The metered hash/equality helpers themselves must respect the same
+  // inclusive depth contract even without a preceding schema validator.
+  let ValueWorkFuel depth_ok_fuel = new ValueWorkFuel(1024);
+  require_true(value_hash_with_fuel(
+    rt borrow at_depth_limit, depth_ok_fuel
+  ).completed, "metered Value hash accepts exactly 64 nested levels");
   val List<Value> extra_depth = new List<Value>();
   extra_depth.add(at_depth_limit);
+  val Value beyond_depth_limit = value_array(extra_depth);
+  let ValueWorkFuel depth_denied_fuel = new ValueWorkFuel(1024);
+  require_true(!value_hash_with_fuel(
+    rt borrow beyond_depth_limit, depth_denied_fuel
+  ).completed, "metered Value hash rejects 65 nested levels");
+  let ValueWorkFuel equal_depth_fuel = new ValueWorkFuel(1024);
+  require_true(!value_deep_equal_with_fuel(
+    rt borrow beyond_depth_limit, rt borrow beyond_depth_limit, equal_depth_fuel
+  ).completed, "metered equality rejects even same-reference deep graphs");
   require_true(validate_value_checked(
-    value_array(extra_depth), any_rule(), default_validation_options()
+    beyond_depth_limit, any_rule(), default_validation_options()
   ).is_err(), "checked dynamic tree rejects 65 nested array levels");
 
   val List<Value> canonical_nested_items = new List<Value>();
