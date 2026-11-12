@@ -116,7 +116,8 @@ jobs:
       # organization cannot admit any runners. Keep Cargo's build artifacts
       # outside the verified source checkout and forbid network dependency
       # fetches from this confidentiality-controlled runner. This is still
-      # NOT a reproducible dependency receipt until Cargo.lock is reviewed.
+      # NOT a reproducible dependency receipt until Cargo.lock and registry
+      # artifacts are independently checked and the cache is reviewed.
       - name: Execute Rust format, strict Clippy, source-contract tests and audit
         shell: bash
         env:
@@ -127,10 +128,12 @@ jobs:
           umask 077
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           command -v cargo >/dev/null
+          test -f Cargo.lock
+          sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
           cargo fmt --all -- --check
-          cargo clippy --all-targets --offline -- -D warnings
-          cargo test --all-targets --offline
-          cargo run --offline --quiet --bin audit
+          cargo clippy --locked --all-targets --offline -- -D warnings
+          cargo test --locked --all-targets --offline
+          cargo run --locked --offline --quiet --bin audit
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           test -z "$(git diff --name-only)"
           test -z "$(git diff --cached --name-only)"
