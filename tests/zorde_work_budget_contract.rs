@@ -221,3 +221,55 @@ fn native_guest_source_covers_metered_fuel_and_equivalence() {
         assert!(src.contains(check), "missing native negative case: {check}");
     }
 }
+
+#[test]
+fn static_audit_verifies_exact_pr_head_and_rust_gates() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".github/workflows/static-audit.yml");
+    let src = fs::read_to_string(path).expect("static-audit workflow is present");
+    assert!(src.contains("ref: ${{ github.event.pull_request.head.sha || github.sha }}"));
+    assert!(src.contains("persist-credentials: false"));
+    before(
+        &src,
+        "test \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\"",
+        "cargo test --all-targets",
+    );
+    for gate in [
+        "cargo fmt --all -- --check",
+        "cargo clippy --all-targets -- -D warnings",
+        "cargo test --all-targets",
+        "cargo run --quiet --bin audit",
+    ] {
+        assert!(src.contains(gate), "missing hosted audit gate: {gate}");
+    }
+}
+
+#[test]
+fn private_source_local_runner_keeps_exact_head_and_offline_rust_gates() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join(".github/workflows/runner.yml");
+    let src = fs::read_to_string(path).expect("source-local runner workflow is present");
+    assert!(src.contains("ref: ${{ github.event.pull_request.head.sha || github.sha }}"));
+    assert!(src.contains("test \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\""));
+    assert!(src.contains("environment: zorde-source-local-trusted"));
+    assert!(src.contains("runs-on: [self-hosted, linux, x64, zorde-source-ephemeral]"));
+    assert!(src.contains("APPROVED_SHA: ${{ vars.ZORDE_APPROVED_SOURCE_SHA }}"));
+    assert!(src.contains("APPROVED_TREE: ${{ vars.ZORDE_APPROVED_SOURCE_TREE }}"));
+    assert!(src.contains("APPROVED_COMPILER: ${{ vars.ZORDE_APPROVED_COMPILER_SHA256 }}"));
+    assert!(src.contains("persist-credentials: false"));
+    assert!(src.contains("CARGO_NET_OFFLINE: \"true\""));
+    assert!(src.contains("CARGO_TARGET_DIR: ${{ runner.temp }}/zorde-rust-target"));
+    before(
+        &src,
+        "bash scripts/test-zorde-registry-source-local.sh",
+        "cargo test --all-targets --offline",
+    );
+    for gate in [
+        "cargo fmt --all -- --check",
+        "cargo clippy --all-targets --offline -- -D warnings",
+        "cargo test --all-targets --offline",
+        "cargo run --offline --quiet --bin audit",
+    ] {
+        assert!(src.contains(gate), "missing private source-local Rust gate: {gate}");
+    }
+}
