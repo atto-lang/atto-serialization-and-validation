@@ -161,10 +161,10 @@ pub fnc run_validation_tests(): void {
     !report_is_valid(rt borrow zero_error_budget_report),
     "zero diagnostic capacity must not turn uniqueness budget denial into success");
 
-  // Deliberately invalid wire kinds all take the same fallback Value hash.
-  // Give them distinct unused fields so no two instances are deeply equal.
-  // A forged Value can bypass decoders; the validator must not silently
-  // report "unique" after exhausting its candidate-comparison work limit.
+  // Deliberately invalid public Value discriminants used to share the
+  // fallback hash. The unified graph preflight must now deny them *before*
+  // uniqueness hashing. Actual valid-key hash collision behavior is covered
+  // by separate source-free reference-model tests pending native execution.
   val List<Value> collision_values = new List<Value>();
   let int collision_index = 0;
   loop do
