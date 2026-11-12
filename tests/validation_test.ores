@@ -654,6 +654,36 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   ).is_err(), "deep-equal reordered object keys cannot be admitted twice");
 
+  // Normal exact-hash hits are not collision attacks. More than 256
+  // distinct required fields must still validate when their names match.
+  // Only failed same-hash comparisons should consume collision fuel.
+  val List<FieldRule> many_required_fields = new List<FieldRule>();
+  val List<WireMember> many_required_members = new List<WireMember>();
+  let int required_field_index = 0;
+  loop do
+    if required_field_index >= 300 then break; fi
+    val Utf8Text required_key = new Utf8Text(
+      int_to_decimal_bytes(required_field_index)
+    );
+    many_required_fields.add(field_rule(
+      required_key, true, false, any_rule()
+    ));
+    many_required_members.add(new WireMember(
+      required_key, value_int(required_field_index)
+    ));
+    required_field_index = required_field_index + 1;
+  done
+  val ObjectSchema many_required_schema =
+    object_schema(many_required_fields, true);
+  require_true(report_is_valid(validate_object(
+    value_object(many_required_members),
+    rt borrow many_required_schema, default_validation_options()
+  )), "300 exact field lookups must not consume 256 collision budget");
+  require_true(!validate_object_checked(
+    value_object(many_required_members),
+    rt borrow many_required_schema, default_validation_options()
+  ).is_err(), "checked 300-field object remains accepted");
+
   // Hash/equality budget regressions: adversarial but well-formed dynamic
   // Values must not trigger unbounded recursive hashing or deep comparison.
   val List<Value> unique_budget_items = new List<Value>();
