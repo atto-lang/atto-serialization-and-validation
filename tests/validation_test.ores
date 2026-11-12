@@ -198,6 +198,17 @@ pub fnc run_validation_tests(): void {
   require_true(exact_numeric_hash.completed &&
     exact_hash_fuel.remaining == 0,
     "numeric hash must accept exactly its two-unit budget");
+  // Independent 64-bit wrapping-hash reference vectors. These catch an
+  // otherwise hidden Java/LLVM arithmetic difference even when each
+  // backend's hash/equality tests pass internally.
+  require_true(exact_numeric_hash.hash == -2390216418910778423,
+    "metered one-digit hash must match pinned wrapping reference");
+  let ValueWorkFuel two_digit_fuel = new ValueWorkFuel(3);
+  val ValueHashAttempt two_digit_hash = value_hash_with_fuel(
+    value_int(12), two_digit_fuel);
+  require_true(two_digit_hash.completed && two_digit_fuel.remaining == 0 &&
+    two_digit_hash.hash == 60473139555883,
+    "metered two-digit hash must match pinned wrapping reference");
 
   let ValueWorkFuel negative_fuel = new ValueWorkFuel(-1);
   require_true(!value_hash_with_fuel(
