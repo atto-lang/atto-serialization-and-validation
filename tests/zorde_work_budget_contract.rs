@@ -234,6 +234,12 @@ fn static_audit_verifies_exact_pr_head_and_rust_gates() {
         "test \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\"",
         "cargo test --locked --all-targets",
     );
+    before(
+        &src,
+        "cargo metadata --locked --format-version 1",
+        "cargo test --locked --all-targets",
+    );
+    assert!(src.contains("sha256sum Cargo.lock"));
     for gate in [
         "cargo fmt --all -- --check",
         "cargo clippy --locked --all-targets -- -D warnings",
@@ -259,9 +265,15 @@ fn private_source_local_runner_keeps_exact_head_and_offline_rust_gates() {
     assert!(src.contains("persist-credentials: false"));
     assert!(src.contains("CARGO_NET_OFFLINE: \"true\""));
     assert!(src.contains("CARGO_TARGET_DIR: ${{ runner.temp }}/zorde-rust-target"));
+    assert!(src.contains("sha256sum Cargo.lock"));
     before(
         &src,
         "bash scripts/test-zorde-registry-source-local.sh",
+        "cargo test --locked --all-targets --offline",
+    );
+    before(
+        &src,
+        "cargo metadata --locked --offline --format-version 1",
         "cargo test --locked --all-targets --offline",
     );
     for gate in [
