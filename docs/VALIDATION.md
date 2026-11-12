@@ -99,6 +99,21 @@ semantically duplicate keys, including deeply equal reordered object keys.
 After the full wire graph is checked, the map-key equality pass uses
 hash buckets with a **256-comparison operation-wide limit**, rejecting
 collision-heavy values instead of performing unbounded deep equality.
+Crucially, every value entering hash/deep-equality is separately bounded to
+**64 expanded nodes, 32 container edges, and 4,096 payload/key bytes**.
+The same eligibility guard applies to the report-only `unique_items`
+validator, which admits at most **4,096 array items** and has its own shared
+**256-candidate-comparison limit**. Inputs outside these intentionally
+conservative equality domains fail closed with a work-limit diagnostic
+instead of being silently treated as distinct.
+
+Schema validation, object-key duplicate detection, required-field lookup,
+and unknown-field lookup also use a shared **256 failed same-hash text-key
+comparison budget** per validation operation; checked tree preflight uses
+one budget across the whole graph. Successful key matches do not burn this
+collision allowance, so ordinary wide objects (including 300-field fixtures)
+remain valid. Exhaustion is a failure, never treated as a missing field or a
+successful unique-key check.
 
 It does **not** recursively apply an arbitrary
 object or element schema, authenticate an authoring authority or freeze the
