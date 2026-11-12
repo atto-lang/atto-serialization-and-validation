@@ -967,6 +967,13 @@ fnc equality_candidate_bounded(Value root): bool {
          !utf8_is_valid(value.string_value.bytes) then return false; fi
       remaining_bytes = remaining_bytes - value.string_value.bytes.length;
     fi
+    // The shared dynamic extension kind is MessagePack's signed-byte type.
+    // A direct Value constructor must not bypass codec-side representability.
+    if value.kind == 7 &&
+       (value.extension_type < -128 || value.extension_type > 127) then
+      return false;
+    fi
+
     if value.kind == 4 || value.kind == 7 then
       if value.bytes_value.length > remaining_bytes then return false; fi
       remaining_bytes = remaining_bytes - value.bytes_value.length;
@@ -1086,6 +1093,16 @@ fnc validate_rule_at(
       "value has an unsupported wire kind");
     return;
   fi
+  // Keep report-only rules consistent with MessagePack's signed int8
+  // extension-type domain. Checked entry points additionally inspect
+  // nested active-kind values before returning Ok.
+  if value.kind == 7 &&
+     (value.extension_type < -128 || value.extension_type > 127) then
+    add_error(report, options, "extension_type", path,
+      "extension type must fit a signed byte");
+    return;
+  fi
+
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
@@ -1562,6 +1579,13 @@ fnc checked_value_tree_valid(Value root): bool {
       fi
       inspected_bytes = inspected_bytes + value.string_value.bytes.length;
       if !utf8_is_valid(value.string_value.bytes) then return false; fi
+    fi
+
+    // The shared dynamic extension kind is MessagePack's signed-byte type.
+    // A direct Value constructor must not bypass codec-side representability.
+    if value.kind == 7 &&
+       (value.extension_type < -128 || value.extension_type > 127) then
+      return false;
     fi
 
     if value.kind == 4 || value.kind == 7 then
