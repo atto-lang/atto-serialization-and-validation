@@ -136,9 +136,17 @@ pub fnc run_validation_tests(): void {
   require_true(object_equal.completed && object_equal.equal,
     "metered object equality must be order-insensitive");
 
+  // Build independent map values: the prior ordinary-equality test may
+  // have transferred ownership of its temporary map entry lists.
+  val List<MapEntry> metered_map_a = new List<MapEntry>();
+  metered_map_a.add(new MapEntry(value_int(1), value_int(10)));
+  metered_map_a.add(new MapEntry(value_int(2), value_int(20)));
+  val List<MapEntry> metered_map_b = new List<MapEntry>();
+  metered_map_b.add(new MapEntry(value_int(2), value_int(20)));
+  metered_map_b.add(new MapEntry(value_int(1), value_int(10)));
   let ValueWorkFuel map_equal_fuel = new ValueWorkFuel(5000);
   val ValueEqualAttempt map_equal = value_deep_equal_with_fuel(
-    value_map(map_a_entries), value_map(map_b_entries), map_equal_fuel);
+    value_map(metered_map_a), value_map(metered_map_b), map_equal_fuel);
   require_true(map_equal.completed && map_equal.equal,
     "metered arbitrary-map equality must be order-insensitive");
 
