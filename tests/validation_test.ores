@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
-import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string, value_bytes, value_extension, value_array, value_object, value_map, value_deep_equal, int_to_decimal_bytes from '../src/core/value';
+import class Value, Utf8Text, WireMember, MapEntry, ValueWorkFuel, ValueHashAttempt, ValueEqualAttempt from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, value_bytes, value_extension, value_array, value_object, value_map, value_hash, value_deep_equal, value_hash_with_fuel, value_deep_equal_with_fuel, int_to_decimal_bytes from '../src/core/value';
 import class ValidationOptions, ValidationReport, ValidationError, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
 import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
@@ -106,6 +106,70 @@ pub fnc run_validation_tests(): void {
     value_deep_equal(value_map(map_a_entries), value_map(map_b_entries)),
     "general map equality must ignore entry order"
   );
+
+  // Exact operation-local fuel: a zero budget is an incomplete computation,
+  // never a valid hash or a definitive unequal outcome.
+  let ValueWorkFuel empty_hash_fuel = new ValueWorkFuel(0);
+  val ValueHashAttempt empty_hash = value_hash_with_fuel(
+    rt borrow object_a, empty_hash_fuel);
+  require_true(!empty_hash.completed,
+    "zero fuel cannot return a successful object hash");
+  let ValueWorkFuel empty_equal_fuel = new ValueWorkFuel(0);
+  val ValueEqualAttempt empty_equal = value_deep_equal_with_fuel(
+    rt borrow object_a, rt borrow object_b, empty_equal_fuel);
+  require_true(!empty_equal.completed,
+    "zero fuel cannot return successful equality or inequality");
+
+  let ValueWorkFuel hash_fuel_a = new ValueWorkFuel(5000);
+  let ValueWorkFuel hash_fuel_b = new ValueWorkFuel(5000);
+  val ValueHashAttempt object_hash_a = value_hash_with_fuel(
+    rt borrow object_a, hash_fuel_a);
+  val ValueHashAttempt object_hash_b = value_hash_with_fuel(
+    rt borrow object_b, hash_fuel_b);
+  require_true(object_hash_a.completed && object_hash_b.completed &&
+    object_hash_a.hash == object_hash_b.hash &&
+    object_hash_a.hash == value_hash(rt borrow object_a),
+    "metered hash must match canonical unordered object hash");
+  let ValueWorkFuel object_equal_fuel = new ValueWorkFuel(5000);
+  val ValueEqualAttempt object_equal = value_deep_equal_with_fuel(
+    rt borrow object_a, rt borrow object_b, object_equal_fuel);
+  require_true(object_equal.completed && object_equal.equal,
+    "metered object equality must be order-insensitive");
+
+  let ValueWorkFuel map_equal_fuel = new ValueWorkFuel(5000);
+  val ValueEqualAttempt map_equal = value_deep_equal_with_fuel(
+    value_map(map_a_entries), value_map(map_b_entries), map_equal_fuel);
+  require_true(map_equal.completed && map_equal.equal,
+    "metered arbitrary-map equality must be order-insensitive");
+
+  val List<int> long_bytes = new List<int>();
+  let int long_index = 0;
+  loop do
+    if long_index >= 200 then break; fi
+    long_bytes.add(97);
+    long_index = long_index + 1;
+  done
+  val Value long_string = value_string(new Utf8Text(long_bytes));
+  let ValueWorkFuel short_fuel = new ValueWorkFuel(8);
+  val ValueHashAttempt denied_long_hash = value_hash_with_fuel(
+    rt borrow long_string, short_fuel);
+  require_true(!denied_long_hash.completed && short_fuel.remaining == 0,
+    "string hashing must stop as soon as byte fuel is exhausted");
+  let ValueWorkFuel short_equal_fuel = new ValueWorkFuel(8);
+  val ValueEqualAttempt denied_long_equal = value_deep_equal_with_fuel(
+    rt borrow long_string, rt borrow long_string, short_equal_fuel);
+  require_true(!denied_long_equal.completed && short_equal_fuel.remaining == 0,
+    "identical aliased strings must not bypass metered byte comparisons");
+  let ValueWorkFuel enough_fuel = new ValueWorkFuel(500);
+  val ValueEqualAttempt allowed_long_equal = value_deep_equal_with_fuel(
+    rt borrow long_string, rt borrow long_string, enough_fuel);
+  require_true(allowed_long_equal.completed && allowed_long_equal.equal,
+    "identical strings must pass with sufficient shared operation fuel");
+
+  let ValueWorkFuel negative_fuel = new ValueWorkFuel(-1);
+  require_true(!value_hash_with_fuel(
+    value_int(1), negative_fuel
+  ).completed, "negative fuel must fail closed");
 
   val List<Value> duplicate_objects = new List<Value>();
   duplicate_objects.add(object_a);
