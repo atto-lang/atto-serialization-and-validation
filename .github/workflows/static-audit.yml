@@ -32,11 +32,13 @@ jobs:
           test -z "$(git status --porcelain --untracked-files=all)"
           printf 'tested_source_sha=%s\n' "$EXPECTED_HEAD" >> "$GITHUB_STEP_SUMMARY"
           printf 'tested_tree_sha=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_STEP_SUMMARY"
+          test -f Cargo.lock
+          sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
       - name: Verify Rust formatting
         run: cargo fmt --all -- --check
       - name: Strict Rust Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Execute Rust native source-contract tests
-        run: cargo test --all-targets
+        run: cargo test --locked --all-targets
       - name: Audit Oreslang source invariants
-        run: cargo run --quiet --bin audit
+        run: cargo run --locked --quiet --bin audit
