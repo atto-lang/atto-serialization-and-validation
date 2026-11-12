@@ -34,6 +34,8 @@ jobs:
           printf 'tested_tree_sha=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_STEP_SUMMARY"
           test -f Cargo.lock
           sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
+      - name: Resolve locked Rust dependency graph
+        run: cargo metadata --locked --format-version 1 > /dev/null
       - name: Verify Rust formatting
         run: cargo fmt --all -- --check
       - name: Strict Rust Clippy
