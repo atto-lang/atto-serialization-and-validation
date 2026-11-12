@@ -232,13 +232,13 @@ fn static_audit_verifies_exact_pr_head_and_rust_gates() {
     before(
         &src,
         "test \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\"",
-        "cargo test --all-targets",
+        "cargo test --locked --all-targets",
     );
     for gate in [
         "cargo fmt --all -- --check",
-        "cargo clippy --all-targets -- -D warnings",
-        "cargo test --all-targets",
-        "cargo run --quiet --bin audit",
+        "cargo clippy --locked --all-targets -- -D warnings",
+        "cargo test --locked --all-targets",
+        "cargo run --locked --quiet --bin audit",
     ] {
         assert!(src.contains(gate), "missing hosted audit gate: {gate}");
     }
@@ -262,14 +262,48 @@ fn private_source_local_runner_keeps_exact_head_and_offline_rust_gates() {
     before(
         &src,
         "bash scripts/test-zorde-registry-source-local.sh",
-        "cargo test --all-targets --offline",
+        "cargo test --locked --all-targets --offline",
     );
     for gate in [
         "cargo fmt --all -- --check",
-        "cargo clippy --all-targets --offline -- -D warnings",
-        "cargo test --all-targets --offline",
-        "cargo run --offline --quiet --bin audit",
+        "cargo clippy --locked --all-targets --offline -- -D warnings",
+        "cargo test --locked --all-targets --offline",
+        "cargo run --locked --offline --quiet --bin audit",
     ] {
         assert!(src.contains(gate), "missing private source-local Rust gate: {gate}");
     }
+}
+
+
+#[test]
+fn rust_audit_dependency_lock_has_complete_checked_registry_closure() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let manifest = fs::read_to_string(dir.join("Cargo.toml"))
+        .expect("Zorde Rust audit manifest exists");
+    assert!(manifest.contains("regex = \"=1.13.1\""),
+        "manifest must pin the reviewed regex version exactly");
+    let lock = fs::read_to_string(dir.join("Cargo.lock"))
+        .expect("Zorde Rust audit lockfile exists");
+    assert!(lock.contains("version = 4"));
+    assert_eq!(lock.matches("[[package]]").count(), 6,
+        "audit dependency graph must have six reviewed packages");
+    let expected = [
+        ("aho-corasick", "1.1.5", "c982642fa9e8606056828ee9a8505737230110bb1099153c79efe865c59d12ba"),
+        ("memchr", "2.8.3", "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"),
+        ("regex", "1.13.1", "f020237b6c8eed93db2e2cb53c00c60a8e1bc73da7d073199a1180401450218d"),
+        ("regex-automata", "0.4.18", "ad8553b9b26413251cbf30e620595c7a41b3887f03da04579c0e6b0d6a06b4b2"),
+        ("regex-syntax", "0.8.11", "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"),
+    ];
+    for (name, version, checksum) in expected {
+        let needle = format!("name = \"{name}\"\nversion = \"{version}\"\n");
+        let (_, after) = lock.split_once(&needle)
+            .unwrap_or_else(|| panic!("missing exact locked {name} {version}"));
+        let block = after.split("[[package]]").next().unwrap_or(after);
+        assert!(block.contains(
+            "source = \"registry+https://github.com/rust-lang/crates.io-index\""
+        ), "registry source absent: {name}");
+        assert!(block.contains(&format!("checksum = \"{checksum}\"")),
+            "registry checksum mismatch: {name}");
+    }
+    assert!(lock.contains("name = \"oreslang-serialization-audit\"\nversion = \"0.1.0\""));
 }
