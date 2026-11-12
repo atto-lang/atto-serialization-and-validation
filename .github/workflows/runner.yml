@@ -130,6 +130,7 @@ jobs:
           command -v cargo >/dev/null
           test -f Cargo.lock
           sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
+          cargo metadata --locked --offline --format-version 1 > /dev/null
           cargo fmt --all -- --check
           cargo clippy --locked --all-targets --offline -- -D warnings
           cargo test --locked --all-targets --offline
