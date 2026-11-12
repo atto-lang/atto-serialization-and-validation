@@ -164,15 +164,29 @@ For a `unique_items=true` array the validator additionally enforces:
   equality, charged *before* each operation, including active bytes, nodes,
   and pessimistic multipliers for nested object/map collision scans.
 
+The validation path now additionally passes **one shared operation-local
+`ValueWorkFuel` with 1,000,000 units** into `value_hash_with_fuel` and
+`value_deep_equal_with_fuel`. Those metered native routines charge each
+visited node, byte hashed/compared, and unordered object/map candidate probe;
+candidate storage initialization is charged too. Both return explicit
+`completed=false` on budget exhaustion rather than treating an incomplete
+hash as a real bucket or an unfinished comparison as inequality. An
+exhaustion is always `unique_items_work_limit`, never a valid result.
+Canonical hash identity and unordered object/map equality should match the
+existing unmetered semantics; native parity tests are authored, but have not
+yet executed.
+
 Failures are `unique_items_limit`, `unique_items_complexity_limit`,
 or `unique_items_work_limit`, respectively. If
 `ValidationOptions.max_errors=0`, `report.truncated=true` still makes
 `report_is_valid` false. Errors never retain untrusted payload values.
 
 **Boundaries:** these are conservative admission/fuel estimates, not actual
-instruction-count, CPU, memory or cancellation enforcement. The native
-`value_hash`/`value_deep_equal` routines are not instrumented at each
-recursive operation, and runtime/compiler/actor stack quotas remain separate.
+instruction-count, CPU, memory or cancellation enforcement. The ordinary compatibility
+`value_hash`/`value_deep_equal` routines remain unmetered for non-Zorde
+callers. Only the new metered variants have explicit work charging; neither
+variant enforces wall-clock CPU time, cancellation deadlines or actor
+stack/arena quotas, which remain separate runtime/compiler gates.
 No proof of arbitrary sharing, cycles, TOCTOU freedom, compiler parity,
 schema authority or immutable validated typestate follows from these guards.
 They require compiled guest tests before release, including worst-case
