@@ -77,6 +77,12 @@ pub define class ObjectSchema as
   pub val bool reject_unknown_fields;
 end
 
+// Mutable per-validation collision fuel. It is intentionally private to
+// this module; hash equality is never sufficient to establish key equality.
+define class ObjectLookupBudget as
+  pub let int remaining;
+end
+
 pub fnc default_validation_options(): ValidationOptions {
   return new ValidationOptions(false, 64);
 }
@@ -385,6 +391,12 @@ pub fnc max_schema_total_key_bytes(): int {
   return 1048576;
 }
 
+// Shared across all object-key lookups in one validation call or checked
+// graph walk. No per-object reset during checked preflight.
+pub fnc max_object_key_collisions(): int {
+  return 256;
+}
+
 fnc object_schema_valid(ObjectSchema schema): bool {
   if schema.fields.length > max_schema_fields() then
     return false;
@@ -393,6 +405,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
   let int remaining_key_bytes = max_schema_total_key_bytes();
+  let int remaining_key_collisions = max_object_key_collisions();
 
   loop do
     if i >= schema.fields.length then
@@ -420,6 +433,8 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
       for const index of candidates do
+        if remaining_key_collisions <= 0 then return false; fi
+        remaining_key_collisions = remaining_key_collisions - 1;
         if text_equal(schema.fields[index].key, field.key) then
           return false;
         fi
@@ -1254,6 +1269,7 @@ fnc remember_text_index(
 fnc schema_field_index(
   ObjectSchema schema,
   Map<int, List<int>> buckets,
+  ObjectLookupBudget mut budget,
   Utf8Text key
 ): int {
   let int hash = text_hash(key);
@@ -1263,6 +1279,8 @@ fnc schema_field_index(
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
     if text_equal(schema.fields[index].key, key) then
       return index;
     fi
@@ -1273,6 +1291,7 @@ fnc schema_field_index(
 fnc object_field_index(
   Value object,
   Map<int, List<int>> buckets,
+  ObjectLookupBudget mut budget,
   Utf8Text key
 ): int {
   let int hash = text_hash(key);
@@ -1282,6 +1301,8 @@ fnc object_field_index(
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
     if text_equal(object.object_value[index].key, key) then
       return index;
     fi
@@ -1289,14 +1310,17 @@ fnc object_field_index(
   return -1;
 }
 
-fnc object_keys_unique(Value object): bool {
+fnc object_keys_unique(
+  Value object,
+  ObjectLookupBudget mut budget
+): bool {
   let Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   for const member of object.object_value do
-    if object_field_index(object, buckets, member.key) >= 0 then
-      return false;
-    fi
+    // -2 means the collision budget ran out, not "field absent".
+    let int existing = object_field_index(object, buckets, budget, member.key);
+    if existing == -2 || existing >= 0 then return false; fi
     remember_text_index(buckets, member.key, i);
     i = i + 1;
   done
@@ -1364,7 +1388,9 @@ pub fnc validate_object(
       remaining_input_key_bytes - member.key.bytes.length;
   done
 
-  if !object_keys_unique(value) then
+  let ObjectLookupBudget lookup_budget =
+    new ObjectLookupBudget(max_object_key_collisions());
+  if !object_keys_unique(value, lookup_budget) then
     add_error(
       report,
       options,
@@ -1390,7 +1416,14 @@ pub fnc validate_object(
   done
 
   for const field of schema.fields do
-    let int index = object_field_index(value, object_buckets, field.key);
+    let int index = object_field_index(
+      value, object_buckets, lookup_budget, field.key
+    );
+    if index == -2 then
+      add_error(report, options, "object_lookup_work_limit",
+        new List<PathSegment>(), "object field lookup work budget exceeded");
+      return report;
+    fi
 
     if index < 0 then
       if field.required then
@@ -1438,7 +1471,15 @@ pub fnc validate_object(
 
   if schema.reject_unknown_fields then
     for const member of value.object_value do
-      if schema_field_index(schema, schema_buckets, member.key) < 0 then
+      let int schema_index_match = schema_field_index(
+        schema, schema_buckets, lookup_budget, member.key
+      );
+      if schema_index_match == -2 then
+        add_error(report, options, "object_lookup_work_limit",
+          new List<PathSegment>(), "schema field lookup work budget exceeded");
+        return report;
+      fi
+      if schema_index_match < 0 then
         add_error(
           report,
           options,
@@ -1488,6 +1529,8 @@ fnc checked_value_tree_valid(Value root): bool {
 
   let int cursor = 0;
   let int inspected_bytes = 0;
+  let ObjectLookupBudget preflight_lookup_budget =
+    new ObjectLookupBudget(max_object_key_collisions());
   loop do
     if cursor >= pending.length then break; fi
     val Value value = pending[cursor];
@@ -1559,7 +1602,9 @@ fnc checked_value_tree_valid(Value root): bool {
         pending.add(member.value);
         depths.add(depth + 1);
       done
-      if !object_keys_unique(rt borrow value) then return false; fi
+      if !object_keys_unique(rt borrow value, preflight_lookup_budget) then
+        return false;
+      fi
     fi
 
     if value.kind == 8 then
