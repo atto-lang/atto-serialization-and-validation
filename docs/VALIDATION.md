@@ -277,6 +277,23 @@ guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
 
+## Fail-closed metered Value refusal (PR #75)
+
+The `ValueWorkFuel` budget is operation-local and shared by hash/equality
+attempts in uniqueness admission. All `completed=false` refusals must
+leave `fuel.remaining == 0`—not just ordinary numeric exhaustion.
+Invalid value discriminants and structural depth overflow now poison
+that same meter before returning an incomplete result. This prevents
+callers from reusing a budget after any incomplete hash/equality attempt.
+
+The full Atto guest suite checks invalid-kind poisoning, failed-budget
+reuse, and 65-level structural refusals for both metered hashing and
+metered equality (including a same-reference graph). The Rust
+source-contract test requires those negative guest fixtures and the
+poison-on-refusal guards. These are **authored, not compiled execution
+evidence** until the protected private runner admits a job and
+the Java and LLVM backends run the exact-head source.
+
 ## Numeric hash parity and metering reference vectors (PR #75)
 
 The guest validation suite now pins the documented signed 64-bit wrapping
