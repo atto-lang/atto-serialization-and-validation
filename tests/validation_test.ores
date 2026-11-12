@@ -221,6 +221,22 @@ pub fnc run_validation_tests(): void {
   require_true(report_is_valid(rt borrow small_unique_report),
     "small valid unique arrays remain accepted");
 
+  // The inclusive item ceiling must be accepted with distinct scalars.
+  // It is not sufficient to test only a tiny 32-element positive sample.
+  val List<Value> at_unique_limit = new List<Value>();
+  let int at_index = 0;
+  loop do
+    if at_index >= max_unique_validation_items() then break; fi
+    at_unique_limit.add(value_int(at_index));
+    at_index = at_index + 1;
+  done
+  val ValidationReport at_unique_limit_report = validate_value(
+    value_array(at_unique_limit), array_rule(-1, -1, true),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow at_unique_limit_report),
+    "4096 distinct scalar elements must pass inclusive uniqueness bound");
+
   val List<Value> over_unique_budget = new List<Value>();
   let int over_index = 0;
   loop do
