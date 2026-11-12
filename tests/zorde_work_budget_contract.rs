@@ -65,13 +65,19 @@ fn graph_preflight_guards_before_nested_work() {
 fn unique_item_work_is_charged_before_hash_and_comparison() {
     let src = validator();
     let unique = section(&src, "fnc validate_unique(", "fnc validate_rule_at(");
+    // These anchors must track the metered runtime API, not the removed
+    // compatibility calls. Otherwise this Rust gate fails before running
+    // even a single AttoLang guest case.
     before(unique, "value.array_value.length > max_unique_validation_items()",
-        "let int hash = value_hash(item)");
+        "val ValueHashAttempt hash_attempt = value_hash_with_fuel(");
     before(unique, "unique_value_work_cost(rt borrow item)",
-        "let int hash = value_hash(item)");
+        "val ValueHashAttempt hash_attempt = value_hash_with_fuel(");
     before(unique, "candidate_checks >= max_unique_candidate_checks()",
-        "if value_deep_equal(candidate, item)");
-    before(unique, "candidate_costs[i]", "if value_deep_equal(candidate, item)");
+        "val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(");
+    before(unique, "candidate_costs[i]",
+        "val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(");
+    assert!(!unique.contains("let int hash = value_hash(item)"));
+    assert!(!unique.contains("if value_deep_equal(candidate, item)"));
     for code in [
         "\"unique_items_limit\"", "\"unique_items_complexity_limit\"",
         "\"unique_items_work_limit\"",
