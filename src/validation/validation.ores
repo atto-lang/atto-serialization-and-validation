@@ -886,7 +886,9 @@ fnc unique_work_product(int a, int b): int {
 }
 
 fnc unique_work_add(int used, int extra): int {
-  if extra < 0 || extra > max_unique_validation_work() - used then
+  // An exhausted (-1) sentinel must never be revived by a later charge.
+  if used < 0 || used > max_unique_validation_work() ||
+     extra < 0 || extra > max_unique_validation_work() - used then
     return -1;
   fi
   return used + extra;
