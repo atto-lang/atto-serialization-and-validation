@@ -212,6 +212,11 @@ fn native_guest_source_covers_metered_fuel_and_equivalence() {
         "identical aliased strings must not bypass metered byte comparisons",
         "metered hashing must share its exhausted budget across calls",
         "negative fuel must fail closed",
+        "numeric hash must reject one unit below its exact budget",
+        "numeric hash must accept exactly its two-unit budget",
+        "metered Value hash accepts exactly 64 nested levels",
+        "metered Value hash rejects 65 nested levels",
+        "metered equality rejects even same-reference deep graphs",
     ] {
         assert!(src.contains(check), "missing native negative case: {check}");
     }
