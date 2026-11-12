@@ -283,7 +283,7 @@ The `static-audit` workflow checks out `github.event.pull_request.head.sha`
 on pull requests rather than testing only GitHub's synthetic merge commit.
 It verifies `git rev-parse HEAD`, records the source commit/tree in the
 workflow summary, and requires `cargo fmt --all -- --check`, strict
-`cargo clippy --all-targets -- -D warnings`, `cargo test --all-targets`
+`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked --all-targets`
 and the Rust `audit` executable. These are **Rust source/audit gates**,
 not native AttoLang guest/compiler proof.
 
@@ -295,13 +295,22 @@ privacy-preserving receipt script. The same job then invokes offline Cargo
 formatting, strict Clippy, source-contract tests and audit, with Cargo build
 output placed outside the checkout.
 
-**Unresolved dependency provenance:** The repository does not currently
-commit `Cargo.lock`. Offline Cargo requires an independently provisioned,
-approved local dependency cache and may fail when it is absent. Until a lock
-file and complete transitive Rust/compiler dependency identities are reviewed
-and approved, an executed Cargo job is useful test evidence but does not
-establish a reproducible release artifact. Do not fetch unreviewed packages
-from the network on the private source-local runner to bypass this gate.
+**Locked Rust dependency closure (provisional):** `Cargo.toml` now
+pins `regex = "=1.13.1"`, and `Cargo.lock` names six packages (the local
+audit plus five registry dependencies: regex 1.13.1, regex-automata 0.4.18,
+regex-syntax 0.8.11, aho-corasick 1.1.5 and memchr 2.8.3) with registry
+SHA-256 checksums cross-checked against a published Rust project lockfile.
+Hosted Cargo calls use `--locked`; source-local calls use `--locked --offline`.
+The workflows record the lockfile digest alongside the exact source identity.
+The lockfile was assembled from independently published registry entries
+because no Rust toolchain is available in this inspection environment; it
+**has not been verified by Cargo or tested with actual crate archives**.
+An approved runner must confirm `cargo metadata --locked`, that Cargo
+accepts the closure without modification, and that checked crate archives
+match the lock before release. Offline Cargo still requires an independently
+provisioned, reviewed local dependency cache. Do not fetch unreviewed crates
+from the network on the private source-local runner. A lockfile alone is not
+a proof of the compiler or its transitive runtime/build dependencies.
 
 **Admission is not execution:** Jobs with `steps=null`, skipped native jobs,
 a checked-in test file or source-only structural assertions are never a
