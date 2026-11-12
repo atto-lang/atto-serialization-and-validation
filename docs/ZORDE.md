@@ -18,13 +18,13 @@ Oreslang refinements have two enforcement phases:
    command-line input, FFI, dynamic maps, deserialization, and other dynamic
    or untrusted values.
 
-The long-term goal is sound validated typestate. **The current ValidValue
-facade is not yet a proof-carrying immutable refinement**: a Value tree may
-contain mutable arrays, maps, or nested objects, and a schema holds mutable
-field collections. Until the ownership/borrow checker prevents post-validation
-mutation through all aliases (or the validator returns an owned, deeply frozen
-snapshot), do not use ValidValue to bypass validation at later trust boundaries.
-Revalidate dynamically sourced or mutable values at each relevant boundary.
+The long-term goal is sound validated typestate. **The public dynamic
+facade currently returns ordinary `Result<Value, ValidationReport>`, not an
+opaque `Valid<T>` witness**. A Value tree may contain mutable arrays, maps, or
+nested objects, and a schema holds mutable field collections. Until the
+ownership/borrow checker prevents post-validation mutation through all aliases
+(or validation returns an owned, deeply frozen snapshot), callers must
+revalidate dynamically sourced or mutable values at later trust boundaries.
 Immutable values with a proven invariant need not be repeatedly checked.
 
     type NonEmpty = string with length gt 0;
@@ -34,8 +34,8 @@ Immutable values with a proven invariant need not be repeatedly checked.
     const NonEmpty b = "";       // compile-time error
 
     val ZordeValueSchema schema = zorde_nonempty_string();
-    val Result<ValidValue, ValidationReport> checked =
-      zorde_parse(raw_value, schema);
+    val Result<Value, ValidationReport> checked =
+      zorde_parse(raw_value, schema);  // ordinary dynamic value, not proof
 
 The compiler integration should generate the Zorde schema from the normalized
 refinement descriptor rather than requiring users to restate constraints.
@@ -148,6 +148,17 @@ For a known object type, generated decode should fuse construction and
 validation so invalid data is rejected before a complete invalid object is
 materialized. Standalone Zorde validation remains useful for
 application-created values and dynamic Value trees.
+
+## Dynamic validation budget
+
+Zorde's runtime value/object entrypoints share the same iterative graph
+preflight and bounded uniqueness-work checks described in
+`docs/VALIDATION.md`: 65,536 Value nodes, 64 container edges, 16 MiB
+active data, 4,096 unique-array members, 16,384 outer candidates, and
+1,000,000 conservatively estimated uniqueness structural-work units.
+Additional bounded schema-key comparison and lookup budgets fail closed.
+These are work admission limits, **not** `Valid<T>` provenance, a guaranteed
+instruction quota, or a replacement for actor isolation and cancellation.
 
 ## Current native facade
 
