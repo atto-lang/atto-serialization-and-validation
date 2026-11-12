@@ -433,11 +433,13 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
       for const index of candidates do
-        if remaining_key_collisions <= 0 then return false; fi
-        remaining_key_collisions = remaining_key_collisions - 1;
         if text_equal(schema.fields[index].key, field.key) then
           return false;
         fi
+        // A successful match is normal schema work. Charge only failed
+        // same-hash comparisons, which an attacker can amplify.
+        if remaining_key_collisions <= 0 then return false; fi
+        remaining_key_collisions = remaining_key_collisions - 1;
       done
       candidates.add(i);
     else
@@ -1279,11 +1281,11 @@ fnc schema_field_index(
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if budget.remaining <= 0 then return -2; fi
-    budget.remaining = budget.remaining - 1;
     if text_equal(schema.fields[index].key, key) then
       return index;
     fi
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
   done
   return -1;
 }
@@ -1301,31 +1303,32 @@ fnc object_field_index(
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if budget.remaining <= 0 then return -2; fi
-    budget.remaining = budget.remaining - 1;
     if text_equal(object.object_value[index].key, key) then
       return index;
     fi
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
   done
   return -1;
 }
 
+// 1 = unique, 0 = duplicate, -1 = same-hash mismatch budget exhausted.
 fnc object_keys_unique(
   Value object,
   ObjectLookupBudget mut budget
-): bool {
+): int {
   let Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   for const member of object.object_value do
-    // -2 means the collision budget ran out, not "field absent".
     let int existing = object_field_index(object, buckets, budget, member.key);
-    if existing == -2 || existing >= 0 then return false; fi
+    if existing == -2 then return -1; fi
+    if existing >= 0 then return 0; fi
     remember_text_index(buckets, member.key, i);
     i = i + 1;
   done
 
-  return true;
+  return 1;
 }
 
 pub fnc validate_object(
@@ -1390,7 +1393,13 @@ pub fnc validate_object(
 
   let ObjectLookupBudget lookup_budget =
     new ObjectLookupBudget(max_object_key_collisions());
-  if !object_keys_unique(value, lookup_budget) then
+  let int uniqueness = object_keys_unique(value, lookup_budget);
+  if uniqueness < 0 then
+    add_error(report, options, "object_lookup_work_limit",
+      new List<PathSegment>(), "object key collision budget exceeded");
+    return report;
+  fi
+  if uniqueness == 0 then
     add_error(
       report,
       options,
@@ -1602,9 +1611,9 @@ fnc checked_value_tree_valid(Value root): bool {
         pending.add(member.value);
         depths.add(depth + 1);
       done
-      if !object_keys_unique(rt borrow value, preflight_lookup_budget) then
-        return false;
-      fi
+      if object_keys_unique(
+        rt borrow value, preflight_lookup_budget
+      ) != 1 then return false; fi
     fi
 
     if value.kind == 8 then
