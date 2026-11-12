@@ -91,7 +91,8 @@ Oversized or invalid trees return a payload-free `invalid_value_tree`
 `ValidationReport` and never return `Ok`.
 
 The walk checks wire kinds (0..8), numeric JSON lexemes, UTF-8 strings and
-object keys, **0..255 octets for raw binary and extension payloads**, duplicate
+object keys, **0..255 octets for raw binary and extension payloads**,
+**signed-byte (-128..127) extension type values**, duplicate
 object keys at every depth, child arrays, object values, and both map keys
 and values. Every object, including nested open-schema objects, must stay
 within a **1 MiB aggregate key-byte limit**. General maps also reject
