@@ -380,3 +380,53 @@ fn independent_numeric_hash_oracle_requires_byte_fuel_and_wrapping_parity() {
     assert_eq!(hash_number_lexeme(b"1", &mut negative), None);
     assert_eq!(negative, 0);
 }
+
+
+#[test]
+fn invalid_type_and_depth_refusals_poison_the_shared_work_meter() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let core = fs::read_to_string(root.join("src/core/value.ores"))
+        .expect("metered core source exists");
+    let guest = fs::read_to_string(root.join("tests/validation_test.ores"))
+        .expect("native validator test source exists");
+    let hash = section(
+        &core,
+        "fnc value_hash_fuel_depth(",
+        "pub fnc value_hash_with_fuel(",
+    );
+    let equal = section(
+        &core,
+        "fnc value_equal_fuel_depth(",
+        "pub fnc value_deep_equal_with_fuel(",
+    );
+    for (label, body, refused) in [
+        ("hash", hash, "new ValueHashAttempt(false, 0)"),
+        ("equality", equal, "new ValueEqualAttempt(false, false)"),
+    ] {
+        assert!(
+            body.contains("if depth > 64 then\n    fuel.remaining = 0;\n    return"),
+            "{label} depth refusal must poison the shared fuel",
+        );
+        assert!(
+            body.contains("then\n    fuel.remaining = 0;\n    return")
+                && body.contains("kind < 0")
+                && body.contains("kind > 8"),
+            "{label} invalid-kind refusal must poison the shared fuel",
+        );
+        assert!(
+            body.contains("fuel.remaining = 0;\n  return"),
+            "{label} fallback refusal must poison the shared fuel",
+        );
+        assert!(body.contains(refused), "{label} lacks an incomplete result");
+    }
+    for marker in [
+        "invalid Value kind poisons the metered hash fuel",
+        "invalid-kind hash denial cannot recover on a later call",
+        "invalid Value kind poisons the metered equality fuel",
+        "invalid-kind equality denial cannot recover",
+        "depth_denied_fuel.remaining == 0",
+        "equal_depth_fuel.remaining == 0",
+    ] {
+        assert!(guest.contains(marker), "missing native poison case: {marker}");
+    }
+}
