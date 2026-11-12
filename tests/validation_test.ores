@@ -213,7 +213,32 @@ pub fnc run_validation_tests(): void {
   let ValueWorkFuel negative_fuel = new ValueWorkFuel(-1);
   require_true(!value_hash_with_fuel(
     value_int(1), negative_fuel
-  ).completed, "negative fuel must fail closed");
+  ).completed && negative_fuel.remaining == 0,
+    "negative fuel must fail closed");
+
+  // Structural refusals poison the shared meter instead of merely returning
+  // incomplete and leaving a positive fuel balance for a later call.
+  val Value bad_metered_kind = new Value(
+    9, false, new List<int>(), new Utf8Text(new List<int>()),
+    new List<int>(), new List<Value>(), new List<WireMember>(),
+    new List<MapEntry>(), 0
+  );
+  let ValueWorkFuel rejected_kind_hash_fuel = new ValueWorkFuel(16);
+  require_true(!value_hash_with_fuel(
+    rt borrow bad_metered_kind, rejected_kind_hash_fuel
+  ).completed && rejected_kind_hash_fuel.remaining == 0,
+    "invalid Value kind poisons the metered hash fuel");
+  require_true(!value_hash_with_fuel(
+    value_int(1), rejected_kind_hash_fuel
+  ).completed, "invalid-kind hash denial cannot recover on a later call");
+  let ValueWorkFuel rejected_kind_equal_fuel = new ValueWorkFuel(16);
+  require_true(!value_deep_equal_with_fuel(
+    rt borrow bad_metered_kind, value_int(1), rejected_kind_equal_fuel
+  ).completed && rejected_kind_equal_fuel.remaining == 0,
+    "invalid Value kind poisons the metered equality fuel");
+  require_true(!value_deep_equal_with_fuel(
+    value_int(1), value_int(1), rejected_kind_equal_fuel
+  ).completed, "invalid-kind equality denial cannot recover");
 
   val List<Value> duplicate_objects = new List<Value>();
   duplicate_objects.add(object_a);
@@ -720,11 +745,13 @@ pub fnc run_validation_tests(): void {
   let ValueWorkFuel depth_denied_fuel = new ValueWorkFuel(1024);
   require_true(!value_hash_with_fuel(
     rt borrow beyond_depth_limit, depth_denied_fuel
-  ).completed, "metered Value hash rejects 65 nested levels");
+  ).completed && depth_denied_fuel.remaining == 0,
+    "metered Value hash rejects 65 nested levels");
   let ValueWorkFuel equal_depth_fuel = new ValueWorkFuel(1024);
   require_true(!value_deep_equal_with_fuel(
     rt borrow beyond_depth_limit, rt borrow beyond_depth_limit, equal_depth_fuel
-  ).completed, "metered equality rejects even same-reference deep graphs");
+  ).completed && equal_depth_fuel.remaining == 0,
+    "metered equality rejects even same-reference deep graphs");
   require_true(validate_value_checked(
     beyond_depth_limit, any_rule(), default_validation_options()
   ).is_err(), "checked dynamic tree rejects 65 nested array levels");
