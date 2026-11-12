@@ -277,6 +277,32 @@ guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
 
+## Numeric hash parity and metering reference vectors (PR #75)
+
+The guest validation suite now pins the documented signed 64-bit wrapping
+`hash_mix(hash, value) = (hash * 1099511628211) XOR value` semantics for
+`Value` kind 2 (canonical decimal lexeme). The independently authored
+Rust source-contract oracle uses `i64::wrapping_mul` and charges one unit
+for the root value plus one unit for each decimal byte.
+
+| Value | Required fuel | Expected signed 64-bit hash |
+| --- | ---: | ---: |
+| `value_int(1)` | 2 | `-2390216418910778423` |
+| `value_int(12)` | 3 | `60473139555883` |
+
+A budget one unit below the threshold must return an incomplete attempt,
+zero the remaining fuel, and never produce a partially admitted hash.
+Subsequent hashing with the same exhausted fuel must fail. These vectors
+are specifically intended to detect Java/LLVM differences in wrapping
+integer arithmetic or byte-ordering; passing an isolated hash/equality
+fixture on one backend does not imply cross-backend correctness.
+
+**Verification boundary:** The reference calculations were independently
+checked using 64-bit BigInt arithmetic, but Cargo, the Rust oracle test and
+Java/LLVM guest fixtures have not yet executed on the final PR head.
+No hash parity or runtime performance guarantee is certified before
+exact-head compiled evidence from both compilers.
+
 ## Exact-head source-local test and release evidence (PR #75)
 
 The `static-audit` workflow checks out `github.event.pull_request.head.sha`
