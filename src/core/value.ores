@@ -118,7 +118,11 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   // overflow or a nonexistent integer-division operator. In Oreslang,
   // '/' is real division (float) EVEN for int/int, so using it here
   // would corrupt integers above 2^53 and violate Zorde refinements.
-  if value == 0 then return new List<int>(48); fi
+  if value == 0 then
+    val List<int> zero_bytes = new List<int>();
+    zero_bytes.add(48);
+    return zero_bytes;
+  fi
 
   val List<int> output = new List<int>();
   let int remaining = value;
@@ -132,17 +136,26 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
 
   // Decimal long division by powers of ten, with at most nine subtractions
   // per digit. No '/', no float conversion, and no abs(INT64_MIN).
-  val List<int> places = new List<int>(
-    1000000000000000000, 100000000000000000,
-    10000000000000000, 1000000000000000,
-    100000000000000, 10000000000000,
-    1000000000000, 100000000000,
-    10000000000, 1000000000,
-    100000000, 10000000,
-    1000000, 100000,
-    10000, 1000,
-    100, 10, 1
-  );
+  val List<int> places = new List<int>();
+  places.add(1000000000000000000);
+  places.add(100000000000000000);
+  places.add(10000000000000000);
+  places.add(1000000000000000);
+  places.add(100000000000000);
+  places.add(10000000000000);
+  places.add(1000000000000);
+  places.add(100000000000);
+  places.add(10000000000);
+  places.add(1000000000);
+  places.add(100000000);
+  places.add(10000000);
+  places.add(1000000);
+  places.add(100000);
+  places.add(10000);
+  places.add(1000);
+  places.add(100);
+  places.add(10);
+  places.add(1);
   let bool started = false;
   for const place of places do
     let int digit = 0;
