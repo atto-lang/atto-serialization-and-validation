@@ -22,7 +22,7 @@ pub fnc utf8_expected_width(int first): int {
 }
 
 pub fnc utf8_prefix_status(
-  List<int> bytes,
+  borrow List<int> bytes,
   int index,
   int expected_width
 ): int {
@@ -71,7 +71,7 @@ pub fnc utf8_prefix_status(
   return 2;
 }
 
-pub fnc utf8_sequence_length(List<int> bytes, int index): int {
+pub fnc utf8_sequence_length(borrow List<int> bytes, int index): int {
   if index < 0 || index >= bytes.length then
     return -1;
   fi
@@ -81,7 +81,7 @@ pub fnc utf8_sequence_length(List<int> bytes, int index): int {
     return -1;
   fi
 
-  if utf8_prefix_status(bytes, index, expected_width) != 2 then
+  if utf8_prefix_status(rt borrow bytes, index, expected_width) != 2 then
     return -1;
   fi
 

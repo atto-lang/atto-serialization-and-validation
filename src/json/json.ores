@@ -551,7 +551,7 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
       fi
 
       let int prefix_status = utf8_prefix_status(
-        cursor.input,
+        rt borrow cursor.input,
         start,
         expected_width
       );
@@ -1237,7 +1237,7 @@ fnc write_json_string(borrow mut JsonWriter writer, Utf8Text text): void {
       continue;
     fi
 
-    let int width = utf8_sequence_length(text.bytes, i);
+    let int width = utf8_sequence_length(rt borrow text.bytes, i);
     if width < 2 then
       writer_fail(rt mut borrow writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
       return;
@@ -1418,7 +1418,7 @@ fnc scan_utf8_scalar(JsonIncrementalDecoder mut decoder): int {
   fi
 
   let int status = utf8_prefix_status(
-    decoder.buffer,
+    rt borrow decoder.buffer,
     decoder.scan_index,
     width
   );
