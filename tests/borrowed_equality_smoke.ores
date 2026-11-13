@@ -12,10 +12,12 @@ fnc single_byte_key(int byte): Utf8Text {
 }
 
 pub fnc main(): void {
+  stdio.stdout.println("zorde borrow smoke stage 0 entry");
   val List<MapEntry> entries = new List<MapEntry>();
   entries.add(new MapEntry(value_int(10), value_int(90)));
   entries.add(new MapEntry(value_int(20), value_int(91)));
   entries.add(new MapEntry(value_int(30), value_int(92)));
+  stdio.stdout.println("zorde borrow smoke stage 1 map-created");
   val Result<Value, String> found = value_lookup(
     value_map(entries), value_int(30)
   );
@@ -23,6 +25,7 @@ pub fnc main(): void {
   require_true(found.unwrap().number_lexeme[0] == 57,
     "borrowed lookup must return matching value");
 
+  stdio.stdout.println("zorde borrow smoke stage 2 lookup-matched");
   val List<MapEntry> absent_entries = new List<MapEntry>();
   absent_entries.add(new MapEntry(value_int(10), value_int(90)));
   absent_entries.add(new MapEntry(value_int(20), value_int(91)));
@@ -31,6 +34,7 @@ pub fnc main(): void {
   );
   require_true(absent.is_err(), "borrowed map lookup must reject absent key");
 
+  stdio.stdout.println("zorde borrow smoke stage 3 lookup-absent");
   val List<Value> left_array = new List<Value>();
   left_array.add(value_int(7));
   left_array.add(value_int(8));
@@ -44,6 +48,7 @@ pub fnc main(): void {
   require_true(value_deep_equal_borrow(rt borrow left, rt borrow right),
     "borrowed deep array equality must be repeatable");
 
+  stdio.stdout.println("zorde borrow smoke stage 4 arrays-compared");
   val List<WireMember> lhs = new List<WireMember>();
   lhs.add(new WireMember(single_byte_key(97), value_int(1)));
   lhs.add(new WireMember(single_byte_key(98), value_int(2)));
@@ -56,6 +61,7 @@ pub fnc main(): void {
     rt borrow left_object, rt borrow right_object
   ), "borrowed object equality ignores member ordering");
 
+  stdio.stdout.println("zorde borrow smoke stage 5 objects-compared");
   stdio.stdout.println("native Zorde borrowed equality smoke passed");
   return;
 }
