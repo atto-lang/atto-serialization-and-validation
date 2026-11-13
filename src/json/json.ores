@@ -1157,7 +1157,8 @@ fnc valid_number_lexeme(List<int> bytes): bool {
   if cursor.failed || cursor.incomplete then
     return false;
   fi
-  if cursor.index != bytes.length then
+  // bytes was moved into cursor; read the owned input through cursor.
+  if cursor.index != cursor.input.length then
     return false;
   fi
   return value.kind == 2;
