@@ -6,7 +6,7 @@
 
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
-import fnc bytes_equal, text_hash from '../core/value';
+// Key hashing and collision equality are local read-only projections.
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
 import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
@@ -766,64 +766,79 @@ fnc parse_number(borrow mut JsonCursor cursor): Value {
   return value_number_lexeme(lexeme);
 }
 
-fnc member_index(
-  List<WireMember> members,
-  Map<int, List<int>> buckets,
-  Utf8Text key
-): int {
-  let int hash = text_hash(key);
-
-  if !buckets.contains(hash) then
-    return -1;
-  fi
-
-  val List<int> candidates = buckets.get(hash);
-  for const index of candidates do
-    if bytes_equal(members[index].key.bytes, key.bytes) then
-      return index;
-    fi
+// Read-only FNV bucket selector, byte-for-byte equivalent to text_hash.
+// Semantic key comparisons always verify bytes, never trust hash identity.
+fnc key_hash_view(borrow Utf8Text key): int {
+  let int hash = 1469598103934665603;
+  let int i = 0;
+  loop do
+    if i >= key.bytes.length then break; fi
+    hash = (hash * 1099511628211) ^ key.bytes[i];
+    i = i + 1;
   done
+  return hash;
+}
 
+fnc member_index(
+  borrow List<WireMember> members,
+  borrow Map<int, List<int>> buckets,
+  borrow Utf8Text key,
+  int hash
+): int {
+  if !buckets.contains(hash) then return -1; fi
+  let int candidate = 0;
+  loop do
+    if candidate >= buckets.get(hash).length then break; fi
+    let int member_position = buckets.get(hash)[candidate];
+    if members[member_position].key.bytes.length == key.bytes.length then
+      let bool equal = true;
+      let int byte_index = 0;
+      loop do
+        if byte_index >= key.bytes.length then break; fi
+        if members[member_position].key.bytes[byte_index] != key.bytes[byte_index] then
+          equal = false;
+          break;
+        fi
+        byte_index = byte_index + 1;
+      done
+      if equal then return member_position; fi
+    fi
+    candidate = candidate + 1;
+  done
   return -1;
 }
 
 fnc remember_member(
-  Map<int, List<int>> buckets,
-  Utf8Text key,
+  borrow mut Map<int, List<int>> buckets,
+  int hash,
   int index
 ): void {
-  let int hash = text_hash(key);
-
   if buckets.contains(hash) then
-    val List<int> candidates = buckets.get(hash);
+    let mut List<int> candidates = buckets.get(hash);
     candidates.add(index);
     return;
   fi
-
   val List<int> candidates = new List<int>();
   candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
 
-fnc object_keys_unique(List<WireMember> members): bool {
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
+fnc object_keys_unique(borrow List<WireMember> members): bool {
+  let mut Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
-
   loop do
-    if i >= members.length then
-      break;
-    fi
-
-    let WireMember member = members[i];
-    if member_index(members, buckets, member.key) >= 0 then
+    if i >= members.length then break; fi
+    let int hash = key_hash_view(rt borrow members[i].key);
+    if member_index(
+      rt borrow members, rt borrow buckets,
+      rt borrow members[i].key, hash
+    ) >= 0 then
       return false;
     fi
-
-    remember_member(buckets, member.key, i);
+    remember_member(rt mut borrow buckets, hash, i);
     i = i + 1;
   done
-
   return true;
 }
 
@@ -881,7 +896,7 @@ fnc parse_array(borrow mut JsonCursor cursor, int depth): Value {
 
 fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
   val List<WireMember> members = new List<WireMember>();
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
+  let mut Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(rt mut borrow cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
@@ -925,7 +940,10 @@ fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int existing = member_index(members, buckets, key);
+    let int key_hash = key_hash_view(rt borrow key);
+    let int existing = member_index(
+      rt borrow members, rt borrow buckets, rt borrow key, key_hash
+    );
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(rt mut borrow cursor, "duplicate_key", "duplicate JSON object key");
@@ -937,7 +955,7 @@ fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
     else
       let int index = members.length;
       members.add(new WireMember(key, field_value));
-      remember_member(buckets, key, index);
+      remember_member(rt mut borrow buckets, key_hash, index);
     fi
 
     skip_whitespace(rt mut borrow cursor);
@@ -1306,7 +1324,7 @@ fnc encode_value(borrow mut JsonWriter writer, Value value, int depth): void {
   fi
 
   if value.kind == 6 then
-    if !object_keys_unique(value.object_value) then
+    if !object_keys_unique(rt borrow value.object_value) then
       writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
       return;
     fi
