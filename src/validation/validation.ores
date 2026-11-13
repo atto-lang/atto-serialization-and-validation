@@ -1275,12 +1275,12 @@ fnc remember_text_index(
   let int hash = text_hash(key);
   if buckets.contains(hash) then
     let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    candidates.add(index);
     return;
   fi
 
   let List<int> candidates = new List<int>();
-  candidates.push(index);
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }

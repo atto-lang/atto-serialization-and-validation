@@ -84,7 +84,7 @@ pub async fnc collect_bytes_from_channel(
     fi
 
     for const byte of chunk do
-      output.push(byte);
+      output.add(byte);
     done
   done
 
