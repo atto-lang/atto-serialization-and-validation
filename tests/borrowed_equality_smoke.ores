@@ -18,6 +18,15 @@ pub fnc main(): void {
   entries.add(new MapEntry(value_int(20), value_int(91)));
   entries.add(new MapEntry(value_int(30), value_int(92)));
   stdio.stdout.println("zorde borrow smoke stage 1 map-created");
+  val Value scalar_left = value_int(10);
+  val Value scalar_right = value_int(20);
+  require_true(!value_deep_equal_borrow(
+    rt borrow scalar_left, rt borrow scalar_right
+  ), "borrowed scalar non-equality remains false");
+  require_true(value_deep_equal_borrow(
+    rt borrow scalar_left, rt borrow scalar_left
+  ), "borrowed scalar identity remains true");
+  stdio.stdout.println("zorde borrow smoke stage 1a scalar-compared");
   val Result<Value, String> found = value_lookup(
     value_map(entries), value_int(30)
   );
