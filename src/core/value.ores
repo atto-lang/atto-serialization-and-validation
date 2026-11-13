@@ -640,7 +640,8 @@ pub fnc value_deep_equal_borrow(
 ): bool {
   // Parameters already carry Borrow<Value>; reborrowing them would
   // unnecessarily construct a second runtime borrow expression.
-  return value_deep_equal_borrow_bounded(left, right, 0, 64);
+  val bool equal = value_deep_equal_borrow_bounded(left, right, 0, 64);
+  return equal;
 }
 
 fnc value_deep_equal_borrow_bounded(
@@ -903,10 +904,11 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     let int entry_index = 0;
     loop do
       if entry_index >= container.map_value.length then break; fi
-      if value_deep_equal_borrow(
+      val bool matches = value_deep_equal_borrow(
         rt borrow container.map_value[entry_index].key,
         rt borrow key
-      ) then
+      );
+      if matches then
         return Ok(container.map_value[entry_index].value);
       fi
       entry_index = entry_index + 1;
