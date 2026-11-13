@@ -429,22 +429,25 @@ fnc read_hex4(borrow mut JsonCursor cursor): int {
 }
 
 fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
+  // On any recorded parse failure the partial bytes are never admitted;
+  // error/incomplete callers use cursor.error and cursor.index instead.
+  // Only the successful parse transfers the output list out of this loop.
   val List<int> output = new List<int>();
 
   expect_byte(rt mut borrow cursor, 34, "expected opening quote");
   if cursor.failed || cursor.incomplete then
-    return new Utf8Text(output);
+    return new Utf8Text(new List<int>());
   fi
 
   loop do
     if cursor.index >= cursor.input.length then
       need_more(rt mut borrow cursor);
-      return new Utf8Text(output);
+      return new Utf8Text(new List<int>());
     fi
 
     let int byte = consume(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
-      return new Utf8Text(output);
+      return new Utf8Text(new List<int>());
     fi
 
     if byte == 34 then
@@ -453,20 +456,20 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
 
     if byte < 32 then
       fail(rt mut borrow cursor, "control_in_string", "unescaped control byte in JSON string");
-      return new Utf8Text(output);
+      return new Utf8Text(new List<int>());
     fi
 
     // Every non-quote JSON string token emits at least one UTF-8 byte.
     // Enforce the configured limit before allocation rather than after copying.
     if output.length >= cursor.options.max_string_bytes then
       fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
-      return new Utf8Text(output);
+      return new Utf8Text(new List<int>());
     fi
 
     if byte == 92 then
       if cursor.index >= cursor.input.length then
         need_more(rt mut borrow cursor);
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
 
       let int escaped = consume(rt mut borrow cursor);
@@ -486,7 +489,7 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
       elseif escaped == 117 then
         let int first = read_hex4(rt mut borrow cursor);
         if cursor.failed || cursor.incomplete then
-          return new Utf8Text(output);
+          return new Utf8Text(new List<int>());
         fi
 
         let int codepoint = first;
@@ -494,28 +497,28 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
         if first >= 55296 && first <= 56319 then
           if cursor.index + 1 >= cursor.input.length then
             need_more(rt mut borrow cursor);
-            return new Utf8Text(output);
+            return new Utf8Text(new List<int>());
           fi
 
           if cursor.input[cursor.index] != 92 || cursor.input[cursor.index + 1] != 117 then
             fail(rt mut borrow cursor, "invalid_surrogate_pair", "high surrogate must be followed by a low surrogate");
-            return new Utf8Text(output);
+            return new Utf8Text(new List<int>());
           fi
 
           cursor.index = cursor.index + 2;
           let int second = read_hex4(rt mut borrow cursor);
           if cursor.failed || cursor.incomplete then
-            return new Utf8Text(output);
+            return new Utf8Text(new List<int>());
           fi
           if second < 56320 || second > 57343 then
             fail(rt mut borrow cursor, "invalid_surrogate_pair", "invalid low surrogate");
-            return new Utf8Text(output);
+            return new Utf8Text(new List<int>());
           fi
 
           codepoint = 65536 + ((first - 55296) * 1024) + (second - 56320);
         elseif first >= 56320 && first <= 57343 then
           fail(rt mut borrow cursor, "invalid_surrogate_pair", "unexpected low surrogate");
-          return new Utf8Text(output);
+          return new Utf8Text(new List<int>());
         fi
 
         let int encoded_width = codepoint <= 127 ? 1 :
@@ -523,16 +526,16 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
                                 codepoint <= 65535 ? 3 : 4;
         if encoded_width > cursor.options.max_string_bytes - output.length then
           fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
-          return new Utf8Text(output);
+          return new Utf8Text(new List<int>());
         fi
 
         if !utf8_append_codepoint(rt mut borrow output, codepoint) then
           fail(rt mut borrow cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
-          return new Utf8Text(output);
+          return new Utf8Text(new List<int>());
         fi
       else
         fail(rt mut borrow cursor, "invalid_escape", "invalid JSON string escape");
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
     elseif byte < 128 then
       output.add(byte);
@@ -544,7 +547,7 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
 
       if expected_width < 2 then
         fail(rt mut borrow cursor, "invalid_utf8", "invalid UTF-8 lead byte in JSON string");
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
 
       let int prefix_status = utf8_prefix_status(
@@ -555,19 +558,19 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
 
       if prefix_status == 0 then
         fail(rt mut borrow cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
 
       if prefix_status == 1 then
         need_more(rt mut borrow cursor);
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
 
       let int width = expected_width;
 
       if width > cursor.options.max_string_bytes - output.length then
         fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
-        return new Utf8Text(output);
+        return new Utf8Text(new List<int>());
       fi
 
       output.add(byte);
@@ -584,7 +587,7 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
 
     if output.length > cursor.options.max_string_bytes then
       fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
-      return new Utf8Text(output);
+      return new Utf8Text(new List<int>());
     fi
   done
 
