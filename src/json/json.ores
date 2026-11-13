@@ -1081,7 +1081,7 @@ pub fnc decode_attempt(
   // the input length. Reuse this scalar rather than projecting another alias.
   val int input_length = byte_index;
   val bool allow_trailing_data = options.allow_trailing_data;
-  let JsonCursor cursor = new JsonCursor(
+  let mut JsonCursor cursor = new JsonCursor(
     input,
     options,
     0,
@@ -1144,7 +1144,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     1
   );
 
-  let JsonCursor cursor = new JsonCursor(
+  let mut JsonCursor cursor = new JsonCursor(
     bytes,
     options,
     0,
@@ -1382,7 +1382,7 @@ pub fnc encode(
     return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
   fi
 
-  let JsonWriter writer = new JsonWriter(
+  let mut JsonWriter writer = new JsonWriter(
     new List<int>(),
     options,
     false,
