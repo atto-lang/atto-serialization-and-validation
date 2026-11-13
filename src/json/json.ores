@@ -786,10 +786,13 @@ fnc member_index(
   int hash
 ): int {
   if !buckets.contains(hash) then return -1; fi
+  // Explicit static list type avoids an Unknown-typed member chain.
+  // This borrowed candidate list is read only; indexes are primitive ints.
+  val List<int> candidates = buckets.get(hash);
   let int candidate = 0;
   loop do
-    if candidate >= buckets.get(hash).length then break; fi
-    let int member_position = buckets.get(hash)[candidate];
+    if candidate >= candidates.length then break; fi
+    let int member_position = candidates[candidate];
     if members[member_position].key.bytes.length == key.bytes.length then
       let bool equal = true;
       let int byte_index = 0;
