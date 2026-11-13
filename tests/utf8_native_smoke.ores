@@ -15,8 +15,16 @@ pub fnc main(): void {
   stdio.stdout.println("utf8 wire stage 4 four-byte");
   val bool max_ok = utf8_append_codepoint(rt mut borrow bytes, 1114111);
   stdio.stdout.println("utf8 wire stage 5 max-scalar");
-  require_true(ascii_ok && two_ok && three_ok && four_ok && max_ok,
-    "UTF8 append accepts valid scalar ranges");
+  require_true(ascii_ok, "ASCII UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5a ascii-result");
+  require_true(two_ok, "two-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5b two-result");
+  require_true(three_ok, "three-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5c three-result");
+  require_true(four_ok, "four-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5d four-result");
+  require_true(max_ok, "maximum Unicode scalar UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5e max-result");
   stdio.stdout.println("utf8 wire stage 6 all-accepted");
   require_int(bytes.length, 14, "canonical UTF8 scalar byte count");
   require_int(bytes[0], 36, "ASCII U+0024");
@@ -37,8 +45,8 @@ pub fnc main(): void {
   val bool surrogate_ok = utf8_append_codepoint(rt mut borrow bytes, 55296);
   val bool overflow_ok = utf8_append_codepoint(rt mut borrow bytes, 1114112);
   stdio.stdout.println("utf8 wire stage 8 invalid-scalars");
-  require_true(!surrogate_ok && !overflow_ok,
-    "UTF8 append rejects surrogates and out-of-range scalars");
+  require_true(!surrogate_ok, "UTF8 append rejects surrogate scalar");
+  require_true(!overflow_ok, "UTF8 append rejects out-of-range scalar");
   require_int(bytes.length, 14, "invalid scalar cannot partially modify output");
   stdio.stdout.println("native Zorde UTF8 scalar append passed");
   return;
