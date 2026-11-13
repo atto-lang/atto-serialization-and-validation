@@ -1189,7 +1189,9 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
       append_output(writer, 48);
       append_output(writer, 48);
 
-      let int high = byte / 16;
+      // This branch only admits UTF-8 control bytes 0..31.
+      // '/' produces FLOAT in Atto; use integral arithmetic for \u00XX.
+      let int high = byte >= 16 ? 1 : 0;
       let int low = byte % 16;
       append_output(writer, high < 10 ? 48 + high : 87 + high);
       append_output(writer, low < 10 ? 48 + low : 87 + low);
