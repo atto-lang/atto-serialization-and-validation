@@ -1,0 +1,36 @@
+// Native scalar output conformance for exact integer UTF8 encoding.
+import fnc require_true, require_int from './assert';
+import fnc utf8_append_codepoint from '../src/core/utf8';
+
+pub fnc main(): void {
+  let mut List<int> bytes = new List<int>();
+  val bool ascii_ok = utf8_append_codepoint(rt mut borrow bytes, 36);
+  val bool two_ok = utf8_append_codepoint(rt mut borrow bytes, 2047);
+  val bool three_ok = utf8_append_codepoint(rt mut borrow bytes, 8364);
+  val bool four_ok = utf8_append_codepoint(rt mut borrow bytes, 128512);
+  val bool max_ok = utf8_append_codepoint(rt mut borrow bytes, 1114111);
+  require_true(ascii_ok && two_ok && three_ok && four_ok && max_ok,
+    "UTF8 append accepts valid scalar ranges");
+  require_int(bytes.length, 14, "canonical UTF8 scalar byte count");
+  require_int(bytes[0], 36, "ASCII U+0024");
+  require_int(bytes[1], 223, "U+07FF first byte");
+  require_int(bytes[2], 191, "U+07FF continuation");
+  require_int(bytes[3], 226, "Euro sign first byte");
+  require_int(bytes[4], 130, "Euro sign second byte");
+  require_int(bytes[5], 172, "Euro sign third byte");
+  require_int(bytes[6], 240, "U+1F600 first byte");
+  require_int(bytes[7], 159, "U+1F600 second byte");
+  require_int(bytes[8], 152, "U+1F600 third byte");
+  require_int(bytes[9], 128, "U+1F600 final byte");
+  require_int(bytes[10], 244, "U+10FFFF first byte");
+  require_int(bytes[11], 143, "U+10FFFF second byte");
+  require_int(bytes[12], 191, "U+10FFFF third byte");
+  require_int(bytes[13], 191, "U+10FFFF final byte");
+  val bool surrogate_ok = utf8_append_codepoint(rt mut borrow bytes, 55296);
+  val bool overflow_ok = utf8_append_codepoint(rt mut borrow bytes, 1114112);
+  require_true(!surrogate_ok && !overflow_ok,
+    "UTF8 append rejects surrogates and out-of-range scalars");
+  require_int(bytes.length, 14, "invalid scalar cannot partially modify output");
+  stdio.stdout.println("native Zorde UTF8 scalar append passed");
+  return;
+}

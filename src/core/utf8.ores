@@ -118,22 +118,24 @@ pub fnc utf8_append_codepoint(
     return true;
   fi
 
+  // Integer bit extraction is exact and bounded on a valid Unicode scalar.
+  // '/' would yield FLOAT and is not an admissible List<int> wire byte.
   if codepoint <= 2047 then
-    output.add(192 + (codepoint / 64));
-    output.add(128 + (codepoint % 64));
+    output.add(192 + (codepoint >> 6));
+    output.add(128 + (codepoint & 63));
     return true;
   fi
 
   if codepoint <= 65535 then
-    output.add(224 + (codepoint / 4096));
-    output.add(128 + ((codepoint / 64) % 64));
-    output.add(128 + (codepoint % 64));
+    output.add(224 + (codepoint >> 12));
+    output.add(128 + ((codepoint >> 6) & 63));
+    output.add(128 + (codepoint & 63));
     return true;
   fi
 
-  output.add(240 + (codepoint / 262144));
-  output.add(128 + ((codepoint / 4096) % 64));
-  output.add(128 + ((codepoint / 64) % 64));
-  output.add(128 + (codepoint % 64));
+  output.add(240 + (codepoint >> 18));
+  output.add(128 + ((codepoint >> 12) & 63));
+  output.add(128 + ((codepoint >> 6) & 63));
+  output.add(128 + (codepoint & 63));
   return true;
 }
