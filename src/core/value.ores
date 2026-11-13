@@ -904,11 +904,11 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     let int entry_index = 0;
     loop do
       if entry_index >= container.map_value.length then break; fi
-      val bool matches = value_deep_equal_borrow(
+      val bool key_matches = value_deep_equal_borrow(
         rt borrow container.map_value[entry_index].key,
         rt borrow key
       );
-      if matches then
+      if key_matches then
         return Ok(container.map_value[entry_index].value);
       fi
       entry_index = entry_index + 1;
