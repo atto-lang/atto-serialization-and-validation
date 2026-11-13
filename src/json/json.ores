@@ -847,36 +847,38 @@ fnc object_keys_unique(borrow List<WireMember> members): bool {
 
 
 fnc parse_array(borrow mut JsonCursor cursor, int depth): Value {
+  // Partial arrays are discarded on recorded parse errors. Only a complete
+  // array transfers the accumulated owned values across the loop.
   val List<Value> values = new List<Value>();
 
   expect_byte(rt mut borrow cursor, 91, "expected '['");
   if cursor.failed || cursor.incomplete then
-    return value_array(values);
+    return value_array(new List<Value>());
   fi
 
   skip_whitespace(rt mut borrow cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 93 then
     cursor.index = cursor.index + 1;
-    return value_array(values);
+    return value_array(new List<Value>());
   fi
 
   loop do
     if values.length >= cursor.options.max_array_entries then
       fail(rt mut borrow cursor, "array_limit", "JSON array exceeds max_array_entries");
-      return value_array(values);
+      return value_array(new List<Value>());
     fi
 
     let Value item = parse_value(rt mut borrow cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
-      return value_array(values);
+      return value_array(new List<Value>());
     fi
     values.add(item);
 
     skip_whitespace(rt mut borrow cursor);
     let int separator = peek(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
-      return value_array(values);
+      return value_array(new List<Value>());
     fi
 
     if separator == 44 then
@@ -891,56 +893,58 @@ fnc parse_array(borrow mut JsonCursor cursor, int depth): Value {
     fi
 
     fail(rt mut borrow cursor, "array_separator", "expected ',' or ']' after JSON array value");
-    return value_array(values);
+    return value_array(new List<Value>());
   done
 
   return value_array(values);
 }
 
 fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
+  // Error and incomplete states are communicated on cursor. Never transfer
+  // the partially accumulated member list out of a repeating loop arm.
   val List<WireMember> members = new List<WireMember>();
   let mut Map<int, List<int>> buckets = new Map<int, List<int>>();
 
   expect_byte(rt mut borrow cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
-    return value_object(members);
+    return value_object(new List<WireMember>());
   fi
 
   skip_whitespace(rt mut borrow cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 125 then
     cursor.index = cursor.index + 1;
-    return value_object(members);
+    return value_object(new List<WireMember>());
   fi
 
   loop do
     if members.length >= cursor.options.max_map_entries then
       fail(rt mut borrow cursor, "map_limit", "JSON object exceeds max_map_entries");
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     if peek(rt mut borrow cursor) != 34 then
       if !cursor.failed && !cursor.incomplete then
         fail(rt mut borrow cursor, "object_key", "JSON object key must be a string");
       fi
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     let Utf8Text key = parse_string(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     skip_whitespace(rt mut borrow cursor);
     expect_byte(rt mut borrow cursor, 58, "expected ':' after JSON object key");
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     skip_whitespace(rt mut borrow cursor);
     let Value field_value = parse_value(rt mut borrow cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     let int key_hash = key_hash_view(rt borrow key);
@@ -950,7 +954,7 @@ fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(rt mut borrow cursor, "duplicate_key", "duplicate JSON object key");
-        return value_object(members);
+        return value_object(new List<WireMember>());
       elseif cursor.options.duplicate_key_policy == 2 then
         members[existing] = new WireMember(key, field_value);
       fi
@@ -964,7 +968,7 @@ fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
     skip_whitespace(rt mut borrow cursor);
     let int separator = peek(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return value_object(new List<WireMember>());
     fi
 
     if separator == 44 then
@@ -979,7 +983,7 @@ fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
     fi
 
     fail(rt mut borrow cursor, "object_separator", "expected ',' or '}' after JSON object member");
-    return value_object(members);
+    return value_object(new List<WireMember>());
   done
 
   return value_object(members);
