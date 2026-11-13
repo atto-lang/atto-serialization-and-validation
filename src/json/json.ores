@@ -1056,8 +1056,14 @@ pub fnc decode_attempt(
     );
   fi
 
+  // Read scalar bytes by index: this does not create a mutable projected
+  // iterator alias from the owned but read-only input binding.
   let int byte_index = 0;
-  for const byte of input do
+  loop do
+    if byte_index >= input.length then
+      break;
+    fi
+    let int byte = input[byte_index];
     if byte < 0 || byte > 255 then
       return new DecodeAttempt(
         2,
