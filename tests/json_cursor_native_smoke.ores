@@ -1,0 +1,78 @@
+// Standalone native guest proof for JsonCursor ownership and state after
+// nested parsing. Construct bytes through the canonical List.add API.
+import fnc require_int from './assert';
+import fnc decode_attempt, new_incremental_decoder from '../src/json/json';
+import fnc default_decode_options from '../src/core/options';
+import class DecodeAttempt, DecodeStep from '../src/core/options';
+import class JsonIncrementalDecoder from '../src/json/json';
+
+pub fnc main(): void {
+  // {"x":[1,true,null]}: nested parse helpers must reborrow the same
+  // mutable cursor and leave its post-parse index available to decode_attempt.
+  val List<int> nested = new List<int>();
+  nested.add(123);
+  nested.add(34);
+  nested.add(120);
+  nested.add(34);
+  nested.add(58);
+  nested.add(91);
+  nested.add(49);
+  nested.add(44);
+  nested.add(116);
+  nested.add(114);
+  nested.add(117);
+  nested.add(101);
+  nested.add(44);
+  nested.add(110);
+  nested.add(117);
+  nested.add(108);
+  nested.add(108);
+  nested.add(93);
+  nested.add(125);
+  val DecodeAttempt parsed = decode_attempt(
+    nested, default_decode_options()
+  );
+  require_int(parsed.status, 0, "nested JSON parse completed");
+  require_int(parsed.consumed, 19, "cursor index survives recursive parsing");
+  require_int(parsed.value.kind, 6, "nested JSON root remains object");
+
+  val List<int> truncated = new List<int>();
+  truncated.add(91);
+  truncated.add(49);
+  truncated.add(44);
+  val DecodeAttempt partial = decode_attempt(
+    truncated, default_decode_options()
+  );
+  require_int(partial.status, 1, "truncated array preserves incomplete status");
+  require_int(partial.consumed, 3, "incomplete cursor consumes source prefix");
+
+  val List<int> trailing = new List<int>();
+  trailing.add(110);
+  trailing.add(117);
+  trailing.add(108);
+  trailing.add(108);
+  trailing.add(32);
+  trailing.add(49);
+  val DecodeAttempt extra = decode_attempt(
+    trailing, default_decode_options()
+  );
+  require_int(extra.status, 2, "trailing value is rejected");
+
+  // The incremental scanner owns its buffer; no parser cursor escapes.
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(
+    default_decode_options()
+  );
+  val List<int> first_chunk = new List<int>();
+  first_chunk.add(91);
+  first_chunk.add(49);
+  val DecodeStep first = decoder.feed(first_chunk);
+  require_int(first.status, 0, "incomplete array waits for continuation");
+  val List<int> second_chunk = new List<int>();
+  second_chunk.add(93);
+  val DecodeStep finished = decoder.feed(second_chunk);
+  require_int(finished.status, 1, "incremental array completes once");
+  require_int(finished.value.kind, 5, "incremental array preserves Value kind");
+
+  stdio.stdout.println("native Zorde JSON cursor ownership passed");
+  return;
+}
