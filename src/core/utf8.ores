@@ -99,7 +99,7 @@ pub fnc utf8_codepoint_count(List<int> bytes): int {
 }
 
 pub fnc utf8_append_codepoint(
-  List<int> mut output,
+  borrow mut List<int> output,
   int codepoint
 ): bool {
   if codepoint < 0 || codepoint > 1114111 then

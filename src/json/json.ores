@@ -526,7 +526,7 @@ fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
           return new Utf8Text(output);
         fi
 
-        if !utf8_append_codepoint(output, codepoint) then
+        if !utf8_append_codepoint(rt mut borrow output, codepoint) then
           fail(rt mut borrow cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
           return new Utf8Text(output);
         fi
