@@ -21,14 +21,14 @@ define class JsonCursor as
 end
 
 define class JsonWriter as
-  pub let List<int> output;
+  pub let mut List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
 end
 
 pub define class JsonIncrementalDecoder as
-  pub let List<int> buffer;
+  pub let mut List<int> buffer;
   pub val DecodeOptions options;
   pub let bool complete;
 
