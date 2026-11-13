@@ -91,7 +91,10 @@ pub fnc utf8_sequence_length(borrow List<int> bytes, int index): int {
 // Canonical scalar measurement now lives in utf8_scalar.ores so core,
 // Zorde runtime checks and all codecs share one scanner implementation.
 pub fnc utf8_is_valid(List<int> bytes): bool {
-  return utf8_scalar_count(bytes) >= 0;
+  // Give the imported scalar scanner's result its nominal integer type
+  // before comparing; never interpret a dynamically typed call as numeric.
+  val int scalar_count = utf8_scalar_count(bytes);
+  return scalar_count >= 0;
 }
 
 pub fnc utf8_codepoint_count(List<int> bytes): int {
