@@ -90,7 +90,7 @@ pub fnc max_supported_depth(): int {
   return 128;
 }
 
-pub fnc decode_options_valid(DecodeOptions options): bool {
+pub fnc decode_options_valid(borrow DecodeOptions options): bool {
   if options.duplicate_key_policy < 0 || options.duplicate_key_policy > 2 then
     return false;
   fi
@@ -117,7 +117,7 @@ pub fnc decode_options_valid(DecodeOptions options): bool {
   return true;
 }
 
-pub fnc encode_options_valid(EncodeOptions options): bool {
+pub fnc encode_options_valid(borrow EncodeOptions options): bool {
   if options.max_depth < 0 || options.max_depth > max_supported_depth() then
     return false;
   fi

@@ -8,7 +8,7 @@ pub async fnc decode_cbor_from_channel(
   Channel<Option<List<int>>> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
+  if !decode_options_valid(rt borrow options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 

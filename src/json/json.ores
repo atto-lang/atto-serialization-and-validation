@@ -189,7 +189,7 @@ pub define class JsonIncrementalDecoder as
       );
     fi
   
-    if !decode_options_valid(self.options) then
+    if !decode_options_valid(rt borrow self.options) then
       return new DecodeStep(
         2,
         value_null(),
@@ -1038,7 +1038,7 @@ pub fnc decode_attempt(
   List<int> input,
   DecodeOptions options
 ): DecodeAttempt {
-  if !decode_options_valid(options) then
+  if !decode_options_valid(rt borrow options) then
     return new DecodeAttempt(
       2,
       value_null(),
@@ -1370,7 +1370,7 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
-  if !encode_options_valid(options) then
+  if !encode_options_valid(rt borrow options) then
     return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
   fi
 
