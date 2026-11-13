@@ -19,9 +19,10 @@ pub fnc main(): void {
   val List<MapEntry> absent_entries = new List<MapEntry>();
   absent_entries.add(new MapEntry(value_int(10), value_int(90)));
   absent_entries.add(new MapEntry(value_int(20), value_int(91)));
-  require_true(value_lookup(
+  val Result<Value, String> absent = value_lookup(
     value_map(absent_entries), value_int(99)
-  ).is_err(), "borrowed map lookup must reject absent key");
+  );
+  require_true(absent.is_err(), "borrowed map lookup must reject absent key");
 
   val List<Value> left_array = new List<Value>();
   left_array.add(value_int(7));
