@@ -638,8 +638,23 @@ pub fnc value_deep_equal_borrow(
   borrow Value left,
   borrow Value right
 ): bool {
-  // Parameters already carry Borrow<Value>; reborrowing them would
-  // unnecessarily construct a second runtime borrow expression.
+  // Numeric scalar fast-path requires no recursive or nested borrowed
+  // function call. It also isolates runtime borrow-call behavior from the
+  // recursive comparison implementation for native compiler conformance.
+  if left.kind == 2 && right.kind == 2 then
+    if left.number_lexeme.length != right.number_lexeme.length then
+      return false;
+    fi
+    let int byte_index = 0;
+    loop do
+      if byte_index >= left.number_lexeme.length then break; fi
+      if left.number_lexeme[byte_index] != right.number_lexeme[byte_index] then
+        return false;
+      fi
+      byte_index = byte_index + 1;
+    done
+    return true;
+  fi
   val bool equal = value_deep_equal_borrow_bounded(left, right, 0, 64);
   return equal;
 }
