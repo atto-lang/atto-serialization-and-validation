@@ -702,9 +702,11 @@ pub fnc run_validation_tests(): void {
   val List<MapEntry> absent_lookup_entries = new List<MapEntry>();
   absent_lookup_entries.add(new MapEntry(value_int(11), value_int(101)));
   absent_lookup_entries.add(new MapEntry(value_int(12), value_int(102)));
-  require_true(value_lookup(
+  val Result<Value, String> absent_lookup = value_lookup(
     value_map(absent_lookup_entries), value_int(99)
-  ).is_err(), "general-map absent key must stay absent");
+  );
+  require_true(absent_lookup.is_err(),
+    "general-map absent key must stay absent");
 
   val List<Value> borrow_items_left = new List<Value>();
   borrow_items_left.add(value_int(3));
