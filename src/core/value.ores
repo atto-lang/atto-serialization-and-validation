@@ -898,12 +898,18 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     fi
     return object_get(container, key.string_value);
   elseif container.kind == 8 then
-    for const entry of container.map_value do
+    // Index traversal keeps the comparison borrow local to one iteration.
+    // It avoids materializing an alias from a for-of entry across suspension.
+    let int entry_index = 0;
+    loop do
+      if entry_index >= container.map_value.length then break; fi
       if value_deep_equal_borrow(
-        rt borrow entry.key, rt borrow key
+        rt borrow container.map_value[entry_index].key,
+        rt borrow key
       ) then
-        return Ok(entry.value);
+        return Ok(container.map_value[entry_index].value);
       fi
+      entry_index = entry_index + 1;
     done
     return Err("general map key not found");
   elseif container.kind == 5 then
