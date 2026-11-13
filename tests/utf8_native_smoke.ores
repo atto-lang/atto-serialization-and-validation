@@ -15,6 +15,9 @@ pub fnc main(): void {
   stdio.stdout.println("utf8 wire stage 4 four-byte");
   val bool max_ok = utf8_append_codepoint(rt mut borrow bytes, 1114111);
   stdio.stdout.println("utf8 wire stage 5 max-scalar");
+  if ascii_ok then
+    stdio.stdout.println("utf8 wire stage 5-direct-bool");
+  fi
   require_true(ascii_ok, "ASCII UTF8 append succeeded");
   stdio.stdout.println("utf8 wire stage 5a ascii-result");
   require_true(two_ok, "two-byte UTF8 append succeeded");
