@@ -624,7 +624,7 @@ fnc parse_literal(
 
 fnc push_number_byte(
   borrow mut JsonCursor cursor,
-  List<int> mut lexeme,
+  borrow mut List<int> lexeme,
   int byte
 ): bool {
   if lexeme.length >= cursor.options.max_number_bytes then
@@ -637,30 +637,32 @@ fnc push_number_byte(
 }
 
 fnc parse_number(borrow mut JsonCursor cursor): Value {
+  // Invalid and incomplete number paths retain error status on cursor;
+  // only the valid terminal parse moves its lexeme into the Value.
   val List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
-    if !push_number_byte(rt mut borrow cursor, lexeme, 45) then
-      return value_number_lexeme(lexeme);
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, 45) then
+      return value_number_lexeme(new List<int>());
     fi
     cursor.index = cursor.index + 1;
   fi
 
   if cursor.index >= cursor.input.length then
     need_more(rt mut borrow cursor);
-    return value_number_lexeme(lexeme);
+    return value_number_lexeme(new List<int>());
   fi
 
   let int first = cursor.input[cursor.index];
 
   if first == 48 then
-    if !push_number_byte(rt mut borrow cursor, lexeme, first) then
-      return value_number_lexeme(lexeme);
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, first) then
+      return value_number_lexeme(new List<int>());
     fi
     cursor.index = cursor.index + 1;
     if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
       fail(rt mut borrow cursor, "invalid_number", "JSON number cannot contain a leading zero");
-      return value_number_lexeme(lexeme);
+      return value_number_lexeme(new List<int>());
     fi
   elseif is_nonzero_digit(first) then
     loop do
@@ -671,29 +673,29 @@ fnc parse_number(borrow mut JsonCursor cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      if !push_number_byte(rt mut borrow cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
+        return value_number_lexeme(new List<int>());
       fi
       cursor.index = cursor.index + 1;
     done
   else
     fail(rt mut borrow cursor, "invalid_number", "invalid JSON integer component");
-    return value_number_lexeme(lexeme);
+    return value_number_lexeme(new List<int>());
   fi
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
-    if !push_number_byte(rt mut borrow cursor, lexeme, 46) then
-      return value_number_lexeme(lexeme);
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, 46) then
+      return value_number_lexeme(new List<int>());
     fi
     cursor.index = cursor.index + 1;
 
     if cursor.index >= cursor.input.length then
       need_more(rt mut borrow cursor);
-      return value_number_lexeme(lexeme);
+      return value_number_lexeme(new List<int>());
     fi
     if !is_digit(cursor.input[cursor.index]) then
       fail(rt mut borrow cursor, "invalid_number", "fraction requires at least one digit");
-      return value_number_lexeme(lexeme);
+      return value_number_lexeme(new List<int>());
     fi
 
     loop do
@@ -704,8 +706,8 @@ fnc parse_number(borrow mut JsonCursor cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      if !push_number_byte(rt mut borrow cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
+        return value_number_lexeme(new List<int>());
       fi
       cursor.index = cursor.index + 1;
     done
@@ -714,31 +716,31 @@ fnc parse_number(borrow mut JsonCursor cursor): Value {
   if cursor.index < cursor.input.length then
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
-      if !push_number_byte(rt mut borrow cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
+        return value_number_lexeme(new List<int>());
       fi
       cursor.index = cursor.index + 1;
 
       if cursor.index >= cursor.input.length then
         need_more(rt mut borrow cursor);
-        return value_number_lexeme(lexeme);
+        return value_number_lexeme(new List<int>());
       fi
 
       let int sign = cursor.input[cursor.index];
       if sign == 43 || sign == 45 then
-        if !push_number_byte(rt mut borrow cursor, lexeme, sign) then
-          return value_number_lexeme(lexeme);
+        if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, sign) then
+          return value_number_lexeme(new List<int>());
         fi
         cursor.index = cursor.index + 1;
       fi
 
       if cursor.index >= cursor.input.length then
         need_more(rt mut borrow cursor);
-        return value_number_lexeme(lexeme);
+        return value_number_lexeme(new List<int>());
       fi
       if !is_digit(cursor.input[cursor.index]) then
         fail(rt mut borrow cursor, "invalid_number", "exponent requires at least one digit");
-        return value_number_lexeme(lexeme);
+        return value_number_lexeme(new List<int>());
       fi
 
       loop do
@@ -749,8 +751,8 @@ fnc parse_number(borrow mut JsonCursor cursor): Value {
         if !is_digit(exp_byte) then
           break;
         fi
-        if !push_number_byte(rt mut borrow cursor, lexeme, exp_byte) then
-          return value_number_lexeme(lexeme);
+        if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, exp_byte) then
+          return value_number_lexeme(new List<int>());
         fi
         cursor.index = cursor.index + 1;
       done
