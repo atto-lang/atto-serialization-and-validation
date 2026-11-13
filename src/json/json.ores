@@ -1077,7 +1077,9 @@ pub fnc decode_attempt(
 
   // The cursor owns the input and options after construction. Preserve only
   // immutable scalar facts required by the trailing-data check.
-  val int input_length = input.length;
+  // The preflight has validated every wire byte: byte_index is now exactly
+  // the input length. Reuse this scalar rather than projecting another alias.
+  val int input_length = byte_index;
   val bool allow_trailing_data = options.allow_trailing_data;
   let JsonCursor cursor = new JsonCursor(
     input,
