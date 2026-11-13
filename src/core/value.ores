@@ -638,9 +638,9 @@ pub fnc value_deep_equal_borrow(
   borrow Value left,
   borrow Value right
 ): bool {
-  return value_deep_equal_borrow_bounded(
-    rt borrow left, rt borrow right, 0, 64
-  );
+  // Parameters already carry Borrow<Value>; reborrowing them would
+  // unnecessarily construct a second runtime borrow expression.
+  return value_deep_equal_borrow_bounded(left, right, 0, 64);
 }
 
 fnc value_deep_equal_borrow_bounded(
