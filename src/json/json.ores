@@ -304,7 +304,7 @@ fnc need_more(borrow mut JsonCursor cursor): void {
   return;
 }
 
-fnc writer_fail(JsonWriter mut writer, String code, String message): void {
+fnc writer_fail(borrow mut JsonWriter writer, String code, String message): void {
   if writer.failed then
     return;
   fi
@@ -389,12 +389,12 @@ fnc expect_byte(borrow mut JsonCursor cursor, int expected, String message): voi
   return;
 }
 
-fnc append_output(JsonWriter mut writer, int byte): void {
+fnc append_output(borrow mut JsonWriter writer, int byte): void {
   if writer.failed then
     return;
   fi
   if writer.output.length >= writer.options.max_output_bytes then
-    writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
+    writer_fail(rt mut borrow writer, "output_limit", "encoded output exceeds max_output_bytes");
     return;
   fi
   writer.output.add(byte);
@@ -1125,8 +1125,8 @@ fnc valid_number_lexeme(List<int> bytes): bool {
   return value.kind == 2;
 }
 
-fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
-  append_output(writer, 34);
+fnc write_json_string(borrow mut JsonWriter writer, Utf8Text text): void {
+  append_output(rt mut borrow writer, 34);
 
   let int i = 0;
   loop do
@@ -1137,79 +1137,79 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
     let int byte = text.bytes[i];
 
     if byte == 34 then
-      append_output(writer, 92);
-      append_output(writer, 34);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 34);
       i = i + 1;
       continue;
     fi
 
     if byte == 92 then
-      append_output(writer, 92);
-      append_output(writer, 92);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 92);
       i = i + 1;
       continue;
     fi
 
     if byte == 8 then
-      append_output(writer, 92);
-      append_output(writer, 98);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 98);
       i = i + 1;
       continue;
     fi
 
     if byte == 12 then
-      append_output(writer, 92);
-      append_output(writer, 102);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 102);
       i = i + 1;
       continue;
     fi
 
     if byte == 10 then
-      append_output(writer, 92);
-      append_output(writer, 110);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 110);
       i = i + 1;
       continue;
     fi
 
     if byte == 13 then
-      append_output(writer, 92);
-      append_output(writer, 114);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 114);
       i = i + 1;
       continue;
     fi
 
     if byte == 9 then
-      append_output(writer, 92);
-      append_output(writer, 116);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 116);
       i = i + 1;
       continue;
     fi
 
     if byte < 32 then
-      append_output(writer, 92);
-      append_output(writer, 117);
-      append_output(writer, 48);
-      append_output(writer, 48);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 117);
+      append_output(rt mut borrow writer, 48);
+      append_output(rt mut borrow writer, 48);
 
       // This branch only admits UTF-8 control bytes 0..31.
       // '/' produces FLOAT in Atto; use integral arithmetic for \u00XX.
       let int high = byte >= 16 ? 1 : 0;
       let int low = byte % 16;
-      append_output(writer, high < 10 ? 48 + high : 87 + high);
-      append_output(writer, low < 10 ? 48 + low : 87 + low);
+      append_output(rt mut borrow writer, high < 10 ? 48 + high : 87 + high);
+      append_output(rt mut borrow writer, low < 10 ? 48 + low : 87 + low);
       i = i + 1;
       continue;
     fi
 
     if byte < 128 then
-      append_output(writer, byte);
+      append_output(rt mut borrow writer, byte);
       i = i + 1;
       continue;
     fi
 
     let int width = utf8_sequence_length(text.bytes, i);
     if width < 2 then
-      writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
+      writer_fail(rt mut borrow writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
       return;
     fi
 
@@ -1218,68 +1218,68 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
       if j >= width then
         break;
       fi
-      append_output(writer, text.bytes[i + j]);
+      append_output(rt mut borrow writer, text.bytes[i + j]);
       j = j + 1;
     done
     i = i + width;
   done
 
-  append_output(writer, 34);
+  append_output(rt mut borrow writer, 34);
   return;
 }
 
-fnc write_literal(JsonWriter mut writer, List<int> bytes): void {
+fnc write_literal(borrow mut JsonWriter writer, List<int> bytes): void {
   for const byte of bytes do
-    append_output(writer, byte);
+    append_output(rt mut borrow writer, byte);
   done
   return;
 }
 
-fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
+fnc encode_value(borrow mut JsonWriter writer, Value value, int depth): void {
   if writer.failed then
     return;
   fi
 
   if depth > writer.options.max_depth then
-    writer_fail(writer, "depth_limit", "JSON encoding exceeds max_depth");
+    writer_fail(rt mut borrow writer, "depth_limit", "JSON encoding exceeds max_depth");
     return;
   fi
 
   if value.kind == 0 then
-    write_literal(writer, new List<int>(110, 117, 108, 108));
+    write_literal(rt mut borrow writer, new List<int>(110, 117, 108, 108));
     return;
   fi
 
   if value.kind == 1 then
     if value.bool_value then
-      write_literal(writer, new List<int>(116, 114, 117, 101));
+      write_literal(rt mut borrow writer, new List<int>(116, 114, 117, 101));
     else
-      write_literal(writer, new List<int>(102, 97, 108, 115, 101));
+      write_literal(rt mut borrow writer, new List<int>(102, 97, 108, 115, 101));
     fi
     return;
   fi
 
   if value.kind == 2 then
     if !valid_number_lexeme(value.number_lexeme) then
-      writer_fail(writer, "invalid_number", "number Value contains an invalid JSON number lexeme");
+      writer_fail(rt mut borrow writer, "invalid_number", "number Value contains an invalid JSON number lexeme");
       return;
     fi
-    write_literal(writer, value.number_lexeme);
+    write_literal(rt mut borrow writer, value.number_lexeme);
     return;
   fi
 
   if value.kind == 3 then
-    write_json_string(writer, value.string_value);
+    write_json_string(rt mut borrow writer, value.string_value);
     return;
   fi
 
   if value.kind == 4 || value.kind == 7 then
-    writer_fail(writer, "unsupported_value", "JSON cannot directly encode binary or extension values");
+    writer_fail(rt mut borrow writer, "unsupported_value", "JSON cannot directly encode binary or extension values");
     return;
   fi
 
   if value.kind == 5 then
-    append_output(writer, 91);
+    append_output(rt mut borrow writer, 91);
 
     let int i = 0;
     loop do
@@ -1287,26 +1287,26 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
         break;
       fi
       if i > 0 then
-        append_output(writer, 44);
+        append_output(rt mut borrow writer, 44);
       fi
-      encode_value(writer, value.array_value[i], depth + 1);
+      encode_value(rt mut borrow writer, value.array_value[i], depth + 1);
       if writer.failed then
         return;
       fi
       i = i + 1;
     done
 
-    append_output(writer, 93);
+    append_output(rt mut borrow writer, 93);
     return;
   fi
 
   if value.kind == 6 then
     if !object_keys_unique(value.object_value) then
-      writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
       return;
     fi
 
-    append_output(writer, 123);
+    append_output(rt mut borrow writer, 123);
 
     let int i = 0;
     loop do
@@ -1314,13 +1314,13 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
         break;
       fi
       if i > 0 then
-        append_output(writer, 44);
+        append_output(rt mut borrow writer, 44);
       fi
 
       let WireMember member = value.object_value[i];
-      write_json_string(writer, member.key);
-      append_output(writer, 58);
-      encode_value(writer, member.value, depth + 1);
+      write_json_string(rt mut borrow writer, member.key);
+      append_output(rt mut borrow writer, 58);
+      encode_value(rt mut borrow writer, member.value, depth + 1);
 
       if writer.failed then
         return;
@@ -1328,11 +1328,11 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
       i = i + 1;
     done
 
-    append_output(writer, 125);
+    append_output(rt mut borrow writer, 125);
     return;
   fi
 
-  writer_fail(writer, "unsupported_value", "unknown dynamic Value kind");
+  writer_fail(rt mut borrow writer, "unsupported_value", "unknown dynamic Value kind");
   return;
 }
 
@@ -1351,7 +1351,7 @@ pub fnc encode(
     new EncodeError("", "")
   );
 
-  encode_value(writer, value, 0);
+  encode_value(rt mut borrow writer, value, 0);
 
   if writer.failed then
     return Err(writer.error);
