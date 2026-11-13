@@ -616,6 +616,198 @@ fnc value_deep_equal_bounded(
 }
 
 
+// Non-consuming equality for borrowed Values, including repeated general-map
+// lookup. No mutable List/Map aliases are projected from the inputs. This is
+// a semantically equivalent, read-only alternative to value_deep_equal().
+// Full checked-admission work quotas are enforced by the validator; here we
+// also bound nesting, arity, and failed semantic comparison attempts.
+pub fnc value_deep_equal_borrow(
+  borrow Value left,
+  borrow Value right
+): bool {
+  return value_deep_equal_borrow_bounded(
+    rt borrow left, rt borrow right, 0, 64
+  );
+}
+
+fnc value_deep_equal_borrow_bounded(
+  borrow Value left,
+  borrow Value right,
+  int depth,
+  int max_depth
+): bool {
+  if depth > max_depth || left.kind != right.kind then return false; fi
+
+  if left.kind == 0 then return true; fi
+  if left.kind == 1 then return left.bool_value == right.bool_value; fi
+
+  if left.kind == 2 then
+    if left.number_lexeme.length != right.number_lexeme.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.number_lexeme.length then break; fi
+      if left.number_lexeme[i] != right.number_lexeme[i] then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 3 then
+    if left.string_value.bytes.length != right.string_value.bytes.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.string_value.bytes.length then break; fi
+      if left.string_value.bytes[i] != right.string_value.bytes[i] then
+        return false;
+      fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 4 || left.kind == 7 then
+    if left.kind == 7 && left.extension_type != right.extension_type then
+      return false;
+    fi
+    if left.bytes_value.length != right.bytes_value.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.bytes_value.length then break; fi
+      if left.bytes_value[i] != right.bytes_value[i] then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 5 then
+    if left.array_value.length != right.array_value.length ||
+       left.array_value.length > 4096 then return false; fi
+    let int i = 0;
+    loop do
+      if i >= left.array_value.length then break; fi
+      if !value_deep_equal_borrow_bounded(
+        rt borrow left.array_value[i],
+        rt borrow right.array_value[i],
+        depth + 1, max_depth
+      ) then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 6 then
+    if left.object_value.length != right.object_value.length ||
+       left.object_value.length > 4096 then return false; fi
+    val List<bool> used = new List<bool>();
+    let int i = 0;
+    loop do
+      if i >= right.object_value.length then break; fi
+      used.add(false);
+      i = i + 1;
+    done
+
+    // Objects compare independent of insertion order. Bound the number of
+    // unsuccessful candidate comparisons to keep collision cost finite.
+    let int remaining_candidates = 256;
+    let int li = 0;
+    loop do
+      if li >= left.object_value.length then break; fi
+      let bool matched = false;
+      let int ri = 0;
+      loop do
+        if ri >= right.object_value.length then break; fi
+        if !used[ri] then
+          let bool same_key =
+            left.object_value[li].key.bytes.length ==
+            right.object_value[ri].key.bytes.length;
+          if same_key then
+            let int bi = 0;
+            loop do
+              if bi >= left.object_value[li].key.bytes.length then break; fi
+              if left.object_value[li].key.bytes[bi] !=
+                 right.object_value[ri].key.bytes[bi] then
+                same_key = false;
+                break;
+              fi
+              bi = bi + 1;
+            done
+          fi
+
+          if same_key &&
+             value_deep_equal_borrow_bounded(
+               rt borrow left.object_value[li].value,
+               rt borrow right.object_value[ri].value,
+               depth + 1, max_depth
+             ) then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
+          if remaining_candidates <= 0 then return false; fi
+          remaining_candidates = remaining_candidates - 1;
+        fi
+        ri = ri + 1;
+      done
+      if !matched then return false; fi
+      li = li + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 8 then
+    if left.map_value.length != right.map_value.length ||
+       left.map_value.length > 4096 then return false; fi
+    val List<bool> used = new List<bool>();
+    let int i = 0;
+    loop do
+      if i >= right.map_value.length then break; fi
+      used.add(false);
+      i = i + 1;
+    done
+    let int remaining_candidates = 256;
+    let int li = 0;
+    loop do
+      if li >= left.map_value.length then break; fi
+      let bool matched = false;
+      let int ri = 0;
+      loop do
+        if ri >= right.map_value.length then break; fi
+        if !used[ri] then
+          if value_deep_equal_borrow_bounded(
+               rt borrow left.map_value[li].key,
+               rt borrow right.map_value[ri].key,
+               depth + 1, max_depth
+             ) &&
+             value_deep_equal_borrow_bounded(
+               rt borrow left.map_value[li].value,
+               rt borrow right.map_value[ri].value,
+               depth + 1, max_depth
+             ) then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
+          if remaining_candidates <= 0 then return false; fi
+          remaining_candidates = remaining_candidates - 1;
+        fi
+        ri = ri + 1;
+      done
+      if !matched then return false; fi
+      li = li + 1;
+    done
+    return true;
+  fi
+
+  return false;
+}
+
+
 pub fnc parse_int(Value value): IntParse {
   if value.kind != 2 then
     return new IntParse(false, 0);
@@ -694,7 +886,9 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     return object_get(container, key.string_value);
   elseif container.kind == 8 then
     for const entry of container.map_value do
-      if value_deep_equal(entry.key, key) then
+      if value_deep_equal_borrow(
+        rt borrow entry.key, rt borrow key
+      ) then
         return Ok(entry.value);
       fi
     done
