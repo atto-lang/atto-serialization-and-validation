@@ -37,3 +37,9 @@ This describes intended scope, not a verified feature matrix. Consult the source
 AttoLang is the public name; preserve existing Oreslang/.ores compatibility and use canonical .atto for new portable library source. This README defines scope, not feature readiness.
 
 **Acceptance:** name exact source SHA/tree, runtime/toolchain, positive and negative checks and execution receipt before claiming support. Host-only tests and empty CI steps do not prove guest execution.
+
+## Tagged Option/Result JSON (host reference prototype)
+
+`reference/tagged_json.py` now enforces an explicit `kind` (`option` or `result`) and `variant` (`none/some` or `ok/err`) with strict field sets. Errors require bounded snake_case codes and human messages. The reference limits UTF-8 JSON to 64 KiB, nesting to 32 levels, rejects duplicate keys and nonfinite numbers, and sorts keys when encoding. Run `python3 -m unittest discover -s tests -v` for host-only tests.
+
+This is **not** the canonical Atto binary Result/Option wire format, not a general codec, and not proof that any Atto compiler emits these JSON tags. A future versioned wire contract needs cross-backend guest round trips and byte-for-byte evidence.
