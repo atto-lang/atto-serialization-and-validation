@@ -43,3 +43,14 @@ AttoLang is the public name; preserve existing Oreslang/.ores compatibility and 
 `reference/tagged_json.py` now enforces an explicit `kind` (`option` or `result`) and `variant` (`none/some` or `ok/err`) with strict field sets. Errors require bounded snake_case codes and human messages. The reference limits UTF-8 JSON to 64 KiB, nesting to 32 levels, rejects duplicate keys and nonfinite numbers, and sorts keys when encoding. Run `python3 -m unittest discover -s tests -v` for host-only tests.
 
 This is **not** the canonical Atto binary Result/Option wire format, not a general codec, and not proof that any Atto compiler emits these JSON tags. A future versioned wire contract needs cross-backend guest round trips and byte-for-byte evidence.
+
+
+## Host-only portable wire reference (candidate)
+
+The stacked draft PR `#5` adds `reference/portable_wire.py` and focused negative/positive tests. `encode_msgpack` / `decode_msgpack` implement a **limited, deterministic MessagePack subset**: null, bool, signed/unsigned 64-bit integer, finite float, strict UTF-8 text, binary, arrays and string-keyed maps. Unsupported ext/typed non-string-key maps fail closed; the reference does **not** implement all of MessagePack or a typed Atto schema engine. `validate_external_names` rejects Struct internal/external field-name collisions.
+
+`encode_atto_binary` / `decode_atto_binary` demonstrate a **proposed** `ATB1` 44-byte schema-bound frame around that MessagePack profile, with version, length and schema matching. This is a draft, not a ratified Atto Binary standard or the legacy `Result`/`Option` wire layout. See [atto-spec#73](https://github.com/atto-lang/atto-spec/pull/73).
+
+The stacked PR also hardens `reference/tagged_json.py` against escaped unpaired surrogates, out-of-range integers, nonfinite numbers, excessive aggregate entries and cycles. It remains a host-only tagged `Option`/`Result` example.
+
+Run from the repository root: `python3 -m unittest discover -s tests -v`. Local Python tests demonstrate host-reference behavior only. Required future proof: real Atto guest construction/decoding, schema registry, actor isolation, cross-backend golden vectors, fuzzing, exact source SHA and executed CI receipts. Do not count this prototype as guest support.
