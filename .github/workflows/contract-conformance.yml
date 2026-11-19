@@ -14,6 +14,26 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact PR head, tree and all tracked source blobs
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse HEAD
+          git rev-parse 'HEAD^{tree}'
+          test -z "$(git status --porcelain)"
+          count=0
+          while IFS= read -r -d '' file; do
+            test -f "$file"
+            test ! -L "$file"
+            test "$(git hash-object "$file")" = "$(git rev-parse "HEAD:$file")"
+            count=$((count + 1))
+          done < <(git ls-files -z)
+          test "$count" -gt 0
+          echo "PASS: $count tracked source blobs match exact $EXPECTED_HEAD"
       - run: rustup toolchain install 1.88.0 --profile minimal
       - run: cargo +1.88.0 test --locked --all-targets --verbose
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
