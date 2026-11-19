@@ -54,3 +54,24 @@ The stacked draft PR `#5` adds `reference/portable_wire.py` and focused negative
 The stacked PR also hardens `reference/tagged_json.py` against escaped unpaired surrogates, out-of-range integers, nonfinite numbers, excessive aggregate entries and cycles. It remains a host-only tagged `Option`/`Result` example.
 
 Run from the repository root: `python3 -m unittest discover -s tests -v`. Local Python tests demonstrate host-reference behavior only. Required future proof: real Atto guest construction/decoding, schema registry, actor isolation, cross-backend golden vectors, fuzzing, exact source SHA and executed CI receipts. Do not count this prototype as guest support.
+
+### Atto source ownership and native codec admission
+
+A codec invoked as `encode(value)` must treat a nonprimitive `value`
+as an implicit scoped readonly `borrow!`, equivalent to
+`encode(borrow! value)`; serialization does not consume, share or mutate
+the source object. Decode must allocate independently owned storage for
+mutable nested values rather than rely on a shallow `copy!` of an
+exclusive graph. `copy!!` requires a proven graph copier with memoized
+cycles/aliases and failure rollback. Actor publication additionally needs
+explicit authenticated `take!` or frozen/guarded `share!`; source
+`pin!` and `drop!` rights cannot be reconstructed from wire bytes.
+
+**Implementation gate:** the current Python files are reference-only and do
+not count as an AttoLang library. Production codec implementation must be
+native `.atto` source, with Rust supporting tests and real compiled guest
+round trips. Do not promote host-only Python tests, speculative schema
+metadata or unsupported graph-copy cases as backend conformance. Keep the
+PR draft until the language implementation and independent ownership tests
+exist.
+
