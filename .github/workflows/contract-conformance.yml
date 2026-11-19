@@ -1,0 +1,26 @@
+name: Contract conformance
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+
+jobs:
+  schema-and-projection:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - run: cargo +1.88.0 test --locked --all-targets --verbose
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: ./node_modules/.bin/tsp compile contracts/v1/actor-envelope.tsp --no-emit
+      - run: cargo install --locked --version 1.262.0 wasm-tools
+      - run: wasm-tools component wit contracts/v1 --json > /dev/null
+
