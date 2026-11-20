@@ -1,0 +1,114 @@
+// Real Oreslang guest executable; bare-metal-compatible scalar core only.
+// Tests *the same interval evaluator* used by runtime Zorde's wire Value
+// adapter. No codec, reflection, OS, JVM string or float dependency.
+import fnc require_true from './assert';
+import class ZordeCoreInterval from '../src/zorde/scalar_core';
+import fnc zorde_core_interval, zorde_core_interval_valid from '../src/zorde/scalar_core';
+import fnc zorde_core_interval_contains, zorde_core_utf8_accepts from '../src/zorde/scalar_core';
+
+pub fnc main(): void {
+  val ZordeCoreInterval port = zorde_core_interval(1, 65535, new List<int>());
+  require_true(zorde_core_interval_valid(rt borrow port, false),
+    "canonical signed-int64 Port interval must be admitted");
+  require_true(zorde_core_interval_contains(rt borrow port, false, 1),
+    "Port inclusive minimum");
+  require_true(zorde_core_interval_contains(rt borrow port, false, 443),
+    "Port interior");
+  require_true(zorde_core_interval_contains(rt borrow port, false, 65535),
+    "Port inclusive maximum");
+  require_true(!zorde_core_interval_contains(rt borrow port, false, 0),
+    "Port below minimum rejected");
+  require_true(!zorde_core_interval_contains(rt borrow port, false, 65536),
+    "Port above maximum rejected");
+  require_true(!zorde_core_interval_contains(rt borrow port, false,
+    -9223372036854775807 - 1), "Port rejects INT64_MIN");
+  require_true(!zorde_core_interval_contains(rt borrow port, false,
+    9223372036854775807), "Port rejects INT64_MAX");
+
+  val ZordeCoreInterval exact = zorde_core_interval(
+    9007199254740993, 9007199254740993, new List<int>());
+  require_true(zorde_core_interval_contains(rt borrow exact, false,
+    9007199254740993), "exact 2^53+1 accepted");
+  require_true(!zorde_core_interval_contains(rt borrow exact, false,
+    9007199254740992), "2^53 is not interchangeable with 2^53+1");
+  require_true(!zorde_core_interval_contains(rt borrow exact, false,
+    9007199254740994), "2^53+2 rejected");
+
+  val ZordeCoreInterval except_2 = zorde_core_interval(1,3,new List<int>(2));
+  require_true(zorde_core_interval_valid(rt borrow except_2, false),
+    "one sorted in-domain hole is canonical");
+  require_true(zorde_core_interval_contains(rt borrow except_2, false,1),
+    "allowed left neighbor");
+  require_true(!zorde_core_interval_contains(rt borrow except_2,false,2),
+    "excluded scalar cannot validate");
+  require_true(zorde_core_interval_contains(rt borrow except_2,false,3),
+    "allowed right neighbor");
+  require_true(!zorde_core_interval_valid(
+    zorde_core_interval(1,2,new List<int>(1,2)),false),
+    "fully excluded domain rejected");
+  require_true(!zorde_core_interval_valid(
+    zorde_core_interval(1,3,new List<int>(3,2)),false),
+    "unsorted exclusions rejected");
+  require_true(!zorde_core_interval_valid(
+    zorde_core_interval(1,3,new List<int>(2,2)),false),
+    "duplicate exclusions rejected");
+  require_true(!zorde_core_interval_valid(
+    zorde_core_interval(1,3,new List<int>(0)),false),
+    "off-domain holes require compiler normalization");
+
+  val ZordeCoreInterval one_scalar = zorde_core_interval(1,1,new List<int>());
+  require_true(zorde_core_interval_valid(rt borrow one_scalar,true),
+    "Unicode scalar length interval admitted");
+  require_true(zorde_core_utf8_accepts(
+    new List<int>(240,159,152,128), rt borrow one_scalar),
+    "emoji counts as exactly one scalar");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(101,204,129), rt borrow one_scalar),
+    "e followed by combining mark counts as two scalars");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(), rt borrow one_scalar), "empty string rejected");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(192,175), rt borrow one_scalar),
+    "overlong UTF8 rejected");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(237,160,128), rt borrow one_scalar),
+    "UTF8 surrogate rejected");
+  require_true(!zorde_core_utf8_accepts(
+    new List<int>(244,144,128,128), rt borrow one_scalar),
+    "codepoint above U+10FFFF rejected");
+  require_true(!zorde_core_interval_valid(
+    zorde_core_interval(-1,2,new List<int>()),true),
+    "negative Unicode scalar bound rejected");
+
+  val List<int> oversized_exclusions = new List<int>();
+  let int excluded_index = 1;
+  loop do
+    if excluded_index > 257 then break; fi
+    oversized_exclusions.add(excluded_index);
+    excluded_index = excluded_index + 1;
+  done
+  val ZordeCoreInterval builder_refusal = zorde_core_interval(
+    0, 512, rt borrow oversized_exclusions);
+  require_true(!zorde_core_interval_valid(rt borrow builder_refusal, false),
+    "direct interval builder must fail closed before cloning >256 exclusions");
+  val ZordeCoreInterval forged_overlarge = new ZordeCoreInterval(
+    0, 512, oversized_exclusions);
+  require_true(!zorde_core_interval_valid(rt borrow forged_overlarge, false),
+    "public interval constructor cannot bypass the excluded-value budget");
+  val List<int> edge_exclusions = new List<int>();
+  excluded_index = 1;
+  loop do
+    if excluded_index > 256 then break; fi
+    edge_exclusions.add(excluded_index);
+    excluded_index = excluded_index + 1;
+  done
+  val ZordeCoreInterval edge_rule = zorde_core_interval(
+    0, 512, edge_exclusions);
+  require_true(zorde_core_interval_valid(rt borrow edge_rule, false),
+    "256 sorted in-domain exclusions remain admissible");
+  require_true(zorde_core_interval_contains(rt borrow edge_rule, false, 257),
+    "the next non-excluded integer remains admissible");
+
+  stdio.stdout.println("native Zorde core scalar ConstraintIR tests passed");
+  return;
+}
