@@ -137,6 +137,9 @@ jobs:
             EXPECTED_COMPILER_SHA256="$EXPECTED_COMPILER_SHA256" \
             ORESLANG_BIN="$ORESLANG_BIN" \
             ZORDE_EVIDENCE_DIR="$ZORDE_EVIDENCE_DIR" \
+            ZORDE_CI_RUN_ID="${{ github.run_id }}" \
+            ZORDE_CI_RUN_ATTEMPT="${{ github.run_attempt }}" \
+            ZORDE_CI_JOB="${{ github.job }}" \
             /usr/bin/bash --noprofile --norc \
             scripts/test-zorde-registry-source-local.sh
           sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"

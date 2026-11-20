@@ -154,6 +154,145 @@ function sourceGuard(w,z) {
 }
 sourceGuard(wire,zorde);
 checks++;
+
+// Source-only defense-in-depth: both actual encoder and report-only admission
+// must enforce the same raw-varint/signed-metadata consistency constraint.
+// Mutation probes ensure this tripwire catches removing either enforcement.
+const protobufWireTests=readFileSync('tests/protobuf_test.ores','utf8');
+const protobufZordeTests=readFileSync('tests/protobuf_zorde_test.ores','utf8');
+function varintMetadataGuard(w,t,zt) {
+  assert.ok(w.includes('fnc raw_varint_matches_declared_int(ProtoField field): bool'),
+    'missing declared integer/raw Protobuf consistency helper');
+  assert.ok(w.includes('if field.payload.length > 9 then') ||
+    w.includes('field.payload.length > 9 then'),
+    'signed raw varints longer than nine bytes must be denied');
+  assert.ok(w.includes('return decoded == field.varint_value;'),
+    'raw varint decoder must compare with declared signed metadata');
+  assert.ok(w.includes('return raw_varint_is_valid(field.payload) &&\n             raw_varint_matches_declared_int(field);'),
+    'report-only field admission must enforce metadata consistency');
+  assert.ok(w.includes('!raw_varint_matches_declared_int(field) then'),
+    'encoder must refuse inconsistent varint metadata');
+  assert.ok(t.includes('val ProtoField forged_integer =') &&
+    t.includes('val ProtoField consistent_nonminimal =') &&
+    t.includes('val ProtoField misclaimed_ten_byte ='),
+    'native wire tests must cover forged, legitimate and ten-byte cases');
+  assert.ok(zt.includes('forged_metadata_report.errors[0].code == "wrong-type"') &&
+    zt.includes('matching_nonminimal_report.errors.length, 0') &&
+    zt.includes('false_signed_fit_report.errors[0].code == "wrong-type"'),
+    'native Zorde tests must cover forged and legitimate raw varints');
+}
+varintMetadataGuard(wire,protobufWireTests,protobufZordeTests);
+checks++;
+reject(()=>varintMetadataGuard(wire.replace(
+  'return decoded == field.varint_value;', 'return true;'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire.replace(
+  'raw_varint_is_valid(field.payload) &&\n             raw_varint_matches_declared_int(field);',
+  'raw_varint_is_valid(field.payload);'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire.replace(
+  '!raw_varint_matches_declared_int(field) then', 'false then'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>varintMetadataGuard(wire,protobufWireTests.replace(
+  'val ProtoField forged_integer =', 'val ProtoField untested_forged_integer ='),
+  protobufZordeTests));
+reject(()=>varintMetadataGuard(wire,protobufWireTests,
+  protobufZordeTests.replace('forged_metadata_report.errors[0].code == "wrong-type"',
+    'forged_metadata_report.errors[0].code == "accepted"')));
+// Opaque raw and non-varint fields have zero-sentinel integer metadata.
+// These are lexical/mutation checks only: NOT native guest or CI proof.
+function opaqueMetadataGuard(w,t,zt) {
+  assert.ok(w.includes('fnc proto_field_metadata_shape_valid(ProtoField field): bool'),
+    'missing field-wide signed metadata canonicalization');
+  assert.ok(w.includes('return field.varint_fits_int || field.varint_value == 0;') &&
+    w.includes('return !field.varint_fits_int && field.varint_value == 0;'),
+    'opaque and non-varint fields must use canonical zero metadata');
+  assert.ok(w.includes('!valid_field_number(field.field_number) ||\n     !proto_field_metadata_shape_valid(field) then'),
+    'report-only validator must refuse forged non-varint metadata');
+  assert.ok(w.includes('if !proto_field_metadata_shape_valid(field) then'),
+    'actual encoder must refuse forged non-varint metadata');
+  assert.ok(w.includes('return new VarintRead(true, false, 0, bytes);'),
+    'raw-only decoder must not expose partially decoded signed integer');
+  assert.ok(t.includes('val ProtoField opaque_forged_integer =') &&
+    t.includes('val ProtoField forged_delimited_metadata =') &&
+    t.includes('val ProtoField forged_fixed_metadata =') &&
+    t.includes('raw_roundtrip.fields[0].varint_value, 0'),
+    'wire guests must cover opaque/fixed/delimited and decode sentinel');
+  assert.ok(zt.includes('val List<ProtoField> forged_opaque_metadata =') &&
+    zt.includes('val List<ProtoField> forged_nonvarint_metadata ='),
+    'Zorde guests must refuse field-wide forged signed metadata');
+}
+opaqueMetadataGuard(wire,protobufWireTests,protobufZordeTests);
+checks++;
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'return !field.varint_fits_int && field.varint_value == 0;',
+  'return true;'),protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  '!valid_field_number(field.field_number) ||\n     !proto_field_metadata_shape_valid(field) then',
+  '!valid_field_number(field.field_number) then'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'if !proto_field_metadata_shape_valid(field) then',
+  'if false then'),protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire.replace(
+  'return new VarintRead(true, false, 0, bytes);',
+  'return new VarintRead(true, false, value, bytes);'),
+  protobufWireTests,protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire,
+  protobufWireTests.replace('val ProtoField forged_fixed_metadata =',
+    'val ProtoField untested_fixed_metadata ='),
+  protobufZordeTests));
+reject(()=>opaqueMetadataGuard(wire,protobufWireTests,
+  protobufZordeTests.replace('val List<ProtoField> forged_opaque_metadata =',
+    'val List<ProtoField> untested_opaque_metadata =')));
+
+// Independent source-only mutation tests for checked Protobuf field lookup.
+// Public unbounded lookup remains for compatibility with already trusted
+// inputs, but must not be used as an untrusted admission surface.
+function boundedFieldLookupGuard(w,t) {
+  const start=w.indexOf('pub fnc fields_with_number_bounded(');
+  const legacy=w.indexOf('pub fnc fields_with_number(');
+  assert.ok(start>legacy && legacy>=0,
+    'checked lookup must be separately available alongside legacy API');
+  const checked=w.slice(start);
+  const preflight=checked.indexOf('proto_message_copy_bounded(message, options)');
+  const fail=checked.indexOf('if detached.is_err() then');
+  const selection=checked.indexOf('for const field of detached.unwrap().fields do');
+  assert.ok(preflight>=0 && fail>preflight && selection>fail,
+    'checked lookup must validate and snapshot WHOLE message before filtering');
+  assert.ok(checked.includes('if !valid_field_number(field_number) then'),
+    'bounded lookup must reject invalid field numbers');
+  assert.ok(checked.includes('return Ok(selected);'),
+    'bounded lookup must return detached selected fields');
+  for(const marker of [
+    'bounded_lookup.is_err()',
+    'lookup_too_small.is_err()',
+    'lookup_too_many.is_err()',
+    'lookup_invalid_number.is_err()',
+    'lookup_invalid_other.is_err()',
+    'bounded_two[0].payload.add(90);',
+    'roundtrip.fields[1].payload.length, 2'
+  ]) {
+    assert.ok(t.includes(marker), 'native bounded lookup test missing: '+marker);
+  }
+}
+boundedFieldLookupGuard(wire,protobufWireTests);
+checks++;
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'proto_message_copy_bounded(message, options)', 'Ok(message)'), protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'for const field of detached.unwrap().fields do',
+  'for const field of message.fields do'), protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire.replace(
+  'proto_message_copy_bounded(message, options);\n  if detached.is_err() then',
+  'proto_message_copy_bounded(message, options);\n  if false then'),
+  protobufWireTests));
+reject(()=>boundedFieldLookupGuard(wire,protobufWireTests.replace(
+  'lookup_invalid_other.is_err()', 'lookup_invalid_other.is_ok()')));
+reject(()=>boundedFieldLookupGuard(wire,protobufWireTests.replace(
+  'bounded_two[0].payload.add(90);',
+  'roundtrip.fields[1].payload.add(90);')));
+
 reject(()=>sourceGuard(wire+'%',zorde));
 reject(()=>sourceGuard(wire.replace('pub fnc proto_field_reencoded_wire_bytes(',
   'fnc removed_full_wire_size('),zorde));
@@ -413,6 +552,138 @@ reject(()=>originalWireAdmissionGuard(zorde,
     'length_over_canonical_limit')));
 reject(()=>originalWireAdmissionGuard(zorde,
   zordeTests.replaceAll('raw_after_mutation','unchecked_stale_report')));
+// Untrusted Protobuf encoding must enforce caller-supplied INPUT field-count
+// and input-wire budgets before producing output, even when the legacy
+// byte-only encoder could eventually fit. This is only a source-level
+// mutation guard; the .ores tests still need a real compiler/runner.
+function boundedEncodeAdmissionGuard(w,t) {
+  const start=w.indexOf('pub fnc encode_message_bounded(');
+  assert.ok(start>=0, 'bounded encoder entrypoint missing');
+  const checked=w.slice(start, w.indexOf('// Compatibility-only lookup',start));
+  const options=checked.indexOf('proto_encode_options_valid(output_limits)');
+  const snapshot=checked.indexOf('proto_message_copy_bounded(message, input_limits)');
+  const refuse=checked.indexOf('if detached.is_err() then');
+  const encode=checked.indexOf('return encode_message(detached.unwrap(), output_limits);');
+  assert.ok(options>=0 && snapshot>options && refuse>snapshot && encode>refuse,
+    'input limits, snapshot and malformed-message denial must precede encoding');
+  assert.ok(checked.includes('return Err(new ProtoError("invalid_message"'),
+    'bounded encoder must fail closed when detached copy is invalid');
+  for(const test of [
+    'bounded_encoded.is_err()',
+    'bounded_input_short.is_err()',
+    'bounded_too_many.is_err()',
+    'bounded_output_short.is_err()',
+    'bounded_bad_options.is_err()',
+    'bounded_invalid_other.is_err()',
+    'bounded_mutated.is_err()',
+    'mutable_encoder_bytes[0] = 2;'
+  ]) {
+    assert.ok(t.includes(test), 'native bounded-encoder regression missing: '+test);
+  }
+}
+boundedEncodeAdmissionGuard(wire,protobufWireTests);
+checks++;
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'proto_message_copy_bounded(message, input_limits)', 'Ok(message)'),
+  protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'return encode_message(detached.unwrap(), output_limits);',
+  'return encode_message(message, output_limits);'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'if detached.is_err() then','if false then'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire.replace(
+  'proto_encode_options_valid(output_limits)','true'),protobufWireTests));
+reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
+  'bounded_mutated.is_err()', 'bounded_mutated.is_ok()')));
+reject(()=>boundedEncodeAdmissionGuard(wire,protobufWireTests.replace(
+  'bounded_too_many.is_err()', 'bounded_too_many.is_ok()')));
+
+// An approved source-local native receipt must distinguish CI attempts
+// from approved manual executions. Run identifiers are context metadata,
+// not compiler trust or an authorizing signature by themselves.
+function nativeRunAttemptBindingGuard(h,w,fixtures) {
+  for(const token of [
+    'ZORDE_CI_RUN_ID:-',
+    'ZORDE_CI_RUN_ATTEMPT:-',
+    'ZORDE_CI_JOB:-',
+    'CI run ID must be a positive decimal identifier',
+    '[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]{0,5}$ ]]',
+    'CI run attempt must be a positive decimal identifier',
+    'CI job identity must match the protected native job',
+    '"ci_origin":',
+    '"ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None',
+    '"ci_run_attempt":',
+    '"ci_job": os.environ.get("ZORDE_CI_JOB") or None',
+    '"ci_context_authenticated": False',
+    'claimed-github-actions-context',
+    'approved-manual-source-local'
+  ]) {
+    assert.ok(h.includes(token), 'native receipt CI provenance missing '+token);
+  }
+  const cmd=w.slice(w.indexOf('          env -i '));
+  for(const token of [
+    'ZORDE_CI_RUN_ID="${{ github.run_id }}"',
+    'ZORDE_CI_RUN_ATTEMPT="${{ github.run_attempt }}"',
+    'ZORDE_CI_JOB="${{ github.job }}"'
+  ]) {
+    assert.ok(cmd.includes(token), 'trusted workflow context binding missing '+token);
+  }
+  for(const token of [
+    'expect_refusal ci-missing-attempt',
+    'expect_refusal ci-missing-job',
+    'expect_refusal ci-zero-run',
+    'expect_refusal ci-negative-attempt',
+    'expect_refusal ci-wrong-job',
+    'expect_refusal ci-run-id-overlong',
+    'expect_refusal ci-attempt-overlong',
+    'expect_refusal ci-attempt-only'
+  ]) {
+    assert.ok(fixtures.includes(token), 'source-free negative receipt fixture missing '+token);
+  }
+}
+nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,refusalFixtures);
+checks++;
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,
+  nativeWorkflow.replace('ZORDE_CI_RUN_ATTEMPT="${{ github.run_attempt }}"',
+    'ZORDE_CI_RUN_ATTEMPT="1"'),refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,
+  nativeWorkflow.replace('ZORDE_CI_JOB="${{ github.job }}"',
+    'ZORDE_CI_JOB="runner-contracts"'),refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"ci_run_id": os.environ.get("ZORDE_CI_RUN_ID") or None',
+    '"ci_run_id": None'),nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('CI run attempt must be a positive decimal identifier',
+    'CI run attempt validation disabled'),nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
+  refusalFixtures.replace('expect_refusal ci-zero-run',
+    'expect_success ci-zero-run')));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"approved-manual-source-local"',
+    '"unclassified-run"'),nativeWorkflow,refusalFixtures));
+
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]{0,19}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ID:-}" =~ ^[1-9][0-9]*$ ]]'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]{0,5}$ ]]',
+    '[[ "${ZORDE_CI_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]]'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(nativeHarness,nativeWorkflow,
+  refusalFixtures.replace('expect_refusal ci-run-id-overlong',
+    'expect_success ci-run-id-overlong')));
+
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('"ci_context_authenticated": False',
+    '"ci_context_authenticated": True'),
+  nativeWorkflow,refusalFixtures));
+reject(()=>nativeRunAttemptBindingGuard(
+  nativeHarness.replace('claimed-github-actions-context',
+    'github-actions-certified'),
+  nativeWorkflow,refusalFixtures));
+
 console.log(JSON.stringify({status:'STATIC_PROTOBUF_CONTRACT_SHAPE_MATCH',
   checks,typespecCompilerExecuted:false,jsonSchemaValidatorExecuted:false,
   witParserExecuted:false,nativeGuestExecuted:false,canonicalAbiImplemented:false,

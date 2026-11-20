@@ -27,8 +27,19 @@ descriptor alongside the compiled Zorde registry.
   The core helper `proto_descriptor_field_number_valid` enforces this separation.
 - Decoder preserves exact raw bytes of type-0 varint **values** including uint64
   above signed int64. A varint with ten bytes and terminal byte >1 rejects.
-  Nine-byte signed-int64 max must remain exact. The encoder normalizes field
-  **key** and length-prefix varints; byte-for-byte preservation of nonminimal
+  Nine-byte signed-int64 max must remain exact. Manually constructed
+  `ProtoField` envelopes that provide both raw varint bytes and a declared
+  signed integer are rejected unless the bytes decode to that exact integer;
+  a ten-byte raw varint cannot claim `varint_fits_int=true`. Nonminimal
+  one-to-nine-byte encodings remain legal when their metadata agrees.
+  For opaque raw varints (`varint_fits_int=false`) and non-varint wire types,
+  `varint_value` must be the zero sentinel. Non-varint fields must also have
+  `varint_fits_int=false`. The ten-byte raw decoder returns zero in the
+  signed slot instead of leaking a partial nine-byte signed accumulator.
+  Both encoder and report-only/Zorde paths reject forged noncanonical
+  integer metadata; this does not make mutable public fields a typed proof.
+  The encoder normalizes field **key** and length-prefix varints;
+  byte-for-byte preservation of nonminimal
   keys/lengths is NOT promised. For signatures, retain the original input bytes.
 - `ProtoField.payload` for wire 1/5 is exact fixed-width little-endian content;
   for wire 2 it is the content **excluding** the length prefix; for wire 0 it
@@ -40,6 +51,28 @@ descriptor alongside the compiled Zorde registry.
   mutable values. `fields_with_number` now returns flat per-field snapshots
   with independent payload lists, but `ProtoMessage` may still be constructed
   with aliased mutable field lists. These copies are NOT transitive immutability.
+  **Untrusted field-number queries must not use** the compatibility
+  `fields_with_number(message, field_number)` helper: it copies matching
+  payloads without caller-defined field-count or byte limits. Instead use
+  `fields_with_number_bounded(message, field_number, options)`, which
+  validates the target field number, enforces the **entire** constructed
+  message's field count and re-encoded byte budget (including nonmatches),
+  refuses malformed fields, and returns detached mutable payloads or an error.
+  Callers should set explicit, narrow `ProtoDecodeOptions`; the maximum
+  allowed global defaults are not per-tenant quotas. This operation still
+  requires exclusive access to all original mutable input during copying.
+  Untrusted callers must also distinguish the byte-budget-only
+  `encode_message(message, output_limits)` compatibility entrypoint from
+  `encode_message_bounded(message, input_limits, output_limits)`. The
+  bounded encoder first validates **every** constructed field and snapshots
+  its byte payloads using `proto_message_copy_bounded`, enforcing the
+  caller's complete field-count, re-encoded input-size and per-length
+  budgets before encoding the detached copy under a separate output
+  byte limit. A malformed nonmatching field, stale raw-varint metadata or
+  oversized total message cannot bypass admission merely because the
+  output encoder has enough capacity. Returned output is detached mutable
+  bytes, **not** an immutable proof. Neither API makes concurrent mutation
+  during copying atomic; exclusive ownership is still required.
   No cross-actor sharing/proof is authorized by this change.
   Callers that need a bounded, detached **mutable** field-list projection can
   use `proto_message_copy_bounded(message, options)`. It validates
@@ -125,6 +158,27 @@ continuation rules, exact fixed-width content, lifetime, budget, provenance or
 all Protobuf semantic constraints without additional validators.
 
 Source-local native admission and reviewer/administrator responsibilities are specified in [the Protobuf execution runbook](PROTOBUF-SOURCE-LOCAL-NATIVE-RUNBOOK.md). The focused guest entrypoint is `tests/protobuf_main.ores` and must run with a separately approved exact-head compiler before any passing native receipt can be issued.
+
+### CI provenance and source-local receipt limits
+
+The protected `zorde-native-source-local` workflow now passes the GitHub
+context's run ID, run attempt, and job ID into the scrubbed native harness.
+A CI-context receipt refuses missing/zero/overlong run identifiers and any
+job other than `zorde-native-source-local`, and includes
+`ci_run_id`, `ci_run_attempt`, and `ci_job` in the receipt.
+A separately approved manual source-local invocation may omit all three;
+partial context is forbidden. The receipt distinguishes this case with
+`ci_origin=approved-manual-source-local`.
+
+**These fields are unauthenticated context metadata**, not a GitHub-issued
+signature, a license to copy private source, or a passing job receipt.
+Even when `ci_origin=claimed-github-actions-context`, the record explicitly
+sets `ci_context_authenticated=false`. An independent reviewer must read
+GitHub's authenticated run and job APIs and verify that run ID, attempt,
+job identity, commit SHA, nonzero executed steps, and approved source/tree
+match the native receipt. A manual caller can otherwise supply arbitrary
+environment strings. Transitive compiler dependency provenance and backend
+parity remain separate release gates.
 
 ### Evidence gates / conformance plan
 

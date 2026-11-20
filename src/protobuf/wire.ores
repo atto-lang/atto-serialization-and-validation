@@ -213,7 +213,12 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
         cursor_fail(cursor, "varint_overflow", "Protobuf uint64 varint overflow");
         return new VarintRead(false, false, 0, bytes);
       fi
-      return new VarintRead(true, fits_int, value, bytes);
+      // Ten-byte varints are raw-only: never expose a partially decoded
+      // signed value from the first nine bytes as semantic metadata.
+      if !fits_int then
+        return new VarintRead(true, false, 0, bytes);
+      fi
+      return new VarintRead(true, true, value, bytes);
     fi
 
     if count == 10 then
@@ -259,6 +264,44 @@ fnc raw_varint_is_valid(List<int> bytes): bool {
   done
 
   return true;
+}
+
+// The public ProtoField constructor can supply BOTH a signed integer and raw
+// bytes. Bind them before validation/encoding so consumers cannot observe one
+// value while the wire carries another. raw_varint_is_valid must run first.
+// A 10-byte raw encoding is opaque even when its numeric value is small:
+// read_varint marks such input as not fitting the signed-int representation.
+// Only type-0 fields carry meaningful signed integer metadata. For an
+// opaque raw varint, and for every non-varint wire type, the integer slot
+// must be the zero sentinel. Prevent public ProtoField construction from
+// laundering unrelated integer claims into a valid wire envelope.
+fnc proto_field_metadata_shape_valid(ProtoField field): bool {
+  if field.wire_type == 0 then
+    return field.varint_fits_int || field.varint_value == 0;
+  fi
+  return !field.varint_fits_int && field.varint_value == 0;
+}
+
+fnc raw_varint_matches_declared_int(ProtoField field): bool {
+  if !field.varint_fits_int then
+    return true;
+  fi
+  if field.varint_value < 0 || field.payload.length > 9 then
+    return false;
+  fi
+
+  let int decoded = 0;
+  let int multiplier = 1;
+  let int index = 0;
+  for const byte of field.payload do
+    val int part = byte - ((byte / 128) * 128);
+    decoded = decoded + part * multiplier;
+    if index < 8 then
+      multiplier = multiplier * 128;
+    fi
+    index = index + 1;
+  done
+  return decoded == field.varint_value;
 }
 
 fnc read_payload(
@@ -491,13 +534,15 @@ fnc valid_field_number(int field_number): bool {
 // Report-only syntax check for descriptor-independent field envelopes. This
 // does not validate a typed Protobuf schema or produce a Zorde Valid<T> proof.
 pub fnc proto_wire_field_valid(ProtoField field): bool {
-  if !valid_field_number(field.field_number) then
+  if !valid_field_number(field.field_number) ||
+     !proto_field_metadata_shape_valid(field) then
     return false;
   fi
 
   if field.wire_type == 0 then
     if field.payload.length > 0 then
-      return raw_varint_is_valid(field.payload);
+      return raw_varint_is_valid(field.payload) &&
+             raw_varint_matches_declared_int(field);
     fi
     return field.varint_fits_int && field.varint_value >= 0;
   fi
@@ -588,6 +633,12 @@ fnc encode_field(
     return;
   fi
 
+  if !proto_field_metadata_shape_valid(field) then
+    writer_fail(writer, "varint_metadata",
+      "non-varint or opaque raw field has inconsistent signed metadata");
+    return;
+  fi
+
   append_varint(writer, (field.field_number * 8) + field.wire_type);
   if writer.failed then
     return;
@@ -595,8 +646,9 @@ fnc encode_field(
 
   if field.wire_type == 0 then
     if field.payload.length > 0 then
-      if !raw_varint_is_valid(field.payload) then
-        writer_fail(writer, "varint_payload", "raw Protobuf varint payload is malformed");
+      if !raw_varint_is_valid(field.payload) ||
+         !raw_varint_matches_declared_int(field) then
+        writer_fail(writer, "varint_payload", "raw Protobuf varint bytes or declared integer are inconsistent");
         return;
       fi
       append_payload(writer, field.payload);
@@ -736,6 +788,40 @@ pub fnc proto_message_copy_bounded(
   return Ok(new ProtoMessage(copy));
 }
 
+// Bounded encoding for caller-constructed, potentially untrusted messages.
+// The legacy encode_message only enforces an output byte budget; this entry
+// also refuses excessive field counts, malformed nonmatching fields and
+// re-encoded input budgets BEFORE encoding. It validates a detached snapshot,
+// not an earlier state of mutable caller-owned byte lists. This is not a
+// recursive immutable/atomic snapshot or compiler-issued Zorde proof.
+// Callers must have exclusive ownership during the copy operation.
+pub fnc encode_message_bounded(
+  ProtoMessage message,
+  ProtoDecodeOptions input_limits,
+  ProtoEncodeOptions output_limits
+): Result<List<int>, ProtoError> {
+  if !proto_encode_options_valid(output_limits) then
+    return Err(new ProtoError("invalid_options", 0,
+      "invalid or unsafe Protobuf encode options"));
+  fi
+
+  val Result<ProtoMessage, ProtoError> detached =
+    proto_message_copy_bounded(message, input_limits);
+  if detached.is_err() then
+    return Err(new ProtoError("invalid_message", 0,
+      "Protobuf bounded encoder rejected malformed or over-budget message"));
+  fi
+
+  // encode_message separately rechecks the detached bytes and the output
+  // limit. Neither a field-by-field caller alias nor stale validation report
+  // can authorize output of an inconsistent raw varint.
+  return encode_message(detached.unwrap(), output_limits);
+}
+
+// Compatibility-only lookup for ALREADY TRUSTED bounded messages.
+// This allocates independently copied matching payloads without limits.
+// Do not call it on public/untrusted ProtoMessage input; use the checked
+// fields_with_number_bounded API below instead.
 pub fnc fields_with_number(
   ProtoMessage message,
   int field_number
@@ -749,4 +835,39 @@ pub fnc fields_with_number(
   done
 
   return fields;
+}
+
+// Safely select a field from a caller-owned untrusted message using an
+// explicit whole-message budget, not just a budget on matching fields.
+// An otherwise huge or malformed nonmatching field cannot be used to
+// bypass the copy bounds. This creates a detached but still mutable result,
+// NOT a compiler-authenticated immutable/proven schema value. Callers must
+// have exclusive access to the original input during the snapshot operation.
+pub fnc fields_with_number_bounded(
+  ProtoMessage message,
+  int field_number,
+  ProtoDecodeOptions options
+): Result<List<ProtoField>, ProtoError> {
+  if !valid_field_number(field_number) then
+    return Err(new ProtoError("field_number", 0,
+      "invalid Protobuf field lookup number"));
+  fi
+
+  // Reuse the single reviewed whole-message preflight/snapshot function.
+  // This scans and copies all fields under the original input budget,
+  // including fields that will not appear in the selection.
+  val Result<ProtoMessage, ProtoError> detached =
+    proto_message_copy_bounded(message, options);
+  if detached.is_err() then
+    return Err(new ProtoError("invalid_message", 0,
+      "Protobuf field lookup rejected malformed or over-budget message"));
+  fi
+
+  val List<ProtoField> selected = new List<ProtoField>();
+  for const field of detached.unwrap().fields do
+    if field.field_number == field_number then
+      selected.add(field);
+    fi
+  done
+  return Ok(selected);
 }

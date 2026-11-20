@@ -1,8 +1,8 @@
 import fnc require_true, require_int from './assert';
 
 import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEncodeOptions from '../src/protobuf/wire';
-import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
-import fnc encode_message, decode_message, fields_with_number, proto_message_copy_bounded from '../src/protobuf/wire';
+import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
+import fnc encode_message, encode_message_bounded, decode_message, fields_with_number, fields_with_number_bounded, proto_message_copy_bounded from '../src/protobuf/wire';
 
 pub fnc run_protobuf_tests(): void {
   val List<ProtoField> fields = new List<ProtoField>();
@@ -53,6 +53,101 @@ pub fnc run_protobuf_tests(): void {
     "field lookup mutation must not corrupt original message");
 
 
+  // Bounded lookup accounts for ALL input fields before selecting matches.
+  // Field 1 is 3 encoded bytes; field 2 is 4 bytes (key, length and data).
+  val Result<List<ProtoField>, ProtoError> bounded_lookup =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(7, 2, 2));
+  require_true(!bounded_lookup.is_err(), "whole-message bounded lookup must accept exact budget");
+  val List<ProtoField> bounded_two = bounded_lookup.unwrap();
+  require_int(bounded_two.length, 1, "bounded lookup returns one matching field");
+  require_int(bounded_two[0].payload.length, 2, "bounded lookup retains detached content");
+  bounded_two[0].payload.add(90);
+  require_int(roundtrip.fields[1].payload.length, 2,
+    "bounded lookup must not expose original mutable payload");
+
+  val Result<List<ProtoField>, ProtoError> lookup_too_small =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(6, 2, 2));
+  require_true(lookup_too_small.is_err(),
+    "bounded lookup must count nonmatching field wire bytes");
+
+  val Result<List<ProtoField>, ProtoError> lookup_too_many =
+    fields_with_number_bounded(roundtrip, 2, new ProtoDecodeOptions(7, 1, 2));
+  require_true(lookup_too_many.is_err(),
+    "bounded lookup must reject excess nonmatching fields");
+
+  val Result<List<ProtoField>, ProtoError> lookup_invalid_number =
+    fields_with_number_bounded(roundtrip, 0, new ProtoDecodeOptions(7, 2, 2));
+  require_true(lookup_invalid_number.is_err(),
+    "bounded lookup refuses an invalid selected field number");
+
+  val List<ProtoField> malformed_unselected_fields = new List<ProtoField>();
+  malformed_unselected_fields.add(proto_raw_varint(1, new List<int>(128)));
+  malformed_unselected_fields.add(proto_bytes(2, new List<int>(9)));
+  val Result<List<ProtoField>, ProtoError> lookup_invalid_other =
+    fields_with_number_bounded(
+      new ProtoMessage(malformed_unselected_fields), 2,
+      new ProtoDecodeOptions(16, 2, 16)
+    );
+  require_true(lookup_invalid_other.is_err(),
+    "malformed nonmatching fields must not bypass bounded selection");
+
+  // The byte-only encoder admits valid messages without a caller field
+  // limit. Use the bounded wrapper for untrusted constructed messages.
+  // Here the complete message is exactly seven bytes across two fields.
+  val Result<List<int>, ProtoError> bounded_encoded =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(7));
+  require_true(!bounded_encoded.is_err(),
+    "bounded encoder must accept exact whole-message budgets");
+  require_int(bounded_encoded.unwrap().length, 7,
+    "bounded encoder returns exactly the original canonical wire length");
+  bounded_two[0].payload.add(91);
+  require_int(bounded_encoded.unwrap().length, 7,
+    "bounded encoder output cannot alias a separate mutable selection");
+
+  val Result<List<int>, ProtoError> bounded_input_short =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(6, 2, 2),
+      new ProtoEncodeOptions(7));
+  require_true(bounded_input_short.is_err(),
+    "bounded encoding must count nonmatching field bytes");
+
+  val Result<List<int>, ProtoError> bounded_too_many =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 1, 2),
+      new ProtoEncodeOptions(7));
+  require_true(bounded_too_many.is_err(),
+    "bounded encoding must enforce total field-count quota");
+
+  val Result<List<int>, ProtoError> bounded_output_short =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(6));
+  require_true(bounded_output_short.is_err(),
+    "bounded encoding must enforce output budget independently");
+
+  val Result<List<int>, ProtoError> bounded_bad_options =
+    encode_message_bounded(roundtrip, new ProtoDecodeOptions(7, 2, 2),
+      new ProtoEncodeOptions(-1));
+  require_true(bounded_bad_options.is_err(),
+    "bounded encoding must reject invalid output options first");
+
+  val Result<List<int>, ProtoError> bounded_invalid_other =
+    encode_message_bounded(new ProtoMessage(malformed_unselected_fields),
+      new ProtoDecodeOptions(16, 2, 16), new ProtoEncodeOptions(16));
+  require_true(bounded_invalid_other.is_err(),
+    "bounded encoder must validate malformed nonmatching fields before output");
+
+  val List<int> mutable_encoder_bytes = new List<int>(1);
+  val ProtoField mutable_encoder_field =
+    new ProtoField(1, 0, true, 1, mutable_encoder_bytes);
+  require_true(proto_wire_field_valid(mutable_encoder_field),
+    "mutable raw field initially agrees with declared signed value");
+  mutable_encoder_bytes[0] = 2;
+  val Result<List<int>, ProtoError> bounded_mutated =
+    encode_message_bounded(
+      new ProtoMessage(new List<ProtoField>(mutable_encoder_field)),
+      new ProtoDecodeOptions(2, 1, 2), new ProtoEncodeOptions(2));
+  require_true(bounded_mutated.is_err(),
+    "bounded encoder refuses stale raw-varint metadata after mutation");
+
   // field 1 = uint64 max, encoded as ten varint bytes. It exceeds signed int,
   // so the raw wire bytes must be preserved exactly.
   val List<int> uint64_max = new List<int>(
@@ -88,6 +183,125 @@ pub fnc run_protobuf_tests(): void {
     require_int(raw_bytes[j], uint64_max[j], "preserved uint64 max byte mismatch");
     j = j + 1;
   done
+
+  // Only type-0 signed varints may carry integer metadata.
+  val ProtoField opaque_forged_integer = new ProtoField(
+    1, 0, false, 42, new List<int>(1)
+  );
+  require_true(!proto_wire_field_valid(opaque_forged_integer),
+    "opaque raw varint cannot carry invented integer metadata");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(opaque_forged_integer)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny invented opaque integer metadata");
+
+  val ProtoField forged_delimited_metadata = new ProtoField(
+    2, 2, true, 3, new List<int>(1, 2)
+  );
+  require_true(!proto_wire_field_valid(forged_delimited_metadata),
+    "length-delimited field cannot claim varint fit");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_delimited_metadata)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must reject varint metadata on length-delimited field");
+
+  val ProtoField forged_fixed_metadata = new ProtoField(
+    2, 5, false, 3, new List<int>(1, 2, 3, 4)
+  );
+  require_true(!proto_wire_field_valid(forged_fixed_metadata),
+    "fixed-width field cannot carry nonzero varint metadata");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_fixed_metadata)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny invented integer on fixed-width field");
+
+  require_int(raw_roundtrip.fields[0].varint_value, 0,
+    "opaque ten-byte decode must not leak a partial signed value");
+
+  // A manually forged ProtoField must not claim an integer that disagrees
+  // with its separately supplied raw varint bytes. Both the report-only
+  // field admission and the actual encoder must refuse the mismatch.
+  val ProtoField forged_integer = new ProtoField(
+    1, 0, true, 2, new List<int>(1)
+  );
+  require_true(!proto_wire_field_valid(forged_integer),
+    "signed varint metadata must agree with raw bytes");
+  require_int(proto_field_reencoded_wire_bytes(forged_integer), -1,
+    "forged raw/integer pair must not receive a valid wire-size report");
+  val Result<List<int>, ProtoError> forged_encode = encode_message(
+    new ProtoMessage(new List<ProtoField>(forged_integer)),
+    default_proto_encode_options()
+  );
+  require_true(forged_encode.is_err(),
+    "encoder must reject inconsistent declared integer and raw payload");
+
+  // Nonminimal raw varints remain acceptable when consistent with the
+  // declared signed value; re-encoding preserves the two raw value bytes.
+  val ProtoField consistent_nonminimal = new ProtoField(
+    1, 0, true, 1, new List<int>(129, 0)
+  );
+  require_true(proto_wire_field_valid(consistent_nonminimal),
+    "consistent nonminimal signed varint must remain legal");
+  val Result<List<int>, ProtoError> nonminimal_encode = encode_message(
+    new ProtoMessage(new List<ProtoField>(consistent_nonminimal)),
+    default_proto_encode_options()
+  );
+  require_true(!nonminimal_encode.is_err(),
+    "consistent nonminimal signed varint must encode");
+  require_int(nonminimal_encode.unwrap().length, 3,
+    "nonminimal signed varint preserves original two value bytes");
+  require_int(nonminimal_encode.unwrap()[1], 129,
+    "nonminimal signed varint continuation is preserved");
+  require_int(nonminimal_encode.unwrap()[2], 0,
+    "nonminimal signed varint terminal byte is preserved");
+
+  // A public val payload list can still be mutated by an alias. A prior
+  // successful field check is not a reusable validation token.
+  val List<int> mutable_signed_raw = new List<int>(1);
+  val ProtoField mutable_signed_field = new ProtoField(
+    1, 0, true, 1, mutable_signed_raw
+  );
+  require_true(proto_wire_field_valid(mutable_signed_field),
+    "initial signed raw metadata must be valid");
+  mutable_signed_raw[0] = 2;
+  require_true(!proto_wire_field_valid(mutable_signed_field),
+    "mutating public raw bytes invalidates the previous metadata check");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(mutable_signed_field)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must recheck mutated raw bytes at use time");
+
+  // A one-byte raw encoding equal to its signed metadata is also legal at
+  // zero, but an unterminated continuation or out-of-byte-range value is not.
+  val ProtoField zero_raw = new ProtoField(1, 0, true, 0, new List<int>(0));
+  require_true(proto_wire_field_valid(zero_raw),
+    "signed zero raw encoding is valid");
+  val ProtoField unfinished_signed = new ProtoField(
+    1, 0, true, 0, new List<int>(128)
+  );
+  require_true(!proto_wire_field_valid(unfinished_signed),
+    "unterminated signed raw varint cannot pass consistency checks");
+  val ProtoField non_byte_signed = new ProtoField(
+    1, 0, true, 0, new List<int>(256)
+  );
+  require_true(!proto_wire_field_valid(non_byte_signed),
+    "out-of-range signed raw byte must be refused");
+
+  val ProtoField misclaimed_ten_byte = new ProtoField(
+    1, 0, true, 0,
+    new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)
+  );
+  require_true(!proto_wire_field_valid(misclaimed_ten_byte),
+    "ten-byte varint must never be advertised as signed-int fitting");
+  require_true(encode_message(
+    new ProtoMessage(new List<ProtoField>(misclaimed_ten_byte)),
+    default_proto_encode_options()
+  ).is_err(), "encoder must deny forged signed-int fit for ten raw bytes");
+  val ProtoField opaque_ten_byte = proto_raw_varint(
+    1, new List<int>(128, 128, 128, 128, 128, 128, 128, 128, 128, 0)
+  );
+  require_true(proto_wire_field_valid(opaque_ten_byte),
+    "valid ten-byte raw varint can remain opaque and preserved");
 
   val Result<ProtoMessage, ProtoError> zero_field = decode_message(
     new List<int>(0),

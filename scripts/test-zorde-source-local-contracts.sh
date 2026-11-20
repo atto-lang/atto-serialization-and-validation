@@ -73,6 +73,18 @@ expect_refusal() {
   fi
   count=$((count + 1))
 }
+# A claimed GitHub Actions receipt must bind the complete, plausible
+# run-attempt/job identity. Fake compiler admission is never reached when
+# any CI context item is absent or malformed, and no receipt may appear.
+expect_refusal ci-missing-attempt 'CI run attempt must be a positive decimal identifier' ZORDE_CI_RUN_ID=123
+expect_refusal ci-missing-job 'CI job identity must match the protected native job' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=1
+expect_refusal ci-zero-run 'CI run ID must be a positive decimal identifier' ZORDE_CI_RUN_ID=0 ZORDE_CI_RUN_ATTEMPT=1 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-negative-attempt 'CI run attempt must be a positive decimal identifier' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=-1 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-wrong-job 'CI job identity must match the protected native job' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=1 ZORDE_CI_JOB=runner-contracts
+expect_refusal ci-attempt-only 'CI run ID must be a positive decimal identifier' ZORDE_CI_RUN_ID= ZORDE_CI_RUN_ATTEMPT=2 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-run-id-overlong 'CI run ID must be a positive decimal identifier' ZORDE_CI_RUN_ID=111111111111111111111 ZORDE_CI_RUN_ATTEMPT=1 ZORDE_CI_JOB=zorde-native-source-local
+expect_refusal ci-attempt-overlong 'CI run attempt must be a positive decimal identifier' ZORDE_CI_RUN_ID=123 ZORDE_CI_RUN_ATTEMPT=1111111 ZORDE_CI_JOB=zorde-native-source-local
+
 expect_refusal missing-source 'EXPECTED_SOURCE_SHA must' EXPECTED_SOURCE_SHA=
 expect_refusal stale-head 'checked-out head differs' EXPECTED_SOURCE_SHA=0000000000000000000000000000000000000000
 expect_refusal wrong-tree 'checked-out root Git tree differs' EXPECTED_SOURCE_TREE=1111111111111111111111111111111111111111
