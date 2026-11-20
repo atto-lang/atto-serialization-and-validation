@@ -1,0 +1,39 @@
+name: Zorde source-local Contract IR to static registry bridge
+on:
+  push:
+    paths:
+      - 'scripts/zorde-static-contract-ir.mjs'
+      - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - '.github/workflows/zorde-static-ir-bridge.yml'
+  pull_request:
+    paths:
+      - 'scripts/zorde-static-contract-ir.mjs'
+      - 'tests/source_free/test_zorde_contract_ir.mjs'
+      - '.github/workflows/zorde-static-ir-bridge.yml'
+permissions:
+  contents: read
+jobs:
+  source-free-bridge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Pin checkout identity
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      - name: Run source-free real Node test harness
+        run: node --test tests/source_free/test_zorde_contract_ir.mjs
+      - name: Explain excluded assurance claims
+        run: |
+          echo 'Contract IR bridge unit tests only.'
+          echo 'No TJSV generated IR, Oreslang compiler, guest runtime, actor safety proof or ABI test executed.'

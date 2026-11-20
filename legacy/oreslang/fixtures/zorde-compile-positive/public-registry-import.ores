@@ -1,0 +1,12 @@
+// Positive control: public registry type and function are resolvable in a
+// separate module. If this fails, private-import failures prove nothing.
+import class ZordeScalarRegistry from '../../src/zorde/compiled_registry';
+import fnc zorde_registry_max_entries from '../../src/zorde/compiled_registry';
+
+pub fnc public_registry_capacity(ZordeScalarRegistry registry): int {
+  return zorde_registry_max_entries();
+}
+
+pub fnc main(): void {
+  return;
+}
