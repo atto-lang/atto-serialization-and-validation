@@ -19,6 +19,10 @@ define class MsgpackCursor as
   pub let int index;
   pub let bool failed;
   pub let int map_key_work_remaining;
+  // Actor-only logical credits; shared by every recursive decode_value call.
+  pub val bool actor_bounded;
+  pub let int actor_bytes_remaining;
+  pub let int actor_work_remaining;
   pub let DecodeError error;
 end
 
@@ -502,8 +506,27 @@ fnc decode_value(
     return value_null();
   fi
 
+  if cursor.actor_bounded then
+    // Charge each node before reading its marker or constructing its value.
+    if cursor.actor_bytes_remaining < 128 || cursor.actor_work_remaining < 1 then
+      cursor_fail(cursor, "actor_budget", "cumulative actor decode budget exhausted");
+      return value_null();
+    fi
+    cursor.actor_bytes_remaining = cursor.actor_bytes_remaining - 128;
+    cursor.actor_work_remaining = cursor.actor_work_remaining - 1;
+  fi
+
   let int marker = read_u8(cursor);
   if cursor.failed then
+    return value_null();
+  fi
+
+  // The actor profile deliberately excludes maps and extension dispatch until
+  // trusted typed schemas and cumulative hash/equality metering are integrated.
+  if cursor.actor_bounded && ((marker >= 128 && marker <= 143) ||
+     marker == 222 || marker == 223 || (marker >= 199 && marker <= 201) ||
+     (marker >= 212 && marker <= 216)) then
+    cursor_fail(cursor, "actor_profile", "actor profile does not admit maps or extensions");
     return value_null();
   fi
 
@@ -655,6 +678,42 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
+  return decode_with_budget(input, options, false, 0, 0);
+}
+
+// Opt-in restricted actor DATA profile. Input must be owned or immutable.
+// Logical credits, not physical allocation or compiler-issued schema authority.
+// Every nested array/scalar shares one cursor. Maps and extensions fail closed.
+pub fnc decode_actor_bounded(
+  List<int> input,
+  DecodeOptions options,
+  int max_logical_bytes,
+  int max_work
+): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(options) || options.allow_trailing_data ||
+     options.duplicate_key_policy != 0 || options.max_depth > 64 ||
+     max_logical_bytes < 128 || max_logical_bytes > 8 * 1024 * 1024 ||
+     max_work < 1 || max_work > 4 * 1024 * 1024 ||
+     input.length > 1024 * 1024 then
+    return Err(decode_error("actor_budget", 0, "invalid actor decode profile or budget"));
+  fi
+  // Multiplication is safe after the explicit 1 MiB input limit.
+  val int wire_bytes = input.length * 16;
+  val int wire_work = input.length * 3;
+  if wire_bytes > max_logical_bytes - 128 || wire_work > max_work then
+    return Err(decode_error("actor_budget", 0, "actor input budget exhausted"));
+  fi
+  return decode_with_budget(input, options, true,
+    max_logical_bytes - 128 - wire_bytes, max_work - wire_work);
+}
+
+fnc decode_with_budget(
+  List<int> input,
+  DecodeOptions options,
+  bool actor_bounded,
+  int actor_bytes_remaining,
+  int actor_work_remaining
+): Result<DecodedValue, DecodeError> {
   if !decode_options_valid(options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
@@ -673,6 +732,9 @@ pub fnc decode(
     0,
     false,
     map_key_work_limit(options.max_map_entries),
+    actor_bounded,
+    actor_bytes_remaining,
+    actor_work_remaining,
     empty_decode_error()
   );
 
