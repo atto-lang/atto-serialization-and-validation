@@ -1,0 +1,30 @@
+{
+  "fields": [
+    {
+      "fieldNumber": 1,
+      "wireType": 0,
+      "payload": [
+        150,
+        1
+      ]
+    },
+    {
+      "fieldNumber": 2,
+      "wireType": 2,
+      "payload": [
+        104,
+        105
+      ]
+    },
+    {
+      "fieldNumber": 19000,
+      "wireType": 5,
+      "payload": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ]
+}
