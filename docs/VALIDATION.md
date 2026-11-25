@@ -80,6 +80,16 @@ compiler-minted with inaccessible constructors, no forged casts/subclasses,
 frozen/owned nested graph, schema digest/version/generation binding, and
 lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
 
+## Aggregate object key budget
+
+The root object validator independently caps schema and input object keys
+at 4,096 fields, 65,536 bytes per key and 1,048,576 bytes in aggregate per
+object. The aggregate length-only precheck precedes UTF-8 scans and hash
+bucket construction. Publicly constructed schemas and Values are subject
+to the same checks at validation. This is not a recursive graph budget,
+schema immutability guarantee or a bound on collision-comparison work.
+Native execution of these new boundary cases is required.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:

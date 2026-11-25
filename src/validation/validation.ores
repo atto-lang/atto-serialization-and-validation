@@ -329,10 +329,25 @@ pub fnc max_schema_key_bytes(): int {
   return 65536;
 }
 
+// Bound total key bytes independently from the per-key and field-count caps.
+pub fnc max_schema_total_key_bytes(): int {
+  return 1048576;
+}
+
 fnc object_schema_valid(ObjectSchema schema): bool {
   if schema.fields.length > max_schema_fields() then
     return false;
   fi
+
+  // Length-only pass before UTF-8 scanning or constructing hash buckets.
+  let int remaining_key_bytes = max_schema_total_key_bytes();
+  for const field of schema.fields do
+    if field.key.bytes.length > max_schema_key_bytes() ||
+       field.key.bytes.length > remaining_key_bytes then
+      return false;
+    fi
+    remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
+  done
 
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
@@ -1177,11 +1192,23 @@ pub fnc validate_object(
     return report;
   fi
 
-  // Do not permit malformed bytes in object keys, even when unknown fields
-  // are allowed. Unknown-schema keys would otherwise evade field rules.
+  // First bound aggregate key bytes before scanning any input key or
+  // constructing lookup buckets, even with an open schema.
+  let int remaining_input_key_bytes = max_schema_total_key_bytes();
   for const member of value.object_value do
     if member.key.bytes.length > max_schema_key_bytes() ||
-       !utf8_is_valid(member.key.bytes) then
+       member.key.bytes.length > remaining_input_key_bytes then
+      add_error(report, options, "invalid_object_key", new List<PathSegment>(),
+        "input object keys exceed size limits");
+      return report;
+    fi
+    remaining_input_key_bytes =
+      remaining_input_key_bytes - member.key.bytes.length;
+  done
+
+  // Unknown-schema keys must not evade UTF-8 validation.
+  for const member of value.object_value do
+    if !utf8_is_valid(member.key.bytes) then
       add_error(report, options, "invalid_object_key", new List<PathSegment>(),
         "input object key is oversized or is not valid UTF-8");
       return report;

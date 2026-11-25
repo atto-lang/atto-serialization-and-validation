@@ -7,8 +7,46 @@ import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes from '../src/validation/validation';
 import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
+
+// Distinct legal ASCII keys; the one-over case is only one byte over the
+// aggregate limit, not the individual key or member count limit.
+fnc aggregate_test_key(int index): Utf8Text {
+  val List<int> bytes = new List<int>();
+  bytes.add(65 + index);
+  if index < 16 then
+    let int i = 1;
+    loop do
+      if i >= max_schema_key_bytes() then break; fi
+      bytes.add(97);
+      i = i + 1;
+    done
+  fi
+  return new Utf8Text(bytes);
+}
+
+fnc aggregate_test_fields(int count): List<FieldRule> {
+  val List<FieldRule> fields = new List<FieldRule>();
+  let int i = 0;
+  loop do
+    if i >= count then break; fi
+    fields.add(field_rule(aggregate_test_key(i), false, false, any_rule()));
+    i = i + 1;
+  done
+  return fields;
+}
+
+fnc aggregate_test_object(int count): Value {
+  val List<WireMember> members = new List<WireMember>();
+  let int i = 0;
+  loop do
+    if i >= count then break; fi
+    members.add(new WireMember(aggregate_test_key(i), value_int(i)));
+    i = i + 1;
+  done
+  return value_object(members);
+}
 
 pub fnc run_validation_tests(): void {
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
@@ -395,6 +433,27 @@ pub fnc run_validation_tests(): void {
   );
   require_true(!report_is_valid(rt borrow too_many_members_report),
     "direct object rejects excessive distinct member count");
+  // The direct public schema constructor must not bypass aggregate limits.
+  require_int(max_schema_total_key_bytes(), 1048576, "aggregate key byte cap");
+  require_true(report_is_valid(validate_object(
+    value_object(new List<WireMember>()),
+    new ObjectSchema(aggregate_test_fields(16), false),
+    default_validation_options()
+  )), "exact 1 MiB of distinct schema key bytes is accepted");
+  require_true(!report_is_valid(validate_object(
+    value_object(new List<WireMember>()),
+    new ObjectSchema(aggregate_test_fields(17), false),
+    default_validation_options()
+  )), "direct schema with 1 MiB plus one key byte is denied");
+  require_true(report_is_valid(validate_object(
+    aggregate_test_object(16), object_schema(new List<FieldRule>(), false),
+    default_validation_options()
+  )), "exact 1 MiB of distinct input key bytes is accepted");
+  require_true(validate_object_checked(
+    aggregate_test_object(17), object_schema(new List<FieldRule>(), false),
+    default_validation_options()
+  ).is_err(), "checked root object denies 1 MiB plus one key byte");
+
   // Checked dynamic APIs return plain Value, never authoritative proof.
   val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
     value_string(new Utf8Text(new List<int>(111, 107))),
