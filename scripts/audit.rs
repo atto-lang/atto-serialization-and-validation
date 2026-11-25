@@ -62,7 +62,11 @@ fn imported_names(raw: &str) -> Vec<&str> {
             if token.is_empty() {
                 return None;
             }
-            Some(token.split_once(" as ").map_or(token, |(name, _)| name.trim()))
+            Some(
+                token
+                    .split_once(" as ")
+                    .map_or(token, |(name, _)| name.trim()),
+            )
         })
         .collect()
 }
@@ -88,16 +92,28 @@ fn declared(kind: &str, name: &str, text: &str) -> bool {
     let pattern = match kind {
         "class" => format!(r"\b(?:pub\s+define\s+class|define\s+(?:pub\s+)?class)\s+{n}\b"),
         "fnc" => format!(r"\b(?:pub\s+)?(?:async\s+|nlex\s+|pure\s+)*fnc\s+{n}\b"),
-        "interface" => format!(r"\b(?:pub\s+define\s+interface|define\s+(?:pub\s+)?interface)\s+{n}\b"),
+        "interface" => {
+            format!(r"\b(?:pub\s+define\s+interface|define\s+(?:pub\s+)?interface)\s+{n}\b")
+        }
         "trait" => format!(r"\b(?:pub\s+define\s+trait|define\s+(?:pub\s+)?trait)\s+{n}\b"),
         "struct" => format!(r"\b(?:pub\s+define\s+struct|define\s+(?:pub\s+)?struct)\s+{n}\b"),
-        "types" => format!(r"\b(?:type|define\s+(?:pub\s+)?(?:class|interface|trait|struct))\s+{n}\b"),
+        "types" => {
+            format!(r"\b(?:type|define\s+(?:pub\s+)?(?:class|interface|trait|struct))\s+{n}\b")
+        }
         _ => return true,
     };
-    Regex::new(&pattern).expect("declaration regex").is_match(text)
+    Regex::new(&pattern)
+        .expect("declaration regex")
+        .is_match(text)
 }
 
-fn fail(errors: &mut Vec<String>, root: &Path, path: &Path, line_no: usize, message: impl AsRef<str>) {
+fn fail(
+    errors: &mut Vec<String>,
+    root: &Path,
+    path: &Path,
+    line_no: usize,
+    message: impl AsRef<str>,
+) {
     let rel = path.strip_prefix(root).unwrap_or(path);
     errors.push(format!("{}:{line_no}: {}", rel.display(), message.as_ref()));
 }
@@ -115,9 +131,12 @@ fn main() {
     )
     .unwrap();
     let amp_mut = Regex::new(r"&\s*mut\b").unwrap();
-    let amp_unary = Regex::new(r"(?:^|[=(,:;<\[]|\breturn\s+)\s*&\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
-    let ptr_decl_upper = Regex::new(r"\b[A-Z][A-Za-z0-9_<>,]*\*\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
-    let ptr_decl_builtin = Regex::new(r"\b(?:int|float|bool|String|string)\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
+    let amp_unary =
+        Regex::new(r"(?:^|[=(,:;<\[]|\breturn\s+)\s*&\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
+    let ptr_decl_upper =
+        Regex::new(r"\b[A-Z][A-Za-z0-9_<>,]*\*\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
+    let ptr_decl_builtin =
+        Regex::new(r"\b(?:int|float|bool|String|string)\s*\*\s*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
     let ptr_deref = Regex::new(r"(?:^|[=(,:;])\s*\*[A-Za-z_][A-Za-z0-9_]*\b").unwrap();
     let callable_channel = Regex::new(r"Channel\s*<[^>]*(?:Fnc|routine|->)").unwrap();
 
@@ -129,22 +148,48 @@ fn main() {
             let code = code_only(raw);
 
             if amp_mut.is_match(&code) {
-                fail(&mut errors, root, path, line_no, "Rust-style &mut ownership syntax is forbidden");
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    "Rust-style &mut ownership syntax is forbidden",
+                );
             }
             if amp_unary.is_match(&code) {
                 fail(&mut errors, root, path, line_no, "pointer-style unary/type ampersand ownership syntax is forbidden; use rt borrow/take/copy/share");
             }
             if ptr_decl_upper.is_match(&code) || ptr_decl_builtin.is_match(&code) {
-                fail(&mut errors, root, path, line_no, "C-style pointer declaration syntax is forbidden");
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    "C-style pointer declaration syntax is forbidden",
+                );
             }
             if ptr_deref.is_match(&code) {
-                fail(&mut errors, root, path, line_no, "unary pointer dereference syntax is forbidden");
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    "unary pointer dereference syntax is forbidden",
+                );
             }
             if callable_channel.is_match(&code) {
-                fail(&mut errors, root, path, line_no, "callable/executable channel payload is forbidden");
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    "callable/executable channel payload is forbidden",
+                );
             }
 
-            let Some(caps) = import_re.captures(raw) else { continue };
+            let Some(caps) = import_re.captures(raw) else {
+                continue;
+            };
             let kind = caps.get(1).unwrap().as_str();
             let raw_names = caps.get(2).unwrap().as_str();
             let target = caps.get(3).unwrap().as_str();
@@ -157,11 +202,23 @@ fn main() {
                 target_path.set_extension("ores");
             }
             if !target_path.starts_with(root) {
-                fail(&mut errors, root, path, line_no, format!("relative import escapes repository: {target}"));
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    format!("relative import escapes repository: {target}"),
+                );
                 continue;
             }
             if !target_path.is_file() {
-                fail(&mut errors, root, path, line_no, format!("relative import target does not exist: {target}"));
+                fail(
+                    &mut errors,
+                    root,
+                    path,
+                    line_no,
+                    format!("relative import target does not exist: {target}"),
+                );
                 continue;
             }
 
@@ -174,7 +231,10 @@ fn main() {
                         root,
                         path,
                         line_no,
-                        format!("imported {kind} {name:?} is not declared in {}", rel.display()),
+                        format!(
+                            "imported {kind} {name:?} is not declared in {}",
+                            rel.display()
+                        ),
                     );
                 }
             }
@@ -201,7 +261,10 @@ mod tests {
 
     #[test]
     fn strings_and_comments_are_removed_before_pointer_checks() {
-        assert_eq!(code_only(r#"x = "&mut nope"; // &mut nope"#), "x =            ; ");
+        assert_eq!(
+            code_only(r#"x = "&mut nope"; // &mut nope"#),
+            "x =            ; "
+        );
     }
 
     #[test]
