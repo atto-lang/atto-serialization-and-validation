@@ -422,3 +422,13 @@ extensions are refused at any depth. Generic decode remains unchanged and
 both paths retain the newer global materialization and key-work limits.
 These are logical units, not physical heap or CPU measurements; native
 execution, actor mailbox integration and ownership review remain required.
+
+## Native binary codec ownership follow-up
+
+CBOR and MessagePack cursor and writer helpers use explicit mutable reborrows.
+Where a decode dispatch previously nested a cursor read inside another
+mutable-cursor call, stage the scalar read first and abort on cursor failure
+before taking the next loan. This avoids overlapping mutable loans and keeps
+post-parse cursor state available. Existing actor, graph, key and
+materialization limits remain in place. This is a source repair candidate;
+compiler execution and field-projection loan review remain release gates.

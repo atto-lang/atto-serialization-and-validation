@@ -32,7 +32,7 @@ define class CborWriter as
 end
 
 fnc cursor_fail(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   String code,
   String message
 ): void {
@@ -45,7 +45,7 @@ fnc cursor_fail(
 }
 
 fnc writer_fail(
-  CborWriter mut writer,
+  borrow mut CborWriter writer,
   String code,
   String message
 ): void {
@@ -57,15 +57,15 @@ fnc writer_fail(
   return;
 }
 
-fnc read_u8(CborCursor mut cursor): int {
+fnc read_u8(borrow mut CborCursor cursor): int {
   if cursor.index >= cursor.input.length then
-    cursor_fail(cursor, "unexpected_eof", "truncated CBOR value");
+    cursor_fail(rt mut borrow cursor, "unexpected_eof", "truncated CBOR value");
     return 0;
   fi
 
   let int value = cursor.input[cursor.index];
   if value < 0 || value > 255 then
-    cursor_fail(cursor, "invalid_byte", "CBOR input bytes must be 0..255");
+    cursor_fail(rt mut borrow cursor, "invalid_byte", "CBOR input bytes must be 0..255");
     return 0;
   fi
 
@@ -73,7 +73,7 @@ fnc read_u8(CborCursor mut cursor): int {
   return value;
 }
 
-fnc read_uint_be(CborCursor mut cursor, int width): int {
+fnc read_uint_be(borrow mut CborCursor cursor, int width): int {
   let int value = 0;
   let int i = 0;
 
@@ -81,7 +81,7 @@ fnc read_uint_be(CborCursor mut cursor, int width): int {
     if i >= width then
       break;
     fi
-    let int byte = read_u8(cursor);
+    let int byte = read_u8(rt mut borrow cursor);
     if cursor.failed then
       return 0;
     fi
@@ -93,7 +93,7 @@ fnc read_uint_be(CborCursor mut cursor, int width): int {
 }
 
 fnc read_argument(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int additional
 ): int {
   if additional < 24 then
@@ -101,26 +101,26 @@ fnc read_argument(
   fi
 
   if additional == 24 then
-    return read_u8(cursor);
+    return read_u8(rt mut borrow cursor);
   fi
 
   if additional == 25 then
-    return read_uint_be(cursor, 2);
+    return read_uint_be(rt mut borrow cursor, 2);
   fi
 
   if additional == 26 then
-    return read_uint_be(cursor, 4);
+    return read_uint_be(rt mut borrow cursor, 4);
   fi
 
   if additional == 27 then
-    let int first = read_u8(cursor);
+    let int first = read_u8(rt mut borrow cursor);
     if cursor.failed then
       return 0;
     fi
 
     if first >= 128 then
       cursor_fail(
-        cursor,
+        rt mut borrow cursor,
         "uint64_range",
         "CBOR uint64 argument exceeds Oreslang signed int range"
       );
@@ -133,7 +133,7 @@ fnc read_argument(
       if i >= 8 then
         break;
       fi
-      value = (value * 256) + read_u8(cursor);
+      value = (value * 256) + read_u8(rt mut borrow cursor);
       if cursor.failed then
         return 0;
       fi
@@ -143,16 +143,16 @@ fnc read_argument(
   fi
 
   if additional == 31 then
-    cursor_fail(cursor, "indefinite_length", "indefinite-length CBOR is not supported by the baseline codec");
+    cursor_fail(rt mut borrow cursor, "indefinite_length", "indefinite-length CBOR is not supported by the baseline codec");
     return 0;
   fi
 
-  cursor_fail(cursor, "invalid_additional_info", "invalid CBOR additional information");
+  cursor_fail(rt mut borrow cursor, "invalid_additional_info", "invalid CBOR additional information");
   return 0;
 }
 
 fnc read_bytes(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int length,
   int limit,
   String code
@@ -160,22 +160,22 @@ fnc read_bytes(
   val List<int> output = new List<int>();
 
   if length < 0 then
-    cursor_fail(cursor, "invalid_length", "negative CBOR length");
+    cursor_fail(rt mut borrow cursor, "invalid_length", "negative CBOR length");
     return output;
   fi
 
   if length > limit then
-    cursor_fail(cursor, code, "CBOR payload exceeds configured limit");
+    cursor_fail(rt mut borrow cursor, code, "CBOR payload exceeds configured limit");
     return output;
   fi
 
   if !byte_range_fits(cursor.input.length, cursor.index, length) then
-    cursor_fail(cursor, "unexpected_eof", "truncated CBOR payload");
+    cursor_fail(rt mut borrow cursor, "unexpected_eof", "truncated CBOR payload");
     return output;
   fi
 
   if !charge_decode_bytes(cursor.materialization, length) then
-    cursor_fail(cursor, "materialization_limit", "CBOR cumulative decoded byte limit exhausted");
+    cursor_fail(rt mut borrow cursor, "materialization_limit", "CBOR cumulative decoded byte limit exhausted");
     return output;
   fi
   let int i = 0;
@@ -192,11 +192,11 @@ fnc read_bytes(
 }
 
 fnc decode_text(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int length
 ): Value {
   let List<int> bytes = read_bytes(
-    cursor,
+    rt mut borrow cursor,
     length,
     cursor.options.max_string_bytes,
     "string_limit"
@@ -207,7 +207,7 @@ fnc decode_text(
   fi
 
   if !utf8_is_valid(bytes) then
-    cursor_fail(cursor, "invalid_utf8", "CBOR text string contains invalid UTF-8");
+    cursor_fail(rt mut borrow cursor, "invalid_utf8", "CBOR text string contains invalid UTF-8");
     return value_null();
   fi
 
@@ -215,21 +215,21 @@ fnc decode_text(
 }
 
 fnc decode_array(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int count,
   int depth
 ): Value {
   val List<Value> values = new List<Value>();
 
   if count > cursor.options.max_array_entries then
-    cursor_fail(cursor, "array_limit", "CBOR array exceeds max_array_entries");
+    cursor_fail(rt mut borrow cursor, "array_limit", "CBOR array exceeds max_array_entries");
     return value_array(values);
   fi
 
   // Reject impossible declared child counts before materializing children.
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
-    cursor_fail(cursor, "node_limit", "CBOR cumulative child node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative child node limit exhausted");
     return value_array(values);
   fi
 
@@ -239,7 +239,7 @@ fnc decode_array(
       break;
     fi
 
-    let Value value = decode_value(cursor, depth + 1);
+    let Value value = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_array(values);
     fi
@@ -252,7 +252,7 @@ fnc decode_array(
 }
 
 fnc decode_map(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int count,
   int depth
 ): Value {
@@ -261,18 +261,18 @@ fnc decode_map(
   let bool all_text_keys = true;
 
   if count > cursor.options.max_map_entries then
-    cursor_fail(cursor, "map_limit", "CBOR map exceeds max_map_entries");
+    cursor_fail(rt mut borrow cursor, "map_limit", "CBOR map exceeds max_map_entries");
     return value_map(entries);
   fi
 
   // Reject impossible declared child counts before materializing children.
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
-    cursor_fail(cursor, "node_limit", "CBOR cumulative child node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative child node limit exhausted");
     return value_map(entries);
   fi
   if count > slots - count then
-    cursor_fail(cursor, "node_limit", "CBOR cumulative key/value node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative key/value node limit exhausted");
     return value_map(entries);
   fi
 
@@ -282,12 +282,12 @@ fnc decode_map(
       break;
     fi
 
-    let Value key = decode_value(cursor, depth + 1);
+    let Value key = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_map(entries);
     fi
 
-    let Value member_value = decode_value(cursor, depth + 1);
+    let Value member_value = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_map(entries);
     fi
@@ -298,18 +298,18 @@ fnc decode_map(
 
     val ValueHashAttempt key_hash = value_hash_with_fuel(rt borrow key, cursor.key_fuel);
     if !key_hash.completed then
-      cursor_fail(cursor, "key_work_limit", "CBOR map key hash work exhausted");
+      cursor_fail(rt mut borrow cursor, "key_work_limit", "CBOR map key hash work exhausted");
       return value_map(entries);
     fi
     let int existing = metered_map_entry_index(rt borrow entries, buckets,
       rt borrow key, key_hash.hash, cursor.key_fuel);
     if existing == -2 then
-      cursor_fail(cursor, "key_work_limit", "CBOR map key comparison work exhausted");
+      cursor_fail(rt mut borrow cursor, "key_work_limit", "CBOR map key comparison work exhausted");
       return value_map(entries);
     fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
-        cursor_fail(cursor, "duplicate_key", "duplicate CBOR map key");
+        cursor_fail(rt mut borrow cursor, "duplicate_key", "duplicate CBOR map key");
         return value_map(entries);
       elseif cursor.options.duplicate_key_policy == 2 then
         entries[existing] = new MapEntry(key, member_value);
@@ -336,29 +336,29 @@ fnc decode_map(
 
 // Binary integer conversion creates at most 20 decimal bytes. Reserve
 // the worst case before allocating its lexical representation.
-fnc decode_integer(CborCursor mut cursor, int number): Value {
+fnc decode_integer(borrow mut CborCursor cursor, int number): Value {
   if cursor.failed then return value_null(); fi
   if !charge_decode_bytes(cursor.materialization, 20) then
-    cursor_fail(cursor, "materialization_limit", "CBOR cumulative integer storage budget exhausted");
+    cursor_fail(rt mut borrow cursor, "materialization_limit", "CBOR cumulative integer storage budget exhausted");
     return value_null();
   fi
   return value_int(number);
 }
 
 fnc decode_value(
-  CborCursor mut cursor,
+  borrow mut CborCursor cursor,
   int depth
 ): Value {
   if depth > cursor.options.max_depth then
-    cursor_fail(cursor, "depth_limit", "CBOR nesting exceeds max_depth");
+    cursor_fail(rt mut borrow cursor, "depth_limit", "CBOR nesting exceeds max_depth");
     return value_null();
   fi
 
   if !charge_decode_nodes(cursor.materialization, 1) then
-    cursor_fail(cursor, "node_limit", "CBOR cumulative materialized node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative materialized node limit exhausted");
     return value_null();
   fi
-  let int initial = read_u8(cursor);
+  let int initial = read_u8(rt mut borrow cursor);
   if cursor.failed then
     return value_null();
   fi
@@ -367,25 +367,27 @@ fnc decode_value(
   let int additional = initial % 32;
 
   if major == 0 then
-    return decode_integer(cursor, read_argument(cursor, additional));
+    val int argument = read_argument(rt mut borrow cursor, additional);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
 
   if major == 1 then
-    let int argument = read_argument(cursor, additional);
+    let int argument = read_argument(rt mut borrow cursor, additional);
     if cursor.failed then
       return value_null();
     fi
-    return decode_integer(cursor, -1 - argument);
+    return decode_integer(rt mut borrow cursor, -1 - argument);
   fi
 
   if major == 2 then
-    let int length = read_argument(cursor, additional);
+    let int length = read_argument(rt mut borrow cursor, additional);
     if cursor.failed then
       return value_null();
     fi
     return value_bytes(
       read_bytes(
-        cursor,
+        rt mut borrow cursor,
         length,
         cursor.options.max_binary_bytes,
         "binary_limit"
@@ -394,31 +396,31 @@ fnc decode_value(
   fi
 
   if major == 3 then
-    let int length = read_argument(cursor, additional);
+    let int length = read_argument(rt mut borrow cursor, additional);
     if cursor.failed then
       return value_null();
     fi
-    return decode_text(cursor, length);
+    return decode_text(rt mut borrow cursor, length);
   fi
 
   if major == 4 then
-    let int count = read_argument(cursor, additional);
+    let int count = read_argument(rt mut borrow cursor, additional);
     if cursor.failed then
       return value_null();
     fi
-    return decode_array(cursor, count, depth);
+    return decode_array(rt mut borrow cursor, count, depth);
   fi
 
   if major == 5 then
-    let int count = read_argument(cursor, additional);
+    let int count = read_argument(rt mut borrow cursor, additional);
     if cursor.failed then
       return value_null();
     fi
-    return decode_map(cursor, count, depth);
+    return decode_map(rt mut borrow cursor, count, depth);
   fi
 
   if major == 6 then
-    cursor_fail(cursor, "unsupported_tag", "CBOR tags require a finalized tagged Value representation");
+    cursor_fail(rt mut borrow cursor, "unsupported_tag", "CBOR tags require a finalized tagged Value representation");
     return value_null();
   fi
 
@@ -434,15 +436,15 @@ fnc decode_value(
     fi
 
     if additional == 25 || additional == 26 || additional == 27 then
-      cursor_fail(cursor, "unsupported_float", "CBOR floating point requires exact float-bit primitives");
+      cursor_fail(rt mut borrow cursor, "unsupported_float", "CBOR floating point requires exact float-bit primitives");
       return value_null();
     fi
 
-    cursor_fail(cursor, "unsupported_simple", "unsupported CBOR simple value");
+    cursor_fail(rt mut borrow cursor, "unsupported_simple", "unsupported CBOR simple value");
     return value_null();
   fi
 
-  cursor_fail(cursor, "invalid_major_type", "invalid CBOR major type");
+  cursor_fail(rt mut borrow cursor, "invalid_major_type", "invalid CBOR major type");
   return value_null();
 }
 
@@ -462,7 +464,9 @@ pub fnc decode(
     return Err(decode_error("invalid_byte", 0, "CBOR input values must all be bytes 0..255"));
   fi
 
-  let CborCursor cursor = new CborCursor(
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
+  let mut CborCursor cursor = new CborCursor(
     input,
     options,
     0,
@@ -472,31 +476,31 @@ pub fnc decode(
     new_decode_materialization_budget()
   );
 
-  let Value value = decode_value(cursor, 0);
+  let Value value = decode_value(rt mut borrow cursor, 0);
 
   if cursor.failed then
     return Err(cursor.error);
   fi
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !allow_trailing_data && cursor.index != input_length then
     return Err(decode_error("trailing_data", cursor.index, "trailing bytes after CBOR value"));
   fi
 
   return Ok(new DecodedValue(value, cursor.index));
 }
 
-fnc append_byte(CborWriter mut writer, int byte): void {
+fnc append_byte(borrow mut CborWriter writer, int byte): void {
   if writer.failed then
     return;
   fi
 
   if byte < 0 || byte > 255 then
-    writer_fail(writer, "invalid_byte", "internal CBOR byte outside 0..255");
+    writer_fail(rt mut borrow writer, "invalid_byte", "internal CBOR byte outside 0..255");
     return;
   fi
 
   if writer.output.length >= writer.options.max_output_bytes then
-    writer_fail(writer, "output_limit", "CBOR output exceeds max_output_bytes");
+    writer_fail(rt mut borrow writer, "output_limit", "CBOR output exceeds max_output_bytes");
     return;
   fi
 
@@ -505,7 +509,7 @@ fnc append_byte(CborWriter mut writer, int byte): void {
 }
 
 fnc append_uint_be(
-  CborWriter mut writer,
+  borrow mut CborWriter writer,
   int value,
   int width
 ): void {
@@ -529,7 +533,7 @@ fnc append_uint_be(
     fi
 
     let int byte = remaining / divisor;
-    append_byte(writer, byte);
+    append_byte(rt mut borrow writer, byte);
     remaining = remaining % divisor;
 
     if divisor > 1 then
@@ -543,11 +547,11 @@ fnc append_uint_be(
 }
 
 fnc append_bytes(
-  CborWriter mut writer,
+  borrow mut CborWriter writer,
   List<int> bytes
 ): void {
   for const byte of bytes do
-    append_byte(writer, byte);
+    append_byte(rt mut borrow writer, byte);
     if writer.failed then
       return;
     fi
@@ -556,45 +560,45 @@ fnc append_bytes(
 }
 
 fnc append_head(
-  CborWriter mut writer,
+  borrow mut CborWriter writer,
   int major,
   int argument
 ): void {
   if argument < 0 then
-    writer_fail(writer, "invalid_argument", "CBOR head argument cannot be negative");
+    writer_fail(rt mut borrow writer, "invalid_argument", "CBOR head argument cannot be negative");
     return;
   fi
 
   if argument < 24 then
-    append_byte(writer, (major * 32) + argument);
+    append_byte(rt mut borrow writer, (major * 32) + argument);
     return;
   fi
 
   if argument <= 255 then
-    append_byte(writer, (major * 32) + 24);
-    append_byte(writer, argument);
+    append_byte(rt mut borrow writer, (major * 32) + 24);
+    append_byte(rt mut borrow writer, argument);
     return;
   fi
 
   if argument <= 65535 then
-    append_byte(writer, (major * 32) + 25);
-    append_uint_be(writer, argument, 2);
+    append_byte(rt mut borrow writer, (major * 32) + 25);
+    append_uint_be(rt mut borrow writer, argument, 2);
     return;
   fi
 
   if argument <= 4294967295 then
-    append_byte(writer, (major * 32) + 26);
-    append_uint_be(writer, argument, 4);
+    append_byte(rt mut borrow writer, (major * 32) + 26);
+    append_uint_be(rt mut borrow writer, argument, 4);
     return;
   fi
 
-  append_byte(writer, (major * 32) + 27);
-  append_uint_be(writer, argument, 8);
+  append_byte(rt mut borrow writer, (major * 32) + 27);
+  append_uint_be(rt mut borrow writer, argument, 8);
   return;
 }
 
 fnc encode_value(
-  CborWriter mut writer,
+  borrow mut CborWriter writer,
   Value value,
   int depth
 ): void {
@@ -603,17 +607,17 @@ fnc encode_value(
   fi
 
   if depth > writer.options.max_depth then
-    writer_fail(writer, "depth_limit", "CBOR encoding exceeds max_depth");
+    writer_fail(rt mut borrow writer, "depth_limit", "CBOR encoding exceeds max_depth");
     return;
   fi
 
   if value.kind == 0 then
-    append_byte(writer, 246);
+    append_byte(rt mut borrow writer, 246);
     return;
   fi
 
   if value.kind == 1 then
-    append_byte(writer, value.bool_value ? 245 : 244);
+    append_byte(rt mut borrow writer, value.bool_value ? 245 : 244);
     return;
   fi
 
@@ -621,7 +625,7 @@ fnc encode_value(
     let IntParse parsed = parse_int(value);
     if !parsed.ok then
       writer_fail(
-        writer,
+        rt mut borrow writer,
         "unsupported_number",
         "CBOR encoder accepts exact integer number Values on this path"
       );
@@ -629,33 +633,33 @@ fnc encode_value(
     fi
 
     if parsed.value >= 0 then
-      append_head(writer, 0, parsed.value);
+      append_head(rt mut borrow writer, 0, parsed.value);
     else
-      append_head(writer, 1, -1 - parsed.value);
+      append_head(rt mut borrow writer, 1, -1 - parsed.value);
     fi
     return;
   fi
 
   if value.kind == 3 then
     if !utf8_is_valid(value.string_value.bytes) then
-      writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 as CBOR text");
+      writer_fail(rt mut borrow writer, "invalid_utf8", "cannot encode invalid UTF-8 as CBOR text");
       return;
     fi
-    append_head(writer, 3, value.string_value.bytes.length);
-    append_bytes(writer, value.string_value.bytes);
+    append_head(rt mut borrow writer, 3, value.string_value.bytes.length);
+    append_bytes(rt mut borrow writer, value.string_value.bytes);
     return;
   fi
 
   if value.kind == 4 then
-    append_head(writer, 2, value.bytes_value.length);
-    append_bytes(writer, value.bytes_value);
+    append_head(rt mut borrow writer, 2, value.bytes_value.length);
+    append_bytes(rt mut borrow writer, value.bytes_value);
     return;
   fi
 
   if value.kind == 5 then
-    append_head(writer, 4, value.array_value.length);
+    append_head(rt mut borrow writer, 4, value.array_value.length);
     for const item of value.array_value do
-      encode_value(writer, item, depth + 1);
+      encode_value(rt mut borrow writer, item, depth + 1);
       if writer.failed then
         return;
       fi
@@ -670,23 +674,23 @@ fnc encode_value(
     done
     val int key_status = metered_map_keys_status(rt borrow object_entries, writer.key_fuel);
     if key_status == 2 then
-      writer_fail(writer, "key_work_limit", "CBOR object key work exhausted");
+      writer_fail(rt mut borrow writer, "key_work_limit", "CBOR object key work exhausted");
       return;
     fi
     if key_status == 1 then
-      writer_fail(writer, "duplicate_key", "cannot encode CBOR object with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode CBOR object with duplicate keys");
       return;
     fi
 
-    append_head(writer, 5, value.object_value.length);
+    append_head(rt mut borrow writer, 5, value.object_value.length);
     for const member of value.object_value do
       if !utf8_is_valid(member.key.bytes) then
-        writer_fail(writer, "invalid_utf8", "CBOR map key contains invalid UTF-8");
+        writer_fail(rt mut borrow writer, "invalid_utf8", "CBOR map key contains invalid UTF-8");
         return;
       fi
-      append_head(writer, 3, member.key.bytes.length);
-      append_bytes(writer, member.key.bytes);
-      encode_value(writer, member.value, depth + 1);
+      append_head(rt mut borrow writer, 3, member.key.bytes.length);
+      append_bytes(rt mut borrow writer, member.key.bytes);
+      encode_value(rt mut borrow writer, member.value, depth + 1);
       if writer.failed then
         return;
       fi
@@ -697,18 +701,18 @@ fnc encode_value(
   if value.kind == 8 then
     val int key_status = metered_map_keys_status(rt borrow value.map_value, writer.key_fuel);
     if key_status == 2 then
-      writer_fail(writer, "key_work_limit", "CBOR map key work exhausted");
+      writer_fail(rt mut borrow writer, "key_work_limit", "CBOR map key work exhausted");
       return;
     fi
     if key_status == 1 then
-      writer_fail(writer, "duplicate_key", "cannot encode CBOR map with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode CBOR map with duplicate keys");
       return;
     fi
 
-    append_head(writer, 5, value.map_value.length);
+    append_head(rt mut borrow writer, 5, value.map_value.length);
     for const entry of value.map_value do
-      encode_value(writer, entry.key, depth + 1);
-      encode_value(writer, entry.value, depth + 1);
+      encode_value(rt mut borrow writer, entry.key, depth + 1);
+      encode_value(rt mut borrow writer, entry.value, depth + 1);
       if writer.failed then
         return;
       fi
@@ -718,7 +722,7 @@ fnc encode_value(
 
 
   writer_fail(
-    writer,
+    rt mut borrow writer,
     "unsupported_value",
     "baseline CBOR encoder does not map extension values or unknown Value kinds"
   );
@@ -749,7 +753,7 @@ pub fnc encode(
     return Err(encode_error("unsupported_value", "unknown dynamic Value kind"));
   fi
 
-  let CborWriter writer = new CborWriter(
+  let mut CborWriter writer = new CborWriter(
     new List<int>(),
     options,
     false,
@@ -757,7 +761,7 @@ pub fnc encode(
     new ValueWorkFuel(max_codec_key_work())
   );
 
-  encode_value(writer, value, 0);
+  encode_value(rt mut borrow writer, value, 0);
 
   if writer.failed then
     return Err(writer.error);

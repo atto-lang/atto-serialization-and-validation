@@ -35,7 +35,7 @@ define class MsgpackWriter as
 end
 
 fnc cursor_fail(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   String code,
   String message
 ): void {
@@ -48,7 +48,7 @@ fnc cursor_fail(
 }
 
 fnc writer_fail(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   String code,
   String message
 ): void {
@@ -60,15 +60,15 @@ fnc writer_fail(
   return;
 }
 
-fnc read_u8(MsgpackCursor mut cursor): int {
+fnc read_u8(borrow mut MsgpackCursor cursor): int {
   if cursor.index >= cursor.input.length then
-    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack value");
+    cursor_fail(rt mut borrow cursor, "unexpected_eof", "truncated MessagePack value");
     return 0;
   fi
 
   let int value = cursor.input[cursor.index];
   if value < 0 || value > 255 then
-    cursor_fail(cursor, "invalid_byte", "MessagePack input bytes must be 0..255");
+    cursor_fail(rt mut borrow cursor, "invalid_byte", "MessagePack input bytes must be 0..255");
     return 0;
   fi
 
@@ -76,7 +76,7 @@ fnc read_u8(MsgpackCursor mut cursor): int {
   return value;
 }
 
-fnc read_uint_be(MsgpackCursor mut cursor, int width): int {
+fnc read_uint_be(borrow mut MsgpackCursor cursor, int width): int {
   let int value = 0;
   let int i = 0;
 
@@ -85,7 +85,7 @@ fnc read_uint_be(MsgpackCursor mut cursor, int width): int {
       break;
     fi
 
-    let int byte = read_u8(cursor);
+    let int byte = read_u8(rt mut borrow cursor);
     if cursor.failed then
       return 0;
     fi
@@ -97,9 +97,9 @@ fnc read_uint_be(MsgpackCursor mut cursor, int width): int {
   return value;
 }
 
-fnc read_signed(MsgpackCursor mut cursor, int width): int {
+fnc read_signed(borrow mut MsgpackCursor cursor, int width): int {
   if width == 8 then
-    let int first = read_u8(cursor);
+    let int first = read_u8(rt mut borrow cursor);
     if cursor.failed then
       return 0;
     fi
@@ -110,7 +110,7 @@ fnc read_signed(MsgpackCursor mut cursor, int width): int {
       if i >= 8 then
         break;
       fi
-      value = (value * 256) + read_u8(cursor);
+      value = (value * 256) + read_u8(rt mut borrow cursor);
       if cursor.failed then
         return 0;
       fi
@@ -119,7 +119,7 @@ fnc read_signed(MsgpackCursor mut cursor, int width): int {
     return value;
   fi
 
-  let int raw = read_uint_be(cursor, width);
+  let int raw = read_uint_be(rt mut borrow cursor, width);
   if cursor.failed then
     return 0;
   fi
@@ -135,15 +135,15 @@ fnc read_signed(MsgpackCursor mut cursor, int width): int {
   return raw >= 2147483648 ? raw - 4294967296 : raw;
 }
 
-fnc read_uint64_checked(MsgpackCursor mut cursor): int {
-  let int first = read_u8(cursor);
+fnc read_uint64_checked(borrow mut MsgpackCursor cursor): int {
+  let int first = read_u8(rt mut borrow cursor);
   if cursor.failed then
     return 0;
   fi
 
   if first >= 128 then
     cursor_fail(
-      cursor,
+      rt mut borrow cursor,
       "uint64_range",
       "MessagePack uint64 exceeds Oreslang signed int range"
     );
@@ -156,7 +156,7 @@ fnc read_uint64_checked(MsgpackCursor mut cursor): int {
     if i >= 8 then
       break;
     fi
-    value = (value * 256) + read_u8(cursor);
+    value = (value * 256) + read_u8(rt mut borrow cursor);
     if cursor.failed then
       return 0;
     fi
@@ -166,7 +166,7 @@ fnc read_uint64_checked(MsgpackCursor mut cursor): int {
 }
 
 fnc read_bytes(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int length,
   int limit,
   String limit_code
@@ -174,22 +174,22 @@ fnc read_bytes(
   val List<int> output = new List<int>();
 
   if length < 0 then
-    cursor_fail(cursor, "invalid_length", "negative MessagePack length");
+    cursor_fail(rt mut borrow cursor, "invalid_length", "negative MessagePack length");
     return output;
   fi
 
   if length > limit then
-    cursor_fail(cursor, limit_code, "MessagePack payload exceeds configured limit");
+    cursor_fail(rt mut borrow cursor, limit_code, "MessagePack payload exceeds configured limit");
     return output;
   fi
 
   if !byte_range_fits(cursor.input.length, cursor.index, length) then
-    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack payload");
+    cursor_fail(rt mut borrow cursor, "unexpected_eof", "truncated MessagePack payload");
     return output;
   fi
 
   if !charge_decode_bytes(cursor.materialization, length) then
-    cursor_fail(cursor, "materialization_limit", "MessagePack cumulative decoded byte limit exhausted");
+    cursor_fail(rt mut borrow cursor, "materialization_limit", "MessagePack cumulative decoded byte limit exhausted");
     return output;
   fi
   let int i = 0;
@@ -206,11 +206,11 @@ fnc read_bytes(
 }
 
 fnc decode_string(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int length
 ): Value {
   let List<int> bytes = read_bytes(
-    cursor,
+    rt mut borrow cursor,
     length,
     cursor.options.max_string_bytes,
     "string_limit"
@@ -221,7 +221,7 @@ fnc decode_string(
   fi
 
   if !utf8_is_valid(bytes) then
-    cursor_fail(cursor, "invalid_utf8", "MessagePack string contains invalid UTF-8");
+    cursor_fail(rt mut borrow cursor, "invalid_utf8", "MessagePack string contains invalid UTF-8");
     return value_null();
   fi
 
@@ -229,27 +229,27 @@ fnc decode_string(
 }
 
 fnc decode_array(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int count,
   int depth
 ): Value {
   val List<Value> values = new List<Value>();
 
   if count > cursor.options.max_array_entries then
-    cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
+    cursor_fail(rt mut borrow cursor, "array_limit", "MessagePack array exceeds max_array_entries");
     return value_array(values);
   fi
 
   // Reject impossible declared child counts before materializing children.
   if cursor.actor_bounded then
     if count > cursor.actor_work_remaining || count > (cursor.actor_bytes_remaining >> 7) then
-      cursor_fail(cursor, "actor_budget", "declared array children exceed remaining actor budget");
+      cursor_fail(rt mut borrow cursor, "actor_budget", "declared array children exceed remaining actor budget");
       return value_array(values);
     fi
   fi
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
-    cursor_fail(cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
     return value_array(values);
   fi
 
@@ -259,7 +259,7 @@ fnc decode_array(
       break;
     fi
 
-    let Value value = decode_value(cursor, depth + 1);
+    let Value value = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_array(values);
     fi
@@ -272,7 +272,7 @@ fnc decode_array(
 }
 
 fnc decode_map(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int count,
   int depth
 ): Value {
@@ -281,18 +281,18 @@ fnc decode_map(
   let bool all_text_keys = true;
 
   if count > cursor.options.max_map_entries then
-    cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
+    cursor_fail(rt mut borrow cursor, "map_limit", "MessagePack map exceeds max_map_entries");
     return value_map(entries);
   fi
 
   // Reject impossible declared child counts before materializing children.
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
-    cursor_fail(cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
     return value_map(entries);
   fi
   if count > slots - count then
-    cursor_fail(cursor, "node_limit", "MessagePack cumulative key/value node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "MessagePack cumulative key/value node limit exhausted");
     return value_map(entries);
   fi
 
@@ -302,12 +302,12 @@ fnc decode_map(
       break;
     fi
 
-    let Value key = decode_value(cursor, depth + 1);
+    let Value key = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_map(entries);
     fi
 
-    let Value member_value = decode_value(cursor, depth + 1);
+    let Value member_value = decode_value(rt mut borrow cursor, depth + 1);
     if cursor.failed then
       return value_map(entries);
     fi
@@ -318,18 +318,18 @@ fnc decode_map(
 
     val ValueHashAttempt key_hash = value_hash_with_fuel(rt borrow key, cursor.key_fuel);
     if !key_hash.completed then
-      cursor_fail(cursor, "key_work_limit", "MessagePack map key hash work exhausted");
+      cursor_fail(rt mut borrow cursor, "key_work_limit", "MessagePack map key hash work exhausted");
       return value_map(entries);
     fi
     let int existing = metered_map_entry_index(rt borrow entries, buckets,
       rt borrow key, key_hash.hash, cursor.key_fuel);
     if existing == -2 then
-      cursor_fail(cursor, "key_work_limit", "MessagePack map key comparison work exhausted");
+      cursor_fail(rt mut borrow cursor, "key_work_limit", "MessagePack map key comparison work exhausted");
       return value_map(entries);
     fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
-        cursor_fail(cursor, "duplicate_key", "duplicate MessagePack map key");
+        cursor_fail(rt mut borrow cursor, "duplicate_key", "duplicate MessagePack map key");
         return value_map(entries);
       elseif cursor.options.duplicate_key_policy == 2 then
         entries[existing] = new MapEntry(key, member_value);
@@ -355,22 +355,22 @@ fnc decode_map(
 }
 
 fnc decode_extension(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int length
 ): Value {
   if length > cursor.options.max_binary_bytes then
-    cursor_fail(cursor, "binary_limit", "MessagePack extension exceeds max_binary_bytes");
+    cursor_fail(rt mut borrow cursor, "binary_limit", "MessagePack extension exceeds max_binary_bytes");
     return value_null();
   fi
 
-  let int raw_type = read_u8(cursor);
+  let int raw_type = read_u8(rt mut borrow cursor);
   if cursor.failed then
     return value_null();
   fi
 
   let int extension_type = raw_type >= 128 ? raw_type - 256 : raw_type;
   let List<int> payload = read_bytes(
-    cursor,
+    rt mut borrow cursor,
     length,
     cursor.options.max_binary_bytes,
     "binary_limit"
@@ -385,37 +385,37 @@ fnc decode_extension(
 
 // Binary integer conversion creates at most 20 decimal bytes. Reserve
 // the worst case before allocating its lexical representation.
-fnc decode_integer(MsgpackCursor mut cursor, int number): Value {
+fnc decode_integer(borrow mut MsgpackCursor cursor, int number): Value {
   if cursor.failed then return value_null(); fi
   if !charge_decode_bytes(cursor.materialization, 20) then
-    cursor_fail(cursor, "materialization_limit", "MessagePack cumulative integer storage budget exhausted");
+    cursor_fail(rt mut borrow cursor, "materialization_limit", "MessagePack cumulative integer storage budget exhausted");
     return value_null();
   fi
   return value_int(number);
 }
 
 fnc decode_value(
-  MsgpackCursor mut cursor,
+  borrow mut MsgpackCursor cursor,
   int depth
 ): Value {
   if depth > cursor.options.max_depth then
-    cursor_fail(cursor, "depth_limit", "MessagePack nesting exceeds max_depth");
+    cursor_fail(rt mut borrow cursor, "depth_limit", "MessagePack nesting exceeds max_depth");
     return value_null();
   fi
 
   if cursor.actor_bounded then
     if cursor.actor_bytes_remaining < 128 || cursor.actor_work_remaining < 1 then
-      cursor_fail(cursor, "actor_budget", "cumulative actor decode budget exhausted");
+      cursor_fail(rt mut borrow cursor, "actor_budget", "cumulative actor decode budget exhausted");
       return value_null();
     fi
     cursor.actor_bytes_remaining = cursor.actor_bytes_remaining - 128;
     cursor.actor_work_remaining = cursor.actor_work_remaining - 1;
   fi
   if !charge_decode_nodes(cursor.materialization, 1) then
-    cursor_fail(cursor, "node_limit", "MessagePack cumulative materialized node limit exhausted");
+    cursor_fail(rt mut borrow cursor, "node_limit", "MessagePack cumulative materialized node limit exhausted");
     return value_null();
   fi
-  let int marker = read_u8(cursor);
+  let int marker = read_u8(rt mut borrow cursor);
   if cursor.failed then
     return value_null();
   fi
@@ -424,33 +424,33 @@ fnc decode_value(
   if cursor.actor_bounded && ((marker >= 128 && marker <= 143) ||
      marker == 222 || marker == 223 || (marker >= 199 && marker <= 201) ||
      (marker >= 212 && marker <= 216)) then
-    cursor_fail(cursor, "actor_profile", "actor profile does not admit maps or extensions");
+    cursor_fail(rt mut borrow cursor, "actor_profile", "actor profile does not admit maps or extensions");
     return value_null();
   fi
 
   // Positive fixint.
   if marker <= 127 then
-    return decode_integer(cursor, marker);
+    return decode_integer(rt mut borrow cursor, marker);
   fi
 
   // Fixmap.
   if marker >= 128 && marker <= 143 then
-    return decode_map(cursor, marker - 128, depth);
+    return decode_map(rt mut borrow cursor, marker - 128, depth);
   fi
 
   // Fixarray.
   if marker >= 144 && marker <= 159 then
-    return decode_array(cursor, marker - 144, depth);
+    return decode_array(rt mut borrow cursor, marker - 144, depth);
   fi
 
   // Fixstr.
   if marker >= 160 && marker <= 191 then
-    return decode_string(cursor, marker - 160);
+    return decode_string(rt mut borrow cursor, marker - 160);
   fi
 
   // Negative fixint.
   if marker >= 224 then
-    return decode_integer(cursor, marker - 256);
+    return decode_integer(rt mut borrow cursor, marker - 256);
   fi
 
   if marker == 192 then
@@ -465,33 +465,39 @@ fnc decode_value(
 
   // Binary.
   if marker == 196 then
-    let int length = read_u8(cursor);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    let int length = read_u8(rt mut borrow cursor);
+    return value_bytes(read_bytes(rt mut borrow cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
   if marker == 197 then
-    let int length = read_uint_be(cursor, 2);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    let int length = read_uint_be(rt mut borrow cursor, 2);
+    return value_bytes(read_bytes(rt mut borrow cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
   if marker == 198 then
-    let int length = read_uint_be(cursor, 4);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    let int length = read_uint_be(rt mut borrow cursor, 4);
+    return value_bytes(read_bytes(rt mut borrow cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
 
   // Ext.
   if marker == 199 then
-    return decode_extension(cursor, read_u8(cursor));
+    val int argument = read_u8(rt mut borrow cursor);
+    if cursor.failed then return value_null(); fi
+    return decode_extension(rt mut borrow cursor, argument);
   fi
   if marker == 200 then
-    return decode_extension(cursor, read_uint_be(cursor, 2));
+    val int argument = read_uint_be(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_extension(rt mut borrow cursor, argument);
   fi
   if marker == 201 then
-    return decode_extension(cursor, read_uint_be(cursor, 4));
+    val int argument = read_uint_be(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_extension(rt mut borrow cursor, argument);
   fi
 
   // Float32 / Float64 are intentionally explicit unsupported markers.
   if marker == 202 || marker == 203 then
     cursor_fail(
-      cursor,
+      rt mut borrow cursor,
       "unsupported_float",
       "MessagePack float32/float64 require exact float-bit primitives"
     );
@@ -500,75 +506,105 @@ fnc decode_value(
 
   // Unsigned integer widths supported by an Oreslang signed int.
   if marker == 204 then
-    return decode_integer(cursor, read_u8(cursor));
+    val int argument = read_u8(rt mut borrow cursor);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 205 then
-    return decode_integer(cursor, read_uint_be(cursor, 2));
+    val int argument = read_uint_be(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 206 then
-    return decode_integer(cursor, read_uint_be(cursor, 4));
+    val int argument = read_uint_be(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 207 then
-    return decode_integer(cursor, read_uint64_checked(cursor));
+    val int argument = read_uint64_checked(rt mut borrow cursor);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
 
   // Signed integer widths.
   if marker == 208 then
-    return decode_integer(cursor, read_signed(cursor, 1));
+    val int argument = read_signed(rt mut borrow cursor, 1);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 209 then
-    return decode_integer(cursor, read_signed(cursor, 2));
+    val int argument = read_signed(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 210 then
-    return decode_integer(cursor, read_signed(cursor, 4));
+    val int argument = read_signed(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
   if marker == 211 then
-    return decode_integer(cursor, read_signed(cursor, 8));
+    val int argument = read_signed(rt mut borrow cursor, 8);
+    if cursor.failed then return value_null(); fi
+    return decode_integer(rt mut borrow cursor, argument);
   fi
 
   // Fixed extension widths.
   if marker == 212 then
-    return decode_extension(cursor, 1);
+    return decode_extension(rt mut borrow cursor, 1);
   fi
   if marker == 213 then
-    return decode_extension(cursor, 2);
+    return decode_extension(rt mut borrow cursor, 2);
   fi
   if marker == 214 then
-    return decode_extension(cursor, 4);
+    return decode_extension(rt mut borrow cursor, 4);
   fi
   if marker == 215 then
-    return decode_extension(cursor, 8);
+    return decode_extension(rt mut borrow cursor, 8);
   fi
   if marker == 216 then
-    return decode_extension(cursor, 16);
+    return decode_extension(rt mut borrow cursor, 16);
   fi
 
   // Strings.
   if marker == 217 then
-    return decode_string(cursor, read_u8(cursor));
+    val int argument = read_u8(rt mut borrow cursor);
+    if cursor.failed then return value_null(); fi
+    return decode_string(rt mut borrow cursor, argument);
   fi
   if marker == 218 then
-    return decode_string(cursor, read_uint_be(cursor, 2));
+    val int argument = read_uint_be(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_string(rt mut borrow cursor, argument);
   fi
   if marker == 219 then
-    return decode_string(cursor, read_uint_be(cursor, 4));
+    val int argument = read_uint_be(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_string(rt mut borrow cursor, argument);
   fi
 
   // Arrays and maps.
   if marker == 220 then
-    return decode_array(cursor, read_uint_be(cursor, 2), depth);
+    val int argument = read_uint_be(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_array(rt mut borrow cursor, argument, depth);
   fi
   if marker == 221 then
-    return decode_array(cursor, read_uint_be(cursor, 4), depth);
+    val int argument = read_uint_be(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_array(rt mut borrow cursor, argument, depth);
   fi
   if marker == 222 then
-    return decode_map(cursor, read_uint_be(cursor, 2), depth);
+    val int argument = read_uint_be(rt mut borrow cursor, 2);
+    if cursor.failed then return value_null(); fi
+    return decode_map(rt mut borrow cursor, argument, depth);
   fi
   if marker == 223 then
-    return decode_map(cursor, read_uint_be(cursor, 4), depth);
+    val int argument = read_uint_be(rt mut borrow cursor, 4);
+    if cursor.failed then return value_null(); fi
+    return decode_map(rt mut borrow cursor, argument, depth);
   fi
 
-  cursor_fail(cursor, "reserved_marker", "reserved or unsupported MessagePack marker");
+  cursor_fail(rt mut borrow cursor, "reserved_marker", "reserved or unsupported MessagePack marker");
   return value_null();
 }
 
@@ -626,7 +662,7 @@ fnc decode_with_budget(
 
   val int input_length = input.length;
   val bool allow_trailing_data = options.allow_trailing_data;
-  let MsgpackCursor cursor = new MsgpackCursor(
+  let mut MsgpackCursor cursor = new MsgpackCursor(
     input,
     options,
     0,
@@ -639,7 +675,7 @@ fnc decode_with_budget(
     actor_work_remaining
   );
 
-  let Value value = decode_value(cursor, 0);
+  let Value value = decode_value(rt mut borrow cursor, 0);
 
   if cursor.failed then
     return Err(cursor.error);
@@ -652,18 +688,18 @@ fnc decode_with_budget(
   return Ok(new DecodedValue(value, cursor.index));
 }
 
-fnc append_byte(MsgpackWriter mut writer, int byte): void {
+fnc append_byte(borrow mut MsgpackWriter writer, int byte): void {
   if writer.failed then
     return;
   fi
 
   if byte < 0 || byte > 255 then
-    writer_fail(writer, "invalid_byte", "internal MessagePack byte outside 0..255");
+    writer_fail(rt mut borrow writer, "invalid_byte", "internal MessagePack byte outside 0..255");
     return;
   fi
 
   if writer.output.length >= writer.options.max_output_bytes then
-    writer_fail(writer, "output_limit", "MessagePack output exceeds max_output_bytes");
+    writer_fail(rt mut borrow writer, "output_limit", "MessagePack output exceeds max_output_bytes");
     return;
   fi
 
@@ -672,7 +708,7 @@ fnc append_byte(MsgpackWriter mut writer, int byte): void {
 }
 
 fnc append_uint_be(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   int value,
   int width
 ): void {
@@ -696,7 +732,7 @@ fnc append_uint_be(
     fi
 
     let int byte = remaining / divisor;
-    append_byte(writer, byte);
+    append_byte(rt mut borrow writer, byte);
     remaining = remaining % divisor;
 
     if divisor > 1 then
@@ -710,7 +746,7 @@ fnc append_uint_be(
 }
 
 fnc append_signed64(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   int value
 ): void {
   val List<int> reversed = new List<int>();
@@ -737,18 +773,18 @@ fnc append_signed64(
     if j < 0 then
       break;
     fi
-    append_byte(writer, reversed[j]);
+    append_byte(rt mut borrow writer, reversed[j]);
     j = j - 1;
   done
   return;
 }
 
 fnc append_bytes(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   List<int> bytes
 ): void {
   for const byte of bytes do
-    append_byte(writer, byte);
+    append_byte(rt mut borrow writer, byte);
     if writer.failed then
       return;
     fi
@@ -757,157 +793,157 @@ fnc append_bytes(
 }
 
 fnc encode_integer(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   int value
 ): void {
   if value >= 0 && value <= 127 then
-    append_byte(writer, value);
+    append_byte(rt mut borrow writer, value);
     return;
   fi
 
   if value >= -32 && value < 0 then
-    append_byte(writer, 256 + value);
+    append_byte(rt mut borrow writer, 256 + value);
     return;
   fi
 
   if value >= 0 && value <= 255 then
-    append_byte(writer, 204);
-    append_byte(writer, value);
+    append_byte(rt mut borrow writer, 204);
+    append_byte(rt mut borrow writer, value);
     return;
   fi
 
   if value >= 0 && value <= 65535 then
-    append_byte(writer, 205);
-    append_uint_be(writer, value, 2);
+    append_byte(rt mut borrow writer, 205);
+    append_uint_be(rt mut borrow writer, value, 2);
     return;
   fi
 
   if value >= 0 && value <= 4294967295 then
-    append_byte(writer, 206);
-    append_uint_be(writer, value, 4);
+    append_byte(rt mut borrow writer, 206);
+    append_uint_be(rt mut borrow writer, value, 4);
     return;
   fi
 
   if value >= 0 then
-    append_byte(writer, 207);
-    append_uint_be(writer, value, 8);
+    append_byte(rt mut borrow writer, 207);
+    append_uint_be(rt mut borrow writer, value, 8);
     return;
   fi
 
   if value >= -128 then
-    append_byte(writer, 208);
-    append_byte(writer, value < 0 ? 256 + value : value);
+    append_byte(rt mut borrow writer, 208);
+    append_byte(rt mut borrow writer, value < 0 ? 256 + value : value);
     return;
   fi
 
   if value >= -32768 then
-    append_byte(writer, 209);
-    append_uint_be(writer, value < 0 ? 65536 + value : value, 2);
+    append_byte(rt mut borrow writer, 209);
+    append_uint_be(rt mut borrow writer, value < 0 ? 65536 + value : value, 2);
     return;
   fi
 
   if value >= -2147483648 then
-    append_byte(writer, 210);
-    append_uint_be(writer, 4294967296 + value, 4);
+    append_byte(rt mut borrow writer, 210);
+    append_uint_be(rt mut borrow writer, 4294967296 + value, 4);
     return;
   fi
 
-  append_byte(writer, 211);
-  append_signed64(writer, value);
+  append_byte(rt mut borrow writer, 211);
+  append_signed64(rt mut borrow writer, value);
   return;
 }
 
 fnc encode_string(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   Utf8Text text
 ): void {
   if !utf8_is_valid(text.bytes) then
-    writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 as MessagePack string");
+    writer_fail(rt mut borrow writer, "invalid_utf8", "cannot encode invalid UTF-8 as MessagePack string");
     return;
   fi
 
   let int length = text.bytes.length;
 
   if length <= 31 then
-    append_byte(writer, 160 + length);
+    append_byte(rt mut borrow writer, 160 + length);
   elseif length <= 255 then
-    append_byte(writer, 217);
-    append_byte(writer, length);
+    append_byte(rt mut borrow writer, 217);
+    append_byte(rt mut borrow writer, length);
   elseif length <= 65535 then
-    append_byte(writer, 218);
-    append_uint_be(writer, length, 2);
+    append_byte(rt mut borrow writer, 218);
+    append_uint_be(rt mut borrow writer, length, 2);
   else
-    append_byte(writer, 219);
-    append_uint_be(writer, length, 4);
+    append_byte(rt mut borrow writer, 219);
+    append_uint_be(rt mut borrow writer, length, 4);
   fi
 
-  append_bytes(writer, text.bytes);
+  append_bytes(rt mut borrow writer, text.bytes);
   return;
 }
 
 fnc encode_binary(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   List<int> bytes
 ): void {
   let int length = bytes.length;
 
   if length <= 255 then
-    append_byte(writer, 196);
-    append_byte(writer, length);
+    append_byte(rt mut borrow writer, 196);
+    append_byte(rt mut borrow writer, length);
   elseif length <= 65535 then
-    append_byte(writer, 197);
-    append_uint_be(writer, length, 2);
+    append_byte(rt mut borrow writer, 197);
+    append_uint_be(rt mut borrow writer, length, 2);
   else
-    append_byte(writer, 198);
-    append_uint_be(writer, length, 4);
+    append_byte(rt mut borrow writer, 198);
+    append_uint_be(rt mut borrow writer, length, 4);
   fi
 
-  append_bytes(writer, bytes);
+  append_bytes(rt mut borrow writer, bytes);
   return;
 }
 
 fnc encode_extension(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   Value value
 ): void {
   if value.extension_type < -128 || value.extension_type > 127 then
-    writer_fail(writer, "extension_type", "MessagePack extension type must fit signed byte");
+    writer_fail(rt mut borrow writer, "extension_type", "MessagePack extension type must fit signed byte");
     return;
   fi
 
   let int length = value.bytes_value.length;
 
   if length == 1 then
-    append_byte(writer, 212);
+    append_byte(rt mut borrow writer, 212);
   elseif length == 2 then
-    append_byte(writer, 213);
+    append_byte(rt mut borrow writer, 213);
   elseif length == 4 then
-    append_byte(writer, 214);
+    append_byte(rt mut borrow writer, 214);
   elseif length == 8 then
-    append_byte(writer, 215);
+    append_byte(rt mut borrow writer, 215);
   elseif length == 16 then
-    append_byte(writer, 216);
+    append_byte(rt mut borrow writer, 216);
   elseif length <= 255 then
-    append_byte(writer, 199);
-    append_byte(writer, length);
+    append_byte(rt mut borrow writer, 199);
+    append_byte(rt mut borrow writer, length);
   elseif length <= 65535 then
-    append_byte(writer, 200);
-    append_uint_be(writer, length, 2);
+    append_byte(rt mut borrow writer, 200);
+    append_uint_be(rt mut borrow writer, length, 2);
   else
-    append_byte(writer, 201);
-    append_uint_be(writer, length, 4);
+    append_byte(rt mut borrow writer, 201);
+    append_uint_be(rt mut borrow writer, length, 4);
   fi
 
   append_byte(
-    writer,
+    rt mut borrow writer,
     value.extension_type < 0 ? 256 + value.extension_type : value.extension_type
   );
-  append_bytes(writer, value.bytes_value);
+  append_bytes(rt mut borrow writer, value.bytes_value);
   return;
 }
 
 fnc encode_value(
-  MsgpackWriter mut writer,
+  borrow mut MsgpackWriter writer,
   Value value,
   int depth
 ): void {
@@ -916,17 +952,17 @@ fnc encode_value(
   fi
 
   if depth > writer.options.max_depth then
-    writer_fail(writer, "depth_limit", "MessagePack encoding exceeds max_depth");
+    writer_fail(rt mut borrow writer, "depth_limit", "MessagePack encoding exceeds max_depth");
     return;
   fi
 
   if value.kind == 0 then
-    append_byte(writer, 192);
+    append_byte(rt mut borrow writer, 192);
     return;
   fi
 
   if value.kind == 1 then
-    append_byte(writer, value.bool_value ? 195 : 194);
+    append_byte(rt mut borrow writer, value.bool_value ? 195 : 194);
     return;
   fi
 
@@ -934,23 +970,23 @@ fnc encode_value(
     let IntParse parsed = parse_int(value);
     if !parsed.ok then
       writer_fail(
-        writer,
+        rt mut borrow writer,
         "unsupported_number",
         "MessagePack encoder accepts exact integer number Values on this path"
       );
       return;
     fi
-    encode_integer(writer, parsed.value);
+    encode_integer(rt mut borrow writer, parsed.value);
     return;
   fi
 
   if value.kind == 3 then
-    encode_string(writer, value.string_value);
+    encode_string(rt mut borrow writer, value.string_value);
     return;
   fi
 
   if value.kind == 4 then
-    encode_binary(writer, value.bytes_value);
+    encode_binary(rt mut borrow writer, value.bytes_value);
     return;
   fi
 
@@ -958,17 +994,17 @@ fnc encode_value(
     let int count = value.array_value.length;
 
     if count <= 15 then
-      append_byte(writer, 144 + count);
+      append_byte(rt mut borrow writer, 144 + count);
     elseif count <= 65535 then
-      append_byte(writer, 220);
-      append_uint_be(writer, count, 2);
+      append_byte(rt mut borrow writer, 220);
+      append_uint_be(rt mut borrow writer, count, 2);
     else
-      append_byte(writer, 221);
-      append_uint_be(writer, count, 4);
+      append_byte(rt mut borrow writer, 221);
+      append_uint_be(rt mut borrow writer, count, 4);
     fi
 
     for const item of value.array_value do
-      encode_value(writer, item, depth + 1);
+      encode_value(rt mut borrow writer, item, depth + 1);
       if writer.failed then
         return;
       fi
@@ -983,29 +1019,29 @@ fnc encode_value(
     done
     val int key_status = metered_map_keys_status(rt borrow object_entries, writer.key_fuel);
     if key_status == 2 then
-      writer_fail(writer, "key_work_limit", "MessagePack object key work exhausted");
+      writer_fail(rt mut borrow writer, "key_work_limit", "MessagePack object key work exhausted");
       return;
     fi
     if key_status == 1 then
-      writer_fail(writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
       return;
     fi
 
     let int count = value.object_value.length;
 
     if count <= 15 then
-      append_byte(writer, 128 + count);
+      append_byte(rt mut borrow writer, 128 + count);
     elseif count <= 65535 then
-      append_byte(writer, 222);
-      append_uint_be(writer, count, 2);
+      append_byte(rt mut borrow writer, 222);
+      append_uint_be(rt mut borrow writer, count, 2);
     else
-      append_byte(writer, 223);
-      append_uint_be(writer, count, 4);
+      append_byte(rt mut borrow writer, 223);
+      append_uint_be(rt mut borrow writer, count, 4);
     fi
 
     for const member of value.object_value do
-      encode_string(writer, member.key);
-      encode_value(writer, member.value, depth + 1);
+      encode_string(rt mut borrow writer, member.key);
+      encode_value(rt mut borrow writer, member.value, depth + 1);
       if writer.failed then
         return;
       fi
@@ -1016,29 +1052,29 @@ fnc encode_value(
   if value.kind == 8 then
     val int key_status = metered_map_keys_status(rt borrow value.map_value, writer.key_fuel);
     if key_status == 2 then
-      writer_fail(writer, "key_work_limit", "MessagePack map key work exhausted");
+      writer_fail(rt mut borrow writer, "key_work_limit", "MessagePack map key work exhausted");
       return;
     fi
     if key_status == 1 then
-      writer_fail(writer, "duplicate_key", "cannot encode MessagePack map with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode MessagePack map with duplicate keys");
       return;
     fi
 
     let int count = value.map_value.length;
 
     if count <= 15 then
-      append_byte(writer, 128 + count);
+      append_byte(rt mut borrow writer, 128 + count);
     elseif count <= 65535 then
-      append_byte(writer, 222);
-      append_uint_be(writer, count, 2);
+      append_byte(rt mut borrow writer, 222);
+      append_uint_be(rt mut borrow writer, count, 2);
     else
-      append_byte(writer, 223);
-      append_uint_be(writer, count, 4);
+      append_byte(rt mut borrow writer, 223);
+      append_uint_be(rt mut borrow writer, count, 4);
     fi
 
     for const entry of value.map_value do
-      encode_value(writer, entry.key, depth + 1);
-      encode_value(writer, entry.value, depth + 1);
+      encode_value(rt mut borrow writer, entry.key, depth + 1);
+      encode_value(rt mut borrow writer, entry.value, depth + 1);
       if writer.failed then
         return;
       fi
@@ -1048,11 +1084,11 @@ fnc encode_value(
 
 
   if value.kind == 7 then
-    encode_extension(writer, value);
+    encode_extension(rt mut borrow writer, value);
     return;
   fi
 
-  writer_fail(writer, "unsupported_value", "unknown dynamic Value kind");
+  writer_fail(rt mut borrow writer, "unsupported_value", "unknown dynamic Value kind");
   return;
 }
 
@@ -1080,7 +1116,7 @@ pub fnc encode(
     return Err(encode_error("unsupported_value", "unknown dynamic Value kind"));
   fi
 
-  let MsgpackWriter writer = new MsgpackWriter(
+  let mut MsgpackWriter writer = new MsgpackWriter(
     new List<int>(),
     options,
     false,
@@ -1088,7 +1124,7 @@ pub fnc encode(
     new ValueWorkFuel(max_codec_key_work())
   );
 
-  encode_value(writer, value, 0);
+  encode_value(rt mut borrow writer, value, 0);
 
   if writer.failed then
     return Err(writer.error);
