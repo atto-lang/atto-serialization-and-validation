@@ -452,3 +452,8 @@ receipt binds the base receipt and all probe logs. Unknown compiler diagnostic
 wording is a refusal, not permission to relax the classifier. Source-free
 classifier tests are not native evidence. No compiler or administrator
 approval gates have been removed.
+
+The expanded gate rechecks the base receipt schema, strict JSON keys, every
+required control, exact identities, log hashes and success markers before
+and after additional probes. Synthetic tests establish structural refusal
+only; trusted runner and compiler provenance remain separate requirements.

@@ -52,6 +52,7 @@ test ! -s "$RUNNER_LOG" # An invalid explicit binary must not fall back to PATH.
 PYTHONDONTWRITEBYTECODE=1 python3 -B "$root/tests/source_free/test_zorde_visibility_diagnostic.py"
 PYTHONDONTWRITEBYTECODE=1 python3 -B "$root/tests/test-zorde-denial.py"
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/scripts" python3 -B "$root/tests/source_free/test_expanded_visibility.py"
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$root/scripts" python3 -B "$root/tests/source_free/test_expanded_receipt.py"
 bash "$root/scripts/test-zorde-source-local-contracts.sh"
 bash "$root/scripts/test-check-exports.sh"
 echo "runner contracts: PASS"

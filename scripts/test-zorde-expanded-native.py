@@ -11,6 +11,7 @@ import subprocess
 import sys
 
 from expanded_visibility import accepted, TARGETS, CONSTRUCTORS, MAX_LOG
+from expanded_receipt import verify_base
 
 ROOT = Path(__file__).resolve().parents[1]
 POSITIVES = {
@@ -63,12 +64,7 @@ def main():
     require(out.is_dir() and ROOT != out and ROOT not in out.parents, "evidence directory must be outside checkout")
     st = out.stat()
     require(st.st_uid == os.geteuid() and stat.S_IMODE(st.st_mode) & 0o077 == 0, "unsafe evidence permissions")
-    base = out / "zorde-registry-native-receipt.json"
-    require(base.is_file() and not base.is_symlink() and base.stat().st_size <= MAX_LOG, "missing or oversized base receipt")
-    record = json.loads(base.read_bytes())
-    require(record.get("source_head_sha") == sha and record.get("source_root_tree_sha") == tree and record.get("compiler_executable_sha256") == compiler_sha and record.get("actual_native_guest_executed") is True and record.get("process_exit_code") == 0, "base native receipt does not match approved inputs")
-    require(digest(out / "zorde-registry-native.log") == record.get("native_log_sha256"), "base native log mismatch")
-    base_sha = digest(base)
+    base_sha = verify_base(out, sha, tree, compiler_sha)
     receipt = out / "zorde-expanded-native-receipt.json"
     require(not receipt.exists() and not receipt.is_symlink(), "expanded receipt already exists")
     verify_source(sha, tree, compiler, compiler_sha)
@@ -91,7 +87,7 @@ def main():
         status, log = run("fixtures/" + fixture + ".ores", fixture.replace("/", "-"))
         require(1 <= status <= 123 and accepted(log, fixture), "targeted negative diagnostic absent: " + fixture)
     verify_source(sha, tree, compiler, compiler_sha)
-    require(digest(base) == base_sha, "base receipt changed")
+    require(verify_base(out, sha, tree, compiler_sha) == base_sha, "base receipt or logs changed")
     with receipt.open("x", encoding="utf-8") as fp:
         json.dump({"schema": "atto.zorde.expanded-native-probes/v1", "source_head_sha": sha, "source_root_tree_sha": tree, "compiler_executable_sha256": compiler_sha, "base_native_receipt_sha256": base_sha, "probes": logs, "release_ready": False, "cross_actor_ownership_certified": False}, fp, indent=2, sort_keys=True)
         fp.write("\n")
