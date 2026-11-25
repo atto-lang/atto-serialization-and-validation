@@ -84,3 +84,14 @@ The registrar MUST allocate fresh authenticated sessions on recreation or
 restore durable replay state before accepting traffic. This in-memory model
 cannot prevent replay after process loss, session reuse or untrusted metadata;
 no exactly-once effects, network authentication, guest or heap proof is claimed.
+
+## Materialization-work admission
+
+CBOR ingress now uses allocation-free `preflight_materialization`, which
+charges the same logical work as typed decode including UTF-8 copy and array
+writes. Validation-only `preflight_typed` remains unchanged. Inputs that
+could pass validation but exceed the configured materialization work budget
+are refused before publication or sequence commit. The limit applies to
+one planned decode; aggregate ingress and receiver CPU work are not yet
+metered together. Allocation failures, actual allocator capacity and guest
+heap quotas remain independent requirements.
