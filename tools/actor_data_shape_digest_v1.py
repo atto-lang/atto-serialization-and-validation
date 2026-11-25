@@ -10,7 +10,7 @@ def require(ok):
 def token(s):
     return isinstance(s,str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}",s) is not None
 def uint(n,m):
-    return type(n) is int and 0 <= n <= m
+    return type(n) in (int,float) and 0 <= n <= m and int(n)==n
 def keys(o,names):
     require(type(o) is dict and set(o)==set(names.split(",")))
 def canonical_shape(d):
@@ -58,12 +58,12 @@ def canonical_shape(d):
         seen.add(node)
         work.extend(f["target"] for f in table[node][1])
     require(len(seen)==len(table))
-    lines=["ATTO-SHAPE-1",d["codec"],str(d["version"]),d["root"],str(len(table))]
+    lines=["ATTO-SHAPE-1",d["codec"],str(int(d["version"])),d["root"],str(len(table))]
     for node in sorted(table):
         kind,fields=table[node]
         lines.extend([node,kind,str(len(fields))])
         for f in fields:
-            lines.extend([str(f["slot"]),f["name"],f["target"]])
+            lines.extend([str(int(f["slot"])),f["name"],f["target"]])
     return ("\n".join(lines)+"\n").encode("ascii")
 def shape_digest(d):
     return hashlib.sha256(canonical_shape(d)).hexdigest()

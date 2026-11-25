@@ -517,5 +517,156 @@
     },
     "valid": true,
     "different": "protobuf-recursive"
+  },
+  {
+    "name": "newline-name",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total\n",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "codec-array",
+    "descriptor": {
+      "codec": [
+        "cbor"
+      ],
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "boolean-version",
+    "descriptor": {
+      "codec": "cbor",
+      "version": true,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "extra-key",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ],
+          "unknown": 1
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
   }
 ]
