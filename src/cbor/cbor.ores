@@ -461,7 +461,7 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
+  if !decode_options_valid(rt borrow options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
@@ -728,7 +728,7 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
-  if !encode_options_valid(options) then
+  if !encode_options_valid(rt borrow options) then
     return Err(encode_error("invalid_options", "invalid or unsafe encode options"));
   fi
 

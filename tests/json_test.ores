@@ -112,7 +112,7 @@ pub fnc run_json_tests(): void {
   require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
   require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
 
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
@@ -122,7 +122,7 @@ pub fnc run_json_tests(): void {
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
-  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 

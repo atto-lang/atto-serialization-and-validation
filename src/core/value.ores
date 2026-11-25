@@ -118,7 +118,11 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
   // overflow or a nonexistent integer-division operator. In Oreslang,
   // '/' is real division (float) EVEN for int/int, so using it here
   // would corrupt integers above 2^53 and violate Zorde refinements.
-  if value == 0 then return new List<int>(48); fi
+  if value == 0 then
+    val List<int> zero_bytes = new List<int>();
+    zero_bytes.add(48);
+    return zero_bytes;
+  fi
 
   val List<int> output = new List<int>();
   let int remaining = value;
@@ -132,17 +136,26 @@ pub fnc int_to_decimal_bytes(int value): List<int> {
 
   // Decimal long division by powers of ten, with at most nine subtractions
   // per digit. No '/', no float conversion, and no abs(INT64_MIN).
-  val List<int> places = new List<int>(
-    1000000000000000000, 100000000000000000,
-    10000000000000000, 1000000000000000,
-    100000000000000, 10000000000000,
-    1000000000000, 100000000000,
-    10000000000, 1000000000,
-    100000000, 10000000,
-    1000000, 100000,
-    10000, 1000,
-    100, 10, 1
-  );
+  val List<int> places = new List<int>();
+  places.add(1000000000000000000);
+  places.add(100000000000000000);
+  places.add(10000000000000000);
+  places.add(1000000000000000);
+  places.add(100000000000000);
+  places.add(10000000000000);
+  places.add(1000000000000);
+  places.add(100000000000);
+  places.add(10000000000);
+  places.add(1000000000);
+  places.add(100000000);
+  places.add(10000000);
+  places.add(1000000);
+  places.add(100000);
+  places.add(10000);
+  places.add(1000);
+  places.add(100);
+  places.add(10);
+  places.add(1);
   let bool started = false;
   for const place of places do
     let int digit = 0;
@@ -275,28 +288,23 @@ fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
     return -1;
   fi
 
-  // The lookup key is owned by this function: never transfer it repeatedly
-  // to a by-value equality callable from inside a loop.
-  val List<int> search_bytes = key.bytes;
+  // Do not project a mutable List<int> alias from either read-only
+  // borrow: even a val-bound List remains a mutable-capable container.
+  // Read only copied int elements and lengths from the existing borrows.
   let int i = 0;
   for const member of object.object_value do
-    val List<int> current_bytes = member.key.bytes;
-    if current_bytes.length == search_bytes.length then
+    if member.key.bytes.length == key.bytes.length then
       let bool equal = true;
       let int j = 0;
       loop do
-        if j >= search_bytes.length then
-          break;
-        fi
-        if current_bytes[j] != search_bytes[j] then
+        if j >= key.bytes.length then break; fi
+        if member.key.bytes[j] != key.bytes[j] then
           equal = false;
           break;
         fi
         j = j + 1;
       done
-      if equal then
-        return i;
-      fi
+      if equal then return i; fi
     fi
     i = i + 1;
   done
@@ -621,30 +629,239 @@ fnc value_deep_equal_bounded(
 }
 
 
+// Non-consuming equality for borrowed Values, including repeated general-map
+// lookup. No mutable List/Map aliases are projected from the inputs. This is
+// a semantically equivalent, read-only alternative to value_deep_equal().
+// Full checked-admission work quotas are enforced by the validator; here we
+// also bound nesting, arity, and failed semantic comparison attempts.
+pub fnc value_deep_equal_borrow(
+  borrow Value left,
+  borrow Value right
+): bool {
+  // Numeric scalar fast-path requires no recursive or nested borrowed
+  // function call. It also isolates runtime borrow-call behavior from the
+  // recursive comparison implementation for native compiler conformance.
+  if left.kind == 2 && right.kind == 2 then
+    if left.number_lexeme.length != right.number_lexeme.length then
+      return false;
+    fi
+    let int byte_index = 0;
+    loop do
+      if byte_index >= left.number_lexeme.length then break; fi
+      if left.number_lexeme[byte_index] != right.number_lexeme[byte_index] then
+        return false;
+      fi
+      byte_index = byte_index + 1;
+    done
+    return true;
+  fi
+  val bool equal = value_deep_equal_borrow_bounded(left, right, 0, 64);
+  return equal;
+}
+
+fnc value_deep_equal_borrow_bounded(
+  borrow Value left,
+  borrow Value right,
+  int depth,
+  int max_depth
+): bool {
+  if depth > max_depth || left.kind != right.kind then return false; fi
+
+  if left.kind == 0 then return true; fi
+  if left.kind == 1 then return left.bool_value == right.bool_value; fi
+
+  if left.kind == 2 then
+    if left.number_lexeme.length != right.number_lexeme.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.number_lexeme.length then break; fi
+      if left.number_lexeme[i] != right.number_lexeme[i] then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 3 then
+    if left.string_value.bytes.length != right.string_value.bytes.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.string_value.bytes.length then break; fi
+      if left.string_value.bytes[i] != right.string_value.bytes[i] then
+        return false;
+      fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 4 || left.kind == 7 then
+    if left.kind == 7 && left.extension_type != right.extension_type then
+      return false;
+    fi
+    if left.bytes_value.length != right.bytes_value.length then
+      return false;
+    fi
+    let int i = 0;
+    loop do
+      if i >= left.bytes_value.length then break; fi
+      if left.bytes_value[i] != right.bytes_value[i] then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 5 then
+    if left.array_value.length != right.array_value.length ||
+       left.array_value.length > 4096 then return false; fi
+    let int i = 0;
+    loop do
+      if i >= left.array_value.length then break; fi
+      if !value_deep_equal_borrow_bounded(
+        rt borrow left.array_value[i],
+        rt borrow right.array_value[i],
+        depth + 1, max_depth
+      ) then return false; fi
+      i = i + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 6 then
+    if left.object_value.length != right.object_value.length ||
+       left.object_value.length > 4096 then return false; fi
+    val List<bool> used = new List<bool>();
+    let int i = 0;
+    loop do
+      if i >= right.object_value.length then break; fi
+      used.add(false);
+      i = i + 1;
+    done
+
+    // Objects compare independent of insertion order. Bound the number of
+    // unsuccessful candidate comparisons to keep collision cost finite.
+    let int remaining_candidates = 256;
+    let int li = 0;
+    loop do
+      if li >= left.object_value.length then break; fi
+      let bool matched = false;
+      let int ri = 0;
+      loop do
+        if ri >= right.object_value.length then break; fi
+        if !used[ri] then
+          let bool same_key =
+            left.object_value[li].key.bytes.length ==
+            right.object_value[ri].key.bytes.length;
+          if same_key then
+            let int bi = 0;
+            loop do
+              if bi >= left.object_value[li].key.bytes.length then break; fi
+              if left.object_value[li].key.bytes[bi] !=
+                 right.object_value[ri].key.bytes[bi] then
+                same_key = false;
+                break;
+              fi
+              bi = bi + 1;
+            done
+          fi
+
+          if same_key &&
+             value_deep_equal_borrow_bounded(
+               rt borrow left.object_value[li].value,
+               rt borrow right.object_value[ri].value,
+               depth + 1, max_depth
+             ) then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
+          if remaining_candidates <= 0 then return false; fi
+          remaining_candidates = remaining_candidates - 1;
+        fi
+        ri = ri + 1;
+      done
+      if !matched then return false; fi
+      li = li + 1;
+    done
+    return true;
+  fi
+
+  if left.kind == 8 then
+    if left.map_value.length != right.map_value.length ||
+       left.map_value.length > 4096 then return false; fi
+    val List<bool> used = new List<bool>();
+    let int i = 0;
+    loop do
+      if i >= right.map_value.length then break; fi
+      used.add(false);
+      i = i + 1;
+    done
+    let int remaining_candidates = 256;
+    let int li = 0;
+    loop do
+      if li >= left.map_value.length then break; fi
+      let bool matched = false;
+      let int ri = 0;
+      loop do
+        if ri >= right.map_value.length then break; fi
+        if !used[ri] then
+          if value_deep_equal_borrow_bounded(
+               rt borrow left.map_value[li].key,
+               rt borrow right.map_value[ri].key,
+               depth + 1, max_depth
+             ) &&
+             value_deep_equal_borrow_bounded(
+               rt borrow left.map_value[li].value,
+               rt borrow right.map_value[ri].value,
+               depth + 1, max_depth
+             ) then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
+          if remaining_candidates <= 0 then return false; fi
+          remaining_candidates = remaining_candidates - 1;
+        fi
+        ri = ri + 1;
+      done
+      if !matched then return false; fi
+      li = li + 1;
+    done
+    return true;
+  fi
+
+  return false;
+}
+
+
 pub fnc parse_int(Value value): IntParse {
   if value.kind != 2 then
     return new IntParse(false, 0);
   fi
 
-  val List<int> bytes = value.number_lexeme;
+  // Avoid projecting a mutable list into a read-only alias.
+  // All scans below read copied scalar bytes directly from the source Value.
   // Signed int64 has at most 19 digits plus an optional leading minus.
-  if bytes.length == 0 || bytes.length > 20 then
+  if value.number_lexeme.length == 0 || value.number_lexeme.length > 20 then
     return new IntParse(false, 0);
   fi
 
   let int i = 0;
   let bool negative = false;
-  if bytes[0] == 45 then
+  if value.number_lexeme[0] == 45 then
     negative = true;
     i = 1;
-    if i >= bytes.length then
+    if i >= value.number_lexeme.length then
       return new IntParse(false, 0);
     fi
   fi
 
   // Do not accept ambiguous integer spellings such as 01 or -01.
   // JSON's -0 is valid and is represented by the integer zero.
-  if bytes[i] == 48 && i + 1 < bytes.length then
+  if value.number_lexeme[i] == 48 && i + 1 < value.number_lexeme.length then
     return new IntParse(false, 0);
   fi
 
@@ -657,8 +874,8 @@ pub fnc parse_int(Value value): IntParse {
   let int result = 0;
 
   loop do
-    if i >= bytes.length then break; fi
-    let int byte = bytes[i];
+    if i >= value.number_lexeme.length then break; fi
+    let int byte = value.number_lexeme[i];
     if byte < 48 || byte > 57 then
       return new IntParse(false, 0);
     fi
@@ -688,23 +905,31 @@ pub fnc parse_int(Value value): IntParse {
 // String-key objects, arbitrary-key binary maps, and array indices all use
 // the same closed Value key. This never materializes Java/JVM objects.
 pub fnc value_lookup(Value container, Value key): Result<Value, String> {
+  // Branches are mutually exclusive ownership paths. Value and key are
+  // transferred only within the selected branch, never borrowed into a
+  // by-value callable (which the compiler rightly rejects).
   if container.kind == 6 then
     if key.kind != 3 then
       return Err("string-key object requires a UTF-8 string key");
     fi
     return object_get(container, key.string_value);
-  fi
-
-  if container.kind == 8 then
-    for const entry of container.map_value do
-      if value_deep_equal(entry.key, key) then
-        return Ok(entry.value);
+  elseif container.kind == 8 then
+    // Index traversal keeps the comparison borrow local to one iteration.
+    // It avoids materializing an alias from a for-of entry across suspension.
+    let int entry_index = 0;
+    loop do
+      if entry_index >= container.map_value.length then break; fi
+      val bool key_matches = value_deep_equal_borrow(
+        rt borrow container.map_value[entry_index].key,
+        rt borrow key
+      );
+      if key_matches then
+        return Ok(container.map_value[entry_index].value);
       fi
+      entry_index = entry_index + 1;
     done
     return Err("general map key not found");
-  fi
-
-  if container.kind == 5 then
+  elseif container.kind == 5 then
     let IntParse index = parse_int(key);
     if !index.ok || index.value < 0 ||
        index.value >= container.array_value.length then

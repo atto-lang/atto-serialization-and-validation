@@ -77,6 +77,12 @@ pub define class ObjectSchema as
   pub val bool reject_unknown_fields;
 end
 
+// Mutable per-validation collision fuel. It is intentionally private to
+// this module; hash equality is never sufficient to establish key equality.
+define class ObjectLookupBudget as
+  pub let int remaining;
+end
+
 pub fnc default_validation_options(): ValidationOptions {
   return new ValidationOptions(false, 64);
 }
@@ -385,6 +391,12 @@ pub fnc max_schema_total_key_bytes(): int {
   return 1048576;
 }
 
+// Shared across all object-key lookups in one validation call or checked
+// graph walk. No per-object reset during checked preflight.
+pub fnc max_object_key_collisions(): int {
+  return 256;
+}
+
 fnc object_schema_valid(ObjectSchema schema): bool {
   if schema.fields.length > max_schema_fields() then
     return false;
@@ -393,6 +405,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
   let int remaining_key_bytes = max_schema_total_key_bytes();
+  let int remaining_key_collisions = max_object_key_collisions();
 
   loop do
     if i >= schema.fields.length then
@@ -423,6 +436,10 @@ fnc object_schema_valid(ObjectSchema schema): bool {
         if text_equal(schema.fields[index].key, field.key) then
           return false;
         fi
+        // A successful match is normal schema work. Charge only failed
+        // same-hash comparisons, which an attacker can amplify.
+        if remaining_key_collisions <= 0 then return false; fi
+        remaining_key_collisions = remaining_key_collisions - 1;
       done
       candidates.add(i);
     else
@@ -914,20 +931,132 @@ pub fnc parse_number(Value value): ParsedNumber {
   return new ParsedNumber(true, result);
 }
 
+// Dynamic equality and hash probing must not be called on arbitrary
+// attacker-shaped subtrees. Each candidate is small enough for the existing
+// recursive hash/deep-equality implementation to have a finite work ceiling;
+// an over-limit candidate fails closed rather than skipping uniqueness.
+pub fnc max_equality_candidate_nodes(): int { return 64; }
+pub fnc max_equality_candidate_depth(): int { return 32; }
+pub fnc max_equality_candidate_bytes(): int { return 4096; }
+pub fnc max_equality_collision_comparisons(): int { return 256; }
+pub fnc max_unique_validation_items(): int { return 4096; }
+
+fnc equality_candidate_bounded(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+  let int cursor = 0;
+  let int remaining_bytes = max_equality_candidate_bytes();
+
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+    if value.kind < 0 || value.kind > 8 then return false; fi
+    if depth > max_equality_candidate_depth() then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > remaining_bytes ||
+         !number_lexeme_valid(rt borrow value) then return false; fi
+      remaining_bytes = remaining_bytes - value.number_lexeme.length;
+    fi
+    if value.kind == 3 then
+      if value.string_value.bytes.length > remaining_bytes ||
+         !utf8_is_valid(value.string_value.bytes) then return false; fi
+      remaining_bytes = remaining_bytes - value.string_value.bytes.length;
+    fi
+    // The shared dynamic extension kind is MessagePack's signed-byte type.
+    // A direct Value constructor must not bypass codec-side representability.
+    if value.kind == 7 &&
+       (value.extension_type < -128 || value.extension_type > 127) then
+      return false;
+    fi
+
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > remaining_bytes then return false; fi
+      remaining_bytes = remaining_bytes - value.bytes_value.length;
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+
+    if value.kind == 5 then
+      if value.array_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.array_value.length > 0 then return false; fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 6 then
+      if value.object_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.object_value.length > 0 then return false; fi
+      for const member of value.object_value do
+        if member.key.bytes.length > remaining_bytes ||
+           !utf8_is_valid(member.key.bytes) then return false; fi
+        remaining_bytes = remaining_bytes - member.key.bytes.length;
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 8 then
+      if value.map_value.length >
+         max_equality_candidate_nodes() - pending.length then return false; fi
+      if value.map_value.length >
+         max_equality_candidate_nodes() - pending.length -
+         value.map_value.length then return false; fi
+      if depth >= max_equality_candidate_depth() &&
+         value.map_value.length > 0 then return false; fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+
+  return true;
+}
+
 fnc validate_unique(
   Value value,
   ValidationReport mut report,
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  if value.array_value.length > max_unique_validation_items() then
+    add_error(report, options, "unique_work_limit", path,
+      "array has too many elements for bounded uniqueness checking");
+    return;
+  fi
+
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  let int remaining_comparisons = max_equality_collision_comparisons();
 
   for const item of value.array_value do
+    if !equality_candidate_bounded(rt borrow item) then
+      add_error(report, options, "unique_work_limit", path,
+        "array element exceeds bounded equality domain");
+      return;
+    fi
     let int hash = value_hash(item);
 
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
       for const candidate of candidates do
+        if remaining_comparisons <= 0 then
+          add_error(report, options, "unique_work_limit", path,
+            "array uniqueness collision budget exceeded");
+          return;
+        fi
+        remaining_comparisons = remaining_comparisons - 1;
         if value_deep_equal(candidate, item) then
           add_error(
             report,
@@ -964,6 +1093,16 @@ fnc validate_rule_at(
       "value has an unsupported wire kind");
     return;
   fi
+  // Keep report-only rules consistent with MessagePack's signed int8
+  // extension-type domain. Checked entry points additionally inspect
+  // nested active-kind values before returning Ok.
+  if value.kind == 7 &&
+     (value.extension_type < -128 || value.extension_type > 127) then
+    add_error(report, options, "extension_type", path,
+      "extension type must fit a signed byte");
+    return;
+  fi
+
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
@@ -1136,12 +1275,12 @@ fnc remember_text_index(
   let int hash = text_hash(key);
   if buckets.contains(hash) then
     let List<int> candidates = buckets.get(hash);
-    candidates.push(index);
+    candidates.add(index);
     return;
   fi
 
   let List<int> candidates = new List<int>();
-  candidates.push(index);
+  candidates.add(index);
   buckets.set(hash, candidates);
   return;
 }
@@ -1149,6 +1288,7 @@ fnc remember_text_index(
 fnc schema_field_index(
   ObjectSchema schema,
   Map<int, List<int>> buckets,
+  ObjectLookupBudget mut budget,
   Utf8Text key
 ): int {
   let int hash = text_hash(key);
@@ -1161,6 +1301,8 @@ fnc schema_field_index(
     if text_equal(schema.fields[index].key, key) then
       return index;
     fi
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
   done
   return -1;
 }
@@ -1168,6 +1310,7 @@ fnc schema_field_index(
 fnc object_field_index(
   Value object,
   Map<int, List<int>> buckets,
+  ObjectLookupBudget mut budget,
   Utf8Text key
 ): int {
   let int hash = text_hash(key);
@@ -1180,23 +1323,29 @@ fnc object_field_index(
     if text_equal(object.object_value[index].key, key) then
       return index;
     fi
+    if budget.remaining <= 0 then return -2; fi
+    budget.remaining = budget.remaining - 1;
   done
   return -1;
 }
 
-fnc object_keys_unique(Value object): bool {
+// 1 = unique, 0 = duplicate, -1 = same-hash mismatch budget exhausted.
+fnc object_keys_unique(
+  Value object,
+  ObjectLookupBudget mut budget
+): int {
   let Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
   for const member of object.object_value do
-    if object_field_index(object, buckets, member.key) >= 0 then
-      return false;
-    fi
+    let int existing = object_field_index(object, buckets, budget, member.key);
+    if existing == -2 then return -1; fi
+    if existing >= 0 then return 0; fi
     remember_text_index(buckets, member.key, i);
     i = i + 1;
   done
 
-  return true;
+  return 1;
 }
 
 pub fnc validate_object(
@@ -1259,7 +1408,15 @@ pub fnc validate_object(
       remaining_input_key_bytes - member.key.bytes.length;
   done
 
-  if !object_keys_unique(value) then
+  let ObjectLookupBudget lookup_budget =
+    new ObjectLookupBudget(max_object_key_collisions());
+  let int uniqueness = object_keys_unique(value, lookup_budget);
+  if uniqueness < 0 then
+    add_error(report, options, "object_lookup_work_limit",
+      new List<PathSegment>(), "object key collision budget exceeded");
+    return report;
+  fi
+  if uniqueness == 0 then
     add_error(
       report,
       options,
@@ -1285,7 +1442,14 @@ pub fnc validate_object(
   done
 
   for const field of schema.fields do
-    let int index = object_field_index(value, object_buckets, field.key);
+    let int index = object_field_index(
+      value, object_buckets, lookup_budget, field.key
+    );
+    if index == -2 then
+      add_error(report, options, "object_lookup_work_limit",
+        new List<PathSegment>(), "object field lookup work budget exceeded");
+      return report;
+    fi
 
     if index < 0 then
       if field.required then
@@ -1333,7 +1497,15 @@ pub fnc validate_object(
 
   if schema.reject_unknown_fields then
     for const member of value.object_value do
-      if schema_field_index(schema, schema_buckets, member.key) < 0 then
+      let int schema_index_match = schema_field_index(
+        schema, schema_buckets, lookup_budget, member.key
+      );
+      if schema_index_match == -2 then
+        add_error(report, options, "object_lookup_work_limit",
+          new List<PathSegment>(), "schema field lookup work budget exceeded");
+        return report;
+      fi
+      if schema_index_match < 0 then
         add_error(
           report,
           options,
@@ -1383,6 +1555,8 @@ fnc checked_value_tree_valid(Value root): bool {
 
   let int cursor = 0;
   let int inspected_bytes = 0;
+  let ObjectLookupBudget preflight_lookup_budget =
+    new ObjectLookupBudget(max_object_key_collisions());
   loop do
     if cursor >= pending.length then break; fi
     val Value value = pending[cursor];
@@ -1405,6 +1579,13 @@ fnc checked_value_tree_valid(Value root): bool {
       fi
       inspected_bytes = inspected_bytes + value.string_value.bytes.length;
       if !utf8_is_valid(value.string_value.bytes) then return false; fi
+    fi
+
+    // The shared dynamic extension kind is MessagePack's signed-byte type.
+    // A direct Value constructor must not bypass codec-side representability.
+    if value.kind == 7 &&
+       (value.extension_type < -128 || value.extension_type > 127) then
+      return false;
     fi
 
     if value.kind == 4 || value.kind == 7 then
@@ -1454,7 +1635,9 @@ fnc checked_value_tree_valid(Value root): bool {
         pending.add(member.value);
         depths.add(depth + 1);
       done
-      if !object_keys_unique(rt borrow value) then return false; fi
+      if object_keys_unique(
+        rt borrow value, preflight_lookup_budget
+      ) != 1 then return false; fi
     fi
 
     if value.kind == 8 then
@@ -1490,6 +1673,11 @@ fnc checked_value_tree_valid(Value root): bool {
     val Map<int, List<int>> buckets = new Map<int, List<int>>();
     let int entry_index = 0;
     for const entry of general_map.map_value do
+      // Bound the cost of every hash and candidate equality, not merely
+      // the number of hash-bucket comparisons.
+      if !equality_candidate_bounded(rt borrow entry.key) then
+        return false;
+      fi
       val int hash = value_hash(entry.key);
       if buckets.contains(hash) then
         val List<int> candidates = buckets.get(hash);

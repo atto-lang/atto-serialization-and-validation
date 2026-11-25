@@ -1,0 +1,56 @@
+// Native scalar output conformance for exact integer UTF8 encoding.
+import fnc require_true, require_int from './assert';
+import fnc utf8_append_codepoint from '../src/core/utf8';
+
+pub fnc main(): void {
+  stdio.stdout.println("utf8 wire stage 0 entry");
+  let mut List<int> bytes = new List<int>();
+  val bool ascii_ok = utf8_append_codepoint(rt mut borrow bytes, 36);
+  stdio.stdout.println("utf8 wire stage 1 ascii");
+  val bool two_ok = utf8_append_codepoint(rt mut borrow bytes, 2047);
+  stdio.stdout.println("utf8 wire stage 2 two-byte");
+  val bool three_ok = utf8_append_codepoint(rt mut borrow bytes, 8364);
+  stdio.stdout.println("utf8 wire stage 3 three-byte");
+  val bool four_ok = utf8_append_codepoint(rt mut borrow bytes, 128512);
+  stdio.stdout.println("utf8 wire stage 4 four-byte");
+  val bool max_ok = utf8_append_codepoint(rt mut borrow bytes, 1114111);
+  stdio.stdout.println("utf8 wire stage 5 max-scalar");
+  if ascii_ok then
+    stdio.stdout.println("utf8 wire stage 5-direct-bool");
+  fi
+  require_true(ascii_ok, "ASCII UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5a ascii-result");
+  require_true(two_ok, "two-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5b two-result");
+  require_true(three_ok, "three-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5c three-result");
+  require_true(four_ok, "four-byte UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5d four-result");
+  require_true(max_ok, "maximum Unicode scalar UTF8 append succeeded");
+  stdio.stdout.println("utf8 wire stage 5e max-result");
+  stdio.stdout.println("utf8 wire stage 6 all-accepted");
+  require_int(bytes.length, 14, "canonical UTF8 scalar byte count");
+  require_int(bytes[0], 36, "ASCII U+0024");
+  require_int(bytes[1], 223, "U+07FF first byte");
+  require_int(bytes[2], 191, "U+07FF continuation");
+  require_int(bytes[3], 226, "Euro sign first byte");
+  require_int(bytes[4], 130, "Euro sign second byte");
+  require_int(bytes[5], 172, "Euro sign third byte");
+  require_int(bytes[6], 240, "U+1F600 first byte");
+  require_int(bytes[7], 159, "U+1F600 second byte");
+  require_int(bytes[8], 152, "U+1F600 third byte");
+  require_int(bytes[9], 128, "U+1F600 final byte");
+  require_int(bytes[10], 244, "U+10FFFF first byte");
+  require_int(bytes[11], 143, "U+10FFFF second byte");
+  require_int(bytes[12], 191, "U+10FFFF third byte");
+  require_int(bytes[13], 191, "U+10FFFF final byte");
+  stdio.stdout.println("utf8 wire stage 7 wire-exact");
+  val bool surrogate_ok = utf8_append_codepoint(rt mut borrow bytes, 55296);
+  val bool overflow_ok = utf8_append_codepoint(rt mut borrow bytes, 1114112);
+  stdio.stdout.println("utf8 wire stage 8 invalid-scalars");
+  require_true(!surrogate_ok, "UTF8 append rejects surrogate scalar");
+  require_true(!overflow_ok, "UTF8 append rejects out-of-range scalar");
+  require_int(bytes.length, 14, "invalid scalar cannot partially modify output");
+  stdio.stdout.println("native Zorde UTF8 scalar append passed");
+  return;
+}
