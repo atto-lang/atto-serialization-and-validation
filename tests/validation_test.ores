@@ -81,7 +81,24 @@ fnc graph_nodes(int nodes): Value {
   return value_array(children);
 }
 
+fnc graph_duplicate_object(): Value {
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+  members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(2)));
+  return value_object(members);
+}
+
 fnc run_checked_graph_tests(): void {
+  require_true(validate_value_checked(graph_wrap(graph_duplicate_object()), any_rule(),
+    default_validation_options()).is_err(), "duplicate nested object keys denied");
+  require_true(validate_value_checked(graph_wrap(value_extension(128, new List<int>(1))), any_rule(),
+    default_validation_options()).is_err(), "nested extension above signed int8 denied");
+  require_true(validate_value_checked(graph_wrap(value_extension(-129, new List<int>(1))), any_rule(),
+    default_validation_options()).is_err(), "nested extension below signed int8 denied");
+  require_true(!validate_value_checked(graph_wrap(value_extension(127, new List<int>(1))), any_rule(),
+    default_validation_options()).is_err(), "nested signed int8 upper boundary accepted");
+  require_true(!validate_value_checked(graph_wrap(value_extension(-128, new List<int>(1))), any_rule(),
+    default_validation_options()).is_err(), "nested signed int8 lower boundary accepted");
   require_true(validate_value_checked(graph_invalid_kind(), any_rule(),
     default_validation_options()).is_err(), "forged root kind denied");
   require_true(validate_value_checked(graph_wrap(graph_invalid_kind()), any_rule(),
