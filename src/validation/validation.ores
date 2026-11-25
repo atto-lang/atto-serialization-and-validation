@@ -1061,6 +1061,7 @@ fnc validate_unique(
 ): void {
   if work.exhausted then return; fi
   if value.array_value.length > max_unique_validation_items() then
+    work.exhausted = true;
     add_error(report, options, "unique_items_limit", path,
       "unique-items validation exceeds its bounded item count");
     return;
@@ -1112,7 +1113,7 @@ fnc validate_unique(
         fi
         if work.spent_estimate < 0 then
           work.exhausted = true;
-      add_error(report, options, "unique_items_work_limit", path,
+          add_error(report, options, "unique_items_work_limit", path,
             "nested uniqueness hash/equality work exceeds the bounded budget");
           return;
         fi
@@ -1121,7 +1122,7 @@ fnc validate_unique(
           rt borrow candidate, rt borrow item, fuel);
         if !equal_attempt.completed then
           work.exhausted = true;
-      add_error(report, options, "unique_items_work_limit", path,
+          add_error(report, options, "unique_items_work_limit", path,
             "metered Value comparison exhausted the operation work budget");
           return;
         fi
