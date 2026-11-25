@@ -1,7 +1,7 @@
 //! Allocation-free host preflight for descriptor-directed Protobuf nesting.
-//! Not a typed decoder or a schema authentication mechanism.
+//! Optional descriptor-directed owned wire-value materialization; not a nominal ADT decoder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Reject { Limits, Budget, Truncated, Varint, Tag, Wire, Descriptor, Unknown }
+pub enum Reject { Limits, Budget, Truncated, Varint, Tag, Wire, Descriptor, Unknown, Allocation }
 #[derive(Clone, Copy)]
 pub struct Limits {
     pub wire: usize, pub logical: usize, pub work: usize,
@@ -17,6 +17,31 @@ pub enum PackedKind { Varint, Fixed32, Fixed64 }
 #[derive(Clone, Copy)]
 pub struct Field<'a> { pub number: u32, pub kind: Kind<'a> }
 pub struct Schema<'a> { pub fields: &'a [Field<'a>] }
+#[derive(Debug, PartialEq, Eq)]
+pub enum Scalar { Varint(u64), Fixed32(u32), Fixed64(u64) }
+#[derive(Debug, PartialEq, Eq)]
+pub enum Value { Scalar(Scalar), Bytes(Vec<u8>), Message(Vec<FieldValue>), Packed(Vec<Scalar>) }
+#[derive(Debug, PartialEq, Eq)]
+pub struct FieldValue { pub number:u32, pub value:Value }
+fn push<T>(out:&mut Vec<T>,value:T)->Result<(),Reject>{
+    out.try_reserve(1).map_err(|_|Reject::Allocation)?;
+    out.push(value);Ok(())
+}
+fn scalar(c:&mut Cursor<'_>,kind:PackedKind,m:&mut Meter)->Result<Scalar,Reject>{
+    match kind {
+        PackedKind::Varint=>{let (v,n)=c.varint(m)?;m.payload(n)?;Ok(Scalar::Varint(v))}
+        PackedKind::Fixed32=>{
+            m.payload(4)?;m.work(4)?;
+            let b=c.sub(4)?.try_into().map_err(|_|Reject::Truncated)?;
+            Ok(Scalar::Fixed32(u32::from_le_bytes(b)))
+        }
+        PackedKind::Fixed64=>{
+            m.payload(8)?;m.work(8)?;
+            let b=c.sub(8)?.try_into().map_err(|_|Reject::Truncated)?;
+            Ok(Scalar::Fixed64(u64::from_le_bytes(b)))
+        }
+    }
+}
 struct Meter { limits: Limits, used: Usage }
 fn charge(n: &mut usize, amount: usize, cap: usize) -> Result<(), Reject> {
     let next = n.checked_add(amount).ok_or(Reject::Budget)?;
@@ -71,19 +96,20 @@ fn lookup<'a>(schema:&Schema<'a>,tag:u32,m:&mut Meter)->Result<Kind<'a>,Reject>{
 }
 // Charge the same cumulative field credit for each packed scalar, in addition
 // to its outer wire field. Empty segments still consume the outer credit.
-fn packed(input:&[u8],kind:PackedKind,m:&mut Meter)->Result<(),Reject>{
+fn packed(input:&[u8],kind:PackedKind,m:&mut Meter,materialize:bool)->Result<Option<Vec<Scalar>>,Reject>{
     let width=match kind {PackedKind::Varint=>0,PackedKind::Fixed32=>4,PackedKind::Fixed64=>8};
     if width!=0 && input.len()%width!=0{return Err(Reject::Truncated);}
     let mut c=Cursor{input,pos:0};
+    let mut out=materialize.then(Vec::new);
     while c.pos<input.len(){
         charge(&mut m.used.fields,1,m.limits.fields)?;
         m.logical(128)?;m.work(1)?;
-        if width==0 {let (_,n)=c.varint(m)?;m.payload(n)?;}
-        else {m.payload(width)?;m.work(width)?;c.sub(width)?;}
+        let v=scalar(&mut c,kind,m)?;
+        if let Some(values)=out.as_mut(){push(values,v)?;}
     }
-    Ok(())
+    Ok(out)
 }
-fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),Reject>{
+fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter,materialize:bool)->Result<Option<Vec<FieldValue>>,Reject>{
     if depth>m.limits.depth{return Err(Reject::Budget);}
     charge(&mut m.used.messages,1,m.limits.messages)?;
     m.logical(128)?;m.work(1)?;
@@ -99,6 +125,7 @@ fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),R
         prior=f.number;
     }
     let mut c=Cursor{input,pos:0};
+    let mut out=materialize.then(Vec::new);
     while c.pos<input.len(){
         charge(&mut m.used.fields,1,m.limits.fields)?;
         m.logical(128)?;m.work(1)?;
@@ -108,11 +135,11 @@ fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),R
         if !matches!(wire,0|1|2|5){return Err(Reject::Wire);}
         let kind=lookup(schema,tag as u32,m)?;
         if wire!=expected_wire(kind){return Err(Reject::Wire);}
-        match kind {
-            Kind::Varint=>{let (_,n)=c.varint(m)?;m.payload(n)?;}
-            Kind::Fixed64|Kind::Fixed32=>{
-                let n=if wire==1{8}else{4};
-                m.payload(n)?;m.work(n)?;c.sub(n)?;
+        let value=match kind {
+            Kind::Varint|Kind::Fixed32|Kind::Fixed64=>{
+                let k=match kind {Kind::Varint=>PackedKind::Varint,Kind::Fixed32=>PackedKind::Fixed32,_=>PackedKind::Fixed64};
+                let v=scalar(&mut c,k,m)?;
+                materialize.then_some(Value::Scalar(v))
             }
             Kind::Bytes|Kind::Message(_)|Kind::Packed(_)=>{
                 let (n,_)=c.varint(m)?;
@@ -122,17 +149,28 @@ fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),R
                 m.payload(n)?;
                 let body=c.sub(n)?;
                 match kind {
-                    Kind::Message(child)=>message(body,child,depth+1,m)?,
-                    Kind::Bytes=>m.work(n)?,
-                    Kind::Packed(scalar)=>packed(body,scalar,m)?,
+                    Kind::Message(child)=>message(body,child,depth+1,m,materialize)?.map(Value::Message),
+                    Kind::Bytes=>{
+                        m.work(n)?;
+                        if materialize {
+                            let mut bytes=Vec::new();
+                            bytes.try_reserve_exact(n).map_err(|_|Reject::Allocation)?;
+                            bytes.extend_from_slice(body);
+                            Some(Value::Bytes(bytes))
+                        }else{None}
+                    }
+                    Kind::Packed(k)=>packed(body,k,m,materialize)?.map(Value::Packed),
                     _=>unreachable!(),
                 }
             }
+        };
+        if let (Some(fields),Some(value))=(out.as_mut(),value){
+            push(fields,FieldValue{number:tag as u32,value})?;
         }
     }
-    Ok(())
+    Ok(out)
 }
-pub fn preflight(input:&[u8],schema:&Schema<'_>,limits:Limits)->Result<Usage,Reject>{
+fn parse(input:&[u8],schema:&Schema<'_>,limits:Limits,materialize:bool)->Result<(Option<Vec<FieldValue>>,Usage),Reject>{
     if limits.wire==0||limits.wire>1024*1024||limits.logical==0||limits.logical>8*1024*1024||
        limits.work==0||limits.work>4*1024*1024||limits.fields>100000||
        limits.messages==0||limits.messages>100000||limits.depth>64{return Err(Reject::Limits);}
@@ -140,8 +178,18 @@ pub fn preflight(input:&[u8],schema:&Schema<'_>,limits:Limits)->Result<Usage,Rej
     let mut m=Meter{limits,used:Usage::default()};
     // Charge root input retention once. Child slices never allocate.
     m.payload(input.len())?;
-    message(input,schema,0,&mut m)?;
-    Ok(m.used)
+    let values=message(input,schema,0,&mut m,materialize)?;
+    Ok((values,m.used))
+}
+pub fn preflight(input:&[u8],schema:&Schema<'_>,limits:Limits)->Result<Usage,Reject>{
+    parse(input,schema,limits,false).map(|(_,usage)|usage)
+}
+/// Owned descriptor-directed wire values, preserving field/segment order.
+/// Every allocation is preceded by the same cumulative logical charges.
+/// Partial values are dropped on failure. No nominal type conversion.
+pub fn decode(input:&[u8],schema:&Schema<'_>,limits:Limits)->Result<(Vec<FieldValue>,Usage),Reject>{
+    let (values,usage)=parse(input,schema,limits,true)?;
+    Ok((values.ok_or(Reject::Descriptor)?,usage))
 }
 #[cfg(test)]
 mod tests {
@@ -231,6 +279,35 @@ mod tests {
         assert_eq!(preflight(&b,&root,Limits{fields:7,..limits()}),Err(Reject::Budget));
         assert_eq!(preflight(&b,&root,Limits{logical:u.logical-1,..limits()}),Err(Reject::Budget));
         assert_eq!(preflight(&b,&root,Limits{work:u.work-1,..limits()}),Err(Reject::Budget));
+    }
+
+    #[test] fn owned_values_match_preflight_usage_and_wire_order(){
+        let child=Schema{fields:&[Field{number:1,kind:Kind::Packed(PackedKind::Varint)}]};
+        let root=Schema{fields:&[Field{number:1,kind:Kind::Message(&child)},Field{number:2,kind:Kind::Bytes},Field{number:3,kind:Kind::Fixed32}]};
+        let b=[0x0a,4,0x0a,2,1,2,0x12,2,0xff,0,0x1d,1,2,3,4];
+        let (values,u)=decode(&b,&root,limits()).unwrap();
+        assert_eq!(preflight(&b,&root,limits()),Ok(u));
+        assert_eq!(values,vec![
+            FieldValue{number:1,value:Value::Message(vec![FieldValue{number:1,value:Value::Packed(vec![Scalar::Varint(1),Scalar::Varint(2)])}])},
+            FieldValue{number:2,value:Value::Bytes(vec![0xff,0])},
+            FieldValue{number:3,value:Value::Scalar(Scalar::Fixed32(0x04030201))},
+        ]);
+        let exact=Limits{wire:b.len(),logical:u.logical,work:u.work,fields:u.fields,messages:u.messages,depth:1};
+        assert_eq!(decode(&b,&root,exact).unwrap().1,u);
+        for l in [Limits{logical:u.logical-1,..exact},Limits{work:u.work-1,..exact},
+                  Limits{fields:u.fields-1,..exact},Limits{messages:u.messages-1,..exact},Limits{depth:0,..exact}]{
+            assert_eq!(decode(&b,&root,l),Err(Reject::Budget));
+        }
+    }
+    #[test] fn materialization_refuses_malformed_tail_after_valid_fields(){
+        let schema=Schema{fields:&[Field{number:1,kind:Kind::Varint},Field{number:2,kind:Kind::Packed(PackedKind::Fixed64)}]};
+        let b=[8,1,0x12,8,1,2,3,4,5,6,7,8];
+        let (v,u)=decode(&b,&schema,limits()).unwrap();
+        assert_eq!(v[1].value,Value::Packed(vec![Scalar::Fixed64(0x0807060504030201)]));
+        assert_eq!(preflight(&b,&schema,limits()),Ok(u));
+        assert_eq!(decode(&b[..b.len()-1],&schema,limits()),Err(Reject::Truncated));
+        let mut bad=b.to_vec();bad.push(0);
+        assert_eq!(decode(&bad,&schema,limits()),Err(Reject::Tag));
     }
 
 }
