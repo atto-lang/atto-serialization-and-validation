@@ -1,0 +1,86 @@
+// Oreslang core-compatible closed scalar constraint evaluator.
+//
+// Compiler static proof and stdlib runtime validation share the same
+// normalized domain model: inclusive signed-int64 interval, sorted unique
+// in-domain exclusions, and string Unicode scalar length measured by the
+// single core utf8_scalar_count scanner. No OS, reflection, float, JIT,
+// arbitrary callbacks or mutable validated-type constructors.
+
+import fnc utf8_scalar_count from '../core/utf8_scalar';
+
+// A consistent work limit across direct dynamic rules and compiled registry.
+// Check before cloning to avoid allocating on untrusted oversized exclusions.
+pub fnc zorde_core_max_exclusions(): int { return 256; }
+
+pub define class ZordeCoreInterval as
+  pub val int minimum;
+  pub val int maximum;
+  pub val List<int> excluded;
+end
+
+pub fnc zorde_core_interval(
+  int minimum,
+  int maximum,
+  List<int> exclusions
+): ZordeCoreInterval {
+  // Snapshot primitive values so the caller cannot modify the exclusion
+  // list after constructing this dynamic validation descriptor.
+  // Even a direct, untrusted builder must refuse oversized metadata *before*
+  // cloning: an invalid empty interval is the fail-closed sentinel.
+  if exclusions.length > zorde_core_max_exclusions() then
+    return new ZordeCoreInterval(1, 0, new List<int>());
+  fi
+  val List<int> snapshot = new List<int>();
+  for const hole of exclusions do snapshot.add(hole); done
+  return new ZordeCoreInterval(minimum, maximum, snapshot);
+}
+
+pub fnc zorde_core_interval_valid(
+  ZordeCoreInterval interval,
+  bool is_string_length
+): bool {
+  if interval.excluded.length > zorde_core_max_exclusions() then return false; fi
+  if interval.minimum > interval.maximum then return false; fi
+  if is_string_length && interval.minimum < 0 then return false; fi
+  let bool has_previous = false;
+  let int previous = 0;
+  let int first_available = interval.minimum;
+  let bool has_allowed = false;
+  for const hole of interval.excluded do
+    if hole < interval.minimum || hole > interval.maximum then return false; fi
+    if has_previous && hole <= previous then return false; fi
+    has_previous = true;
+    previous = hole;
+    if hole > first_available then has_allowed = true; fi
+    if hole == first_available then
+      if first_available == interval.maximum then
+        if !has_allowed then return false; fi
+      else
+        first_available = first_available + 1;
+      fi
+    fi
+  done
+  return true;
+}
+
+pub fnc zorde_core_interval_contains(
+  ZordeCoreInterval interval,
+  bool is_string_length,
+  int metric
+): bool {
+  if !zorde_core_interval_valid(rt borrow interval, is_string_length) then return false; fi
+  if metric < interval.minimum || metric > interval.maximum then return false; fi
+  for const hole of interval.excluded do
+    if hole == metric then return false; fi
+  done
+  return true;
+}
+
+pub fnc zorde_core_utf8_accepts(
+  List<int> bytes,
+  ZordeCoreInterval interval
+): bool {
+  val int scalar_count = utf8_scalar_count(bytes);
+  if scalar_count < 0 then return false; fi
+  return zorde_core_interval_contains(rt borrow interval, true, scalar_count);
+}

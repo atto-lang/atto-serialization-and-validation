@@ -1,0 +1,21 @@
+package atto:contracts@1.0.0;
+
+interface actor-events {
+  enum event-kind { message, failure, shutdown }
+
+  record actor-envelope {
+    version: u32,
+    event: event-kind,
+    message-id: string,
+    source-actor: string,
+    target-actor: option<string>,
+    payload-utf8: option<string>,
+    error-code: option<string>,
+  }
+
+  emit: func(envelope: actor-envelope) -> result<u32, string>;
+}
+
+world actor-events-host {
+  import actor-events;
+}

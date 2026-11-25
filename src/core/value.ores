@@ -114,45 +114,48 @@ pub fnc value_number_lexeme(List<int> lexeme): Value {
 }
 
 pub fnc int_to_decimal_bytes(int value): List<int> {
-  let List<int> output = new List<int>();
-  if value == 0 then
-    output.add(48);
-  fi
+  // Encode exact signed int64 without floating-point division, int64
+  // overflow or a nonexistent integer-division operator. In Oreslang,
+  // '/' is real division (float) EVEN for int/int, so using it here
+  // would corrupt integers above 2^53 and violate Zorde refinements.
+  if value == 0 then return new List<int>(48); fi
 
-  // Both zero and nonzero paths return at the single ownership exit.
-  let int current = value;
-  if current < 0 then
+  val List<int> output = new List<int>();
+  let int remaining = value;
+  if value < 0 then
     output.add(45);
+  else
+    // Negating positive int64 is safe, including Long.MAX_VALUE.
+    // Keeping the magnitude negative also supports Long.MIN_VALUE.
+    remaining = -value;
   fi
 
-  let List<int> reversed = new List<int>();
-  let int digit_count = 0;
-  loop do
-    if current == 0 then
-      break;
+  // Decimal long division by powers of ten, with at most nine subtractions
+  // per digit. No '/', no float conversion, and no abs(INT64_MIN).
+  val List<int> places = new List<int>(
+    1000000000000000000, 100000000000000000,
+    10000000000000000, 1000000000000000,
+    100000000000000, 10000000000000,
+    1000000000000, 100000000000,
+    10000000000, 1000000000,
+    100000000, 10000000,
+    1000000, 100000,
+    10000, 1000,
+    100, 10, 1
+  );
+  let bool started = false;
+  for const place of places do
+    let int digit = 0;
+    loop do
+      if remaining > -place then break; fi
+      remaining = remaining + place;
+      digit = digit + 1;
+    done
+    if digit != 0 || started then
+      started = true;
+      output.add(48 + digit);
     fi
-
-    // Never negate current: -MIN_INT overflows signed int64.
-    // Division truncates toward zero and the remainder is in [-9, 9].
-    let int quotient = current / 10;
-    let int remainder = current - (quotient * 10);
-    let int digit = remainder < 0 ? 0 - remainder : remainder;
-    reversed.add(48 + digit);
-    digit_count = digit_count + 1;
-    current = quotient;
   done
-
-  // Maintain an explicitly typed count: early compiler snapshots may not
-  // infer arithmetic on List.length even though List indexing is supported.
-  let int i = digit_count;
-  loop do
-    if i <= 0 then
-      break;
-    fi
-    i = i - 1;
-    output.add(reversed[i]);
-  done
-
   return output;
 }
 
@@ -623,14 +626,14 @@ pub fnc parse_int(Value value): IntParse {
     return new IntParse(false, 0);
   fi
 
-  let List<int> bytes = value.number_lexeme;
-  if bytes.length == 0 then
+  val List<int> bytes = value.number_lexeme;
+  // Signed int64 has at most 19 digits plus an optional leading minus.
+  if bytes.length == 0 || bytes.length > 20 then
     return new IntParse(false, 0);
   fi
 
   let int i = 0;
   let bool negative = false;
-
   if bytes[0] == 45 then
     negative = true;
     i = 1;
@@ -639,37 +642,41 @@ pub fnc parse_int(Value value): IntParse {
     fi
   fi
 
-  // Accumulate positive values positively and negative values negatively so
-  // the signed minimum does not require a positive 2^63 intermediate.
+  // Do not accept ambiguous integer spellings such as 01 or -01.
+  // JSON's -0 is valid and is represented by the integer zero.
+  if bytes[i] == 48 && i + 1 < bytes.length then
+    return new IntParse(false, 0);
+  fi
+
+  // Canonical signed-int64 cutoffs. Oreslang '/' yields a float, even for
+  // integer operands, so NEVER use division in integer overflow decisions.
+  // Valid positive maximum: 922337203685477580 * 10 + 7.
+  // Valid negative minimum: -922337203685477580 * 10 - 8.
+  val int positive_cutoff = 922337203685477580;
+  val int negative_cutoff = -922337203685477580;
   let int result = 0;
 
   loop do
-    if i >= bytes.length then
-      break;
-    fi
-
+    if i >= bytes.length then break; fi
     let int byte = bytes[i];
     if byte < 48 || byte > 57 then
       return new IntParse(false, 0);
     fi
-
     let int digit = byte - 48;
 
     if negative then
-      // min int64 is (-9223372036854775807 - 1)
-      val int min_int = -9223372036854775807 - 1;
-      if result < (min_int + digit) / 10 then
+      if result < negative_cutoff ||
+         (result == negative_cutoff && digit > 8) then
         return new IntParse(false, 0);
       fi
-      result = (result * 10) - digit;
+      result = result * 10 - digit;
     else
-      val int max_int = 9223372036854775807;
-      if result > (max_int - digit) / 10 then
+      if result > positive_cutoff ||
+         (result == positive_cutoff && digit > 7) then
         return new IntParse(false, 0);
       fi
-      result = (result * 10) + digit;
+      result = result * 10 + digit;
     fi
-
     i = i + 1;
   done
 

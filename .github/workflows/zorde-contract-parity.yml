@@ -1,0 +1,209 @@
+name: Zorde independently authored TypeSpec / JSON Schema parity (pilot)
+on:
+  push:
+    paths:
+      - 'contracts/zorde/**'
+      - 'wit/zorde-validation.wit'
+      - 'formal/ZordeParity.dfy'
+      - '.github/workflows/zorde-contract-parity.yml'
+  pull_request:
+    paths:
+      - 'contracts/zorde/**'
+      - 'wit/zorde-validation.wit'
+      - 'formal/ZordeParity.dfy'
+      - '.github/workflows/zorde-contract-parity.yml'
+permissions:
+  contents: read
+jobs:
+  dual-authority:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out unmodified source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact checked-out source revision
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+
+      - name: Pin required Node engine
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.18.0
+      # TJSV PR #235 merged on 2026-10-18; this immutable PR head is
+      # independently CI-qualified but is not a downstream Zorde execution
+      # receipt or a separately published versioned release.
+      # Never use a floating action tag or an unlocked dependency graph.
+      - name: Compare independent schema authorities via production-audited lockfile
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/zorde/main.tsp
+          schema: contracts/zorde/authored.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-schema-parity.json
+          sarif: artifacts/zorde-schema-parity.sarif
+          output_dir: artifacts/zorde-generated
+
+      - name: Verify positive comparison contains executed differential evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('artifacts/zorde-schema-parity.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'passed'
+            || r.zeroUnexplainedFindings !== true
+            || r.counts?.findings !== 0
+            || r.coverage?.differentialInstanceValidation !== true
+            || !(r.differential?.summary?.probesEvaluated > 0)
+            || r.differential?.summary?.divergences !== 0) {
+            throw Error('TJSV positive receipt missing clean executed differential proof');
+          }
+          JS
+
+      - name: Make deliberately divergent independent schema without changing either authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' contracts/zorde/authored.schema.json)" = 1
+          jq '."$defs".ValidationReport.properties.schemaVersion.const = 2' \
+            contracts/zorde/authored.schema.json > artifacts/zorde-mutant.schema.json
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' artifacts/zorde-mutant.schema.json)" = 2
+          test "$(jq -r '."$defs".ValidationReport.properties.schemaVersion.const' contracts/zorde/authored.schema.json)" = 1
+          ! cmp -s contracts/zorde/authored.schema.json artifacts/zorde-mutant.schema.json
+
+      - name: Drift must fail the same parity tool and never create an admitted report
+        id: drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/zorde/main.tsp
+          schema: artifacts/zorde-mutant.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-mutant-rejected.json
+          sarif: ''
+          output_dir: artifacts/zorde-mutant-generated
+
+      - name: Assert meaningful schema-drift rejection, not an infrastructure failure
+        shell: bash
+        env:
+          DRIFT_OUTCOME: ${{ steps.drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DRIFT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          // An action that failed to install dependencies, launch TypeSpec, or
+          // emit a report does not prove our mutation was detected.
+          const r=JSON.parse(readFileSync('artifacts/zorde-mutant-rejected.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'stopped_for_evaluation'
+            || r.zeroUnexplainedFindings !== false
+            || r.counts?.findings < 1
+            || !Array.isArray(r.findings)
+            || !r.findings.some(f => f.resolutionState === 'unexplained')
+            || r.error) {
+            throw Error('negative mutant did not produce a semantic drift refusal');
+          }
+          JS
+
+      - name: Mutate TypeSpec authority in a temporary file, not the source declaration
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module - <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const original=readFileSync('contracts/zorde/main.tsp','utf8');
+          const needle='schemaVersion: 1;';
+          if(original.split(needle).length !== 3) throw Error('expected exactly two schemaVersion declarations');
+          writeFileSync('artifacts/zorde-mutant.tsp',original.replaceAll(needle,'schemaVersion: 2;'));
+          JS
+
+      - name: Independent TypeSpec-side mutation must be semantically refused
+        id: typespec_drift
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: artifacts/zorde-mutant.tsp
+          schema: contracts/zorde/authored.schema.json
+          instances: contracts/zorde/instances
+          report: artifacts/zorde-typespec-mutant-rejected.json
+          sarif: ''
+          output_dir: artifacts/zorde-typespec-mutant-generated
+
+      - name: Verify independent TypeSpec drift produced a semantic refusal
+        shell: bash
+        env:
+          DRIFT_OUTCOME: ${{ steps.typespec_drift.outcome }}
+        run: |
+          set -euo pipefail
+          test "$DRIFT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('artifacts/zorde-typespec-mutant-rejected.json','utf8'));
+          if(r.schema !== 'ores.typespec-json-schema-validator.report/v1'
+            || r.status !== 'stopped_for_evaluation'
+            || r.zeroUnexplainedFindings !== false
+            || !(r.counts?.findings > 0)
+            || !Array.isArray(r.findings)
+            || !r.findings.some(f=>f.resolutionState==='unexplained')
+            || r.error) {
+            throw Error('TypeSpec mutation failed without a semantic drift receipt');
+          }
+          JS
+
+      - name: Retain proof-bound contract comparison receipts (not a native validator proof)
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          sha256sum contracts/zorde/main.tsp contracts/zorde/authored.schema.json \
+            artifacts/zorde-schema-parity.json artifacts/zorde-mutant-rejected.json \
+            artifacts/zorde-typespec-mutant-rejected.json \
+            > artifacts/zorde-contract-evidence.sha256
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,os,hashlib
+          docs = ['zorde-schema-parity.json','zorde-mutant-rejected.json','zorde-typespec-mutant-rejected.json']
+          summaries = [json.loads((Path('artifacts')/p).read_text()) for p in docs]
+          statuses = [r.get('status') for r in summaries]
+          if statuses != ['passed','stopped_for_evaluation','stopped_for_evaluation']:
+              raise SystemExit('Unexpected semantic receipt statuses')
+          receipt = {
+            'schema':'oreslang.zorde.dual-peer-mutant-receipts/v1',
+            'head_sha':os.environ['SOURCE_SHA'],
+            'tool_sha':'a9aa7e0a258a0514b433178842288ab798b0947c',
+            'source_sha256': {p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in
+              ['contracts/zorde/main.tsp','contracts/zorde/authored.schema.json']},
+            'report_sha256': {p:hashlib.sha256((Path('artifacts')/p).read_bytes()).hexdigest() for p in docs},
+            'statuses':statuses,
+            'native_oreslang_compiler_executed':False,
+            'wit_abi_certified':False,
+            'formal_proof_executed':False,
+            'release_ready':False
+          }
+          Path('artifacts/zorde-contract-evidence.json').write_text(
+            json.dumps(receipt,sort_keys=True,indent=2),encoding='utf8')
+          PY
+
+      - name: Upload source-local positive and two negative receipts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: zorde-dual-authority-parser-only
+          retention-days: 7
+          if-no-files-found: error
+          path: |
+            artifacts/zorde-contract-evidence.json
+            artifacts/zorde-contract-evidence.sha256
+            artifacts/zorde-schema-parity.json
+            artifacts/zorde-mutant-rejected.json
+            artifacts/zorde-typespec-mutant-rejected.json

@@ -1,0 +1,256 @@
+import fnc require_true from './assert';
+
+import class Value, Utf8Text, WireMember, IntParse from '../src/core/value';
+import fnc value_string, value_int, value_number_lexeme, value_object, parse_int, int_to_decimal_bytes from '../src/core/value';
+import class FieldRule, ValidationReport from '../src/validation/validation';
+import class ZordeValueSchema, ZordeObjectSchema, ZordeIntSchema from '../src/zorde/zorde';
+import fnc zorde_nonempty_string, zorde_exact_string, zorde_number, zorde_field, zorde_object, zorde_parse, zorde_parse_object from '../src/zorde/zorde';
+import fnc zorde_int_min, zorde_int_max, zorde_int_range, zorde_parse_int from '../src/zorde/zorde';
+import class ZordeScalarRule from '../src/zorde/scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_accepts from '../src/zorde/scalar';
+import fnc zorde_parse_scalar_metric from '../src/zorde/zorde';
+import class ZordeScalarDescriptor from '../src/zorde/refinement_descriptor';
+import fnc zorde_scalar_descriptor from '../src/zorde/refinement_descriptor';
+import fnc zorde_parse_refinement from '../src/zorde/zorde';
+
+pub fnc run_zorde_tests(): void {
+  val ZordeValueSchema nonempty = zorde_nonempty_string();
+
+  val Result<Value, ValidationReport> valid_nonempty = zorde_parse(
+    value_string(new Utf8Text(new List<int>(111, 114, 101, 115))),
+    rt borrow nonempty
+  );
+  require_true(!valid_nonempty.is_err(), "Zorde nonempty string must accept non-empty text");
+
+  val Result<Value, ValidationReport> invalid_empty = zorde_parse(
+    value_string(new Utf8Text(new List<int>())),
+    rt borrow nonempty
+  );
+  require_true(invalid_empty.is_err(), "Zorde nonempty string must reject empty text");
+
+  // U+1F600 encoded as UTF-8 is one Unicode scalar value, not four bytes.
+  val ZordeValueSchema negative_exact = zorde_exact_string(-1);
+  val Result<Value, ValidationReport> negative_exact_result = zorde_parse(
+    value_string(new Utf8Text(new List<int>(120))),
+    rt borrow negative_exact
+  );
+  require_true(negative_exact_result.is_err(),
+    "Zorde negative exact length must fail closed instead of becoming unbounded");
+
+  val ZordeValueSchema exactly_one = zorde_exact_string(1);
+  val Result<Value, ValidationReport> emoji = zorde_parse(
+    value_string(new Utf8Text(new List<int>(240, 159, 152, 128))),
+    rt borrow exactly_one
+  );
+  require_true(!emoji.is_err(), "Zorde exact string length must count Unicode scalar values");
+
+  val Utf8Text name_key = new Utf8Text(new List<int>(110, 97, 109, 101));
+  val Utf8Text age_key = new Utf8Text(new List<int>(97, 103, 101));
+
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(zorde_field(
+    rt borrow name_key,
+    true,
+    false,
+    zorde_nonempty_string()
+  ));
+  fields.add(zorde_field(
+    rt borrow age_key,
+    true,
+    false,
+    zorde_number(true, 0.0, false, true, 150.0, false)
+  ));
+
+  val ZordeObjectSchema person = zorde_object(fields, true);
+
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(
+    new Utf8Text(new List<int>(110, 97, 109, 101)),
+    value_string(new Utf8Text(new List<int>(122)))
+  ));
+  members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(42)));
+
+  val Result<Value, ValidationReport> valid_person = zorde_parse_object(
+    value_object(members),
+    rt borrow person
+  );
+  require_true(!valid_person.is_err(), "Zorde object schema must accept a valid object");
+
+  // The native Value integer codec must preserve the compiler's exact int64
+  // scalar contract. No float intermediate, no abs(INT64_MIN) overflow.
+  val int min_i64 = -9223372036854775807 - 1;
+  val int max_i64 = 9223372036854775807;
+  val IntParse roundtrip_min = parse_int(value_int(min_i64));
+  val IntParse roundtrip_max = parse_int(value_int(max_i64));
+  val IntParse roundtrip_zero = parse_int(value_int(0));
+  require_true(roundtrip_min.ok && roundtrip_min.value == min_i64,
+    "Zorde native signed-int64 minimum must round trip exactly");
+  require_true(roundtrip_max.ok && roundtrip_max.value == max_i64,
+    "Zorde native signed-int64 maximum must round trip exactly");
+  require_true(roundtrip_zero.ok && roundtrip_zero.value == 0,
+    "Zorde native zero must encode and decode exactly");
+  require_true(int_to_decimal_bytes(min_i64).length == 20,
+    "signed minimum decimal encoding has sign and 19 digits");
+  require_true(int_to_decimal_bytes(max_i64).length == 19,
+    "signed maximum decimal encoding has exactly 19 digits");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 56
+  ))).ok, "signed maximum plus one must not wrap");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 57
+  ))).ok, "signed minimum minus one must not wrap");
+
+  // Exact runtime implementation of compiler-owned scalar ConstraintIR.
+  // Int metrics, Unicode scalar string length, and holes must match the
+  // Java compiler's normalized interval semantics.
+  val ZordeScalarRule port_rule = zorde_scalar_int(1, 65535, new List<int>());
+  require_true(zorde_scalar_rule_valid(rt borrow port_rule), "canonical Port rule");
+  require_true(!zorde_scalar_accepts(value_int(0), rt borrow port_rule),
+    "canonical Port rule rejects zero");
+  require_true(zorde_scalar_accepts(value_int(443), rt borrow port_rule),
+    "canonical Port rule accepts in-domain integer");
+  require_true(!zorde_scalar_accepts(value_int(65536), rt borrow port_rule),
+    "canonical Port rule rejects values above maximum");
+  require_true(!zorde_scalar_accepts(value_number_lexeme(new List<int>(49,46,48)),
+    rt borrow port_rule), "canonical int rule cannot coerce floating-point lexemes");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(new List<int>(49))),
+    rt borrow port_rule), "canonical int rule rejects string number coercion");
+
+  val ZordeScalarRule excluding_42 = zorde_scalar_int(1, 100, new List<int>(42));
+  require_true(zorde_scalar_rule_valid(rt borrow excluding_42),
+    "one live exclusion is canonical");
+  require_true(!zorde_scalar_accepts(value_int(42), rt borrow excluding_42),
+    "canonical excluded value rejected");
+  require_true(zorde_scalar_accepts(value_int(43), rt borrow excluding_42),
+    "adjacent non-excluded value accepted");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 2, new List<int>(1,2))),
+    "exclusions covering the full interval fail closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(7,5))),
+    "unsorted exclusion metadata fails closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(5,5))),
+    "duplicate exclusion metadata fails closed");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1, 10, new List<int>(0))),
+    "compiler must normalize off-domain exclusions before emission");
+
+  val ZordeScalarRule scalar_one = zorde_scalar_string(1, 1, new List<int>());
+  require_true(zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))), rt borrow scalar_one
+  ), "emoji counts as one Unicode scalar");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(101,204,129))), rt borrow scalar_one
+  ), "e plus combining mark counts as two scalars");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>())), rt borrow scalar_one
+  ), "nonempty constraint rejects empty string");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(192,175))), rt borrow scalar_one
+  ), "overlong UTF8 sequence must never pass");
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(new List<int>(237,160,128))), rt borrow scalar_one
+  ), "UTF8 surrogate encoding must never pass");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_string(-1, 4, new List<int>())),
+    "negative string length bound rejected");
+
+  val Result<int, ValidationReport> emoji_metric = zorde_parse_scalar_metric(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))), rt borrow scalar_one
+  );
+  require_true(!emoji_metric.is_err(),
+    "canonical scalar parse returns a successful UTF8 scalar metric");
+  require_true(zorde_parse_scalar_metric(
+    value_int(443), rt borrow scalar_one
+  ).is_err(), "wrong scalar-kind parse must return Err");
+
+  // Exact signed-int64 Zorde checks share @Min/@Max/@Range semantics.
+  val ZordeIntSchema ports = zorde_int_range(1, 65535);
+  val Result<int, ValidationReport> good_port = zorde_parse_int(value_int(443), rt borrow ports);
+  require_true(!good_port.is_err(), "Zorde range should accept TCP port 443");
+  require_true(zorde_parse_int(value_int(0), rt borrow ports).is_err(),
+    "Zorde range should reject port zero");
+  require_true(zorde_parse_int(value_int(65536), rt borrow ports).is_err(),
+    "Zorde range should reject port above 65535");
+  require_true(zorde_parse_int(value_int(1), zorde_int_min(1)).is_err() == false,
+    "Zorde minimum should accept the inclusive bound");
+  require_true(zorde_parse_int(value_int(100), zorde_int_max(100)).is_err() == false,
+    "Zorde maximum should accept the inclusive bound");
+  require_true(zorde_parse_int(value_int(42), zorde_int_range(20, 10)).is_err(),
+    "Zorde contradictory numeric ranges must fail closed");
+  require_true(zorde_parse_int(
+    value_number_lexeme(new List<int>(49, 46, 48)),
+    rt borrow ports
+  ).is_err(), "Zorde integer schema must not coerce decimal 1.0");
+
+  // 2^53 + 1: a binary double cannot represent this integer exactly.
+  val ZordeIntSchema precise = zorde_int_range(
+    9007199254740993, 9007199254740993
+  );
+  require_true(!zorde_parse_int(
+    value_number_lexeme(new List<int>(
+      57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 51)),
+    rt borrow precise
+  ).is_err(), "Zorde must accept exact integer 2^53+1 without float rounding");
+  require_true(zorde_parse_int(
+    value_number_lexeme(new List<int>(57, 48, 48, 55, 49, 57, 57, 50, 53, 52, 55, 52, 48, 57, 57, 50)),
+    rt borrow precise
+  ).is_err(), "Zorde must reject 2^53 when the schema requires 2^53+1");
+
+  // Canonical compiler descriptor adapter: inclusive interval + sorted holes.
+  val ZordeScalarDescriptor descriptor_port = zorde_scalar_descriptor(
+    1, 2, 1, 1, 65535, new List<int>());
+  require_true(!zorde_parse_refinement(
+    value_int(443), rt borrow descriptor_port).is_err(),
+    "canonical compiler Port descriptor accepts 443");
+  require_true(zorde_parse_refinement(
+    value_int(0), rt borrow descriptor_port).is_err(),
+    "canonical compiler Port descriptor rejects zero");
+
+  val ZordeScalarDescriptor descriptor_hole = zorde_scalar_descriptor(
+    1, 2, 1, 1, 100, new List<int>(42));
+  require_true(zorde_parse_refinement(
+    value_int(42), rt borrow descriptor_hole).is_err(),
+    "compiler descriptor exclusion is enforced");
+  require_true(!zorde_parse_refinement(
+    value_int(43), rt borrow descriptor_hole).is_err(),
+    "adjacent compiler descriptor value is accepted");
+
+  val ZordeScalarDescriptor descriptor_scalar = zorde_scalar_descriptor(
+    1, 3, 2, 1, 1, new List<int>());
+  require_true(!zorde_parse_refinement(
+    value_string(new Utf8Text(new List<int>(240,159,152,128))),
+    rt borrow descriptor_scalar).is_err(),
+    "compiler string descriptor uses Unicode scalar length");
+
+  for const invalid_descriptor of new List<ZordeScalarDescriptor>(
+    zorde_scalar_descriptor(2, 2, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 2, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 3, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 9, 1, 1, 10, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 1, 10, 1, new List<int>()),
+    zorde_scalar_descriptor(1, 2, 1, 1, 3, new List<int>(3,2)),
+    zorde_scalar_descriptor(1, 2, 1, 1, 3, new List<int>(0))
+  ) do
+    require_true(zorde_parse_refinement(
+      value_int(2), rt borrow invalid_descriptor).is_err(),
+      "malformed compiler descriptor must fail closed");
+  done
+
+  // Public descriptor constructors must not allocate or validate an
+  // attacker-sized exclusion list beyond the same registry/kernel limit.
+  val List<int> over_budget = new List<int>();
+  let int exclusion_index = 1;
+  loop do
+    if exclusion_index > 257 then break; fi
+    over_budget.add(exclusion_index);
+    exclusion_index = exclusion_index + 1;
+  done
+  val ZordeScalarDescriptor refused_descriptor = zorde_scalar_descriptor(
+    1, 2, 1, 0, 512, rt borrow over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow refused_descriptor).is_err(),
+    "direct descriptor helper must reject over-budget exclusion sets");
+  val ZordeScalarDescriptor forged_descriptor = new ZordeScalarDescriptor(
+    1, 2, 1, 0, 512, over_budget);
+  require_true(zorde_parse_refinement(value_int(258),
+    rt borrow forged_descriptor).is_err(),
+    "public descriptor construction cannot bypass exclusion validation");
+  return;
+}

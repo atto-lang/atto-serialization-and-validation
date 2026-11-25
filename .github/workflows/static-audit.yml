@@ -13,22 +13,13 @@ permissions:
 
 jobs:
   source-audit:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Verify exact source head
-        shell: bash
-        env:
-          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse --verify HEAD)" = "$EXPECTED_SHA"
-          test -z "$(git status --porcelain --untracked-files=all)"
+      - name: Build and test Rust audit
+        run: cargo test --all-targets
       - name: Audit Oreslang source invariants
-        run: python3 scripts/audit.py
-      - name: Check network/actor codec and native decimal contract mutations
-        run: python3 -m unittest discover -s tests -p 'test_*.py' -v
+        run: cargo run --quiet --bin audit

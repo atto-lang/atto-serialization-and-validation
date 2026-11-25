@@ -1,0 +1,417 @@
+# Zorde
+
+**Zorde** is Oreslang's schema, validation, and refinement-runtime library.
+
+It is the ergonomic public layer over the existing native reflection-free
+validation engine in this repository. Zorde does not create a second validation
+implementation: compiler refinements, generated codecs, standalone application
+validation, and decode-time validation normalize to one constraint model.
+
+## Core contract
+
+Oreslang refinements have two enforcement phases:
+
+1. **Compile time** — the compiler proves constraints when the value is
+   statically known or the source refinement entails the destination.
+2. **Runtime boundary** — Zorde validates values that originate outside the
+   proof domain: network payloads, files, databases, environment/config,
+   command-line input, FFI, dynamic maps, deserialization, and other dynamic
+   or untrusted values.
+
+The long-term goal is sound validated typestate. **The current ValidValue
+facade is not yet a proof-carrying immutable refinement**: a Value tree may
+contain mutable arrays, maps, or nested objects, and a schema holds mutable
+field collections. Until the ownership/borrow checker prevents post-validation
+mutation through all aliases (or the validator returns an owned, deeply frozen
+snapshot), do not use ValidValue to bypass validation at later trust boundaries.
+Revalidate dynamically sourced or mutable values at each relevant boundary.
+Immutable values with a proven invariant need not be repeatedly checked.
+
+    type NonEmpty = string with length gt 0;
+    type Username = string with length gte 3 and length lte 32;
+
+    const NonEmpty a = "ores";   // compile-time proof
+    const NonEmpty b = "";       // compile-time error
+
+    val ZordeValueSchema schema = zorde_nonempty_string();
+    val Result<ValidValue, ValidationReport> checked =
+      zorde_parse(raw_value, schema);
+
+The compiler integration should generate the Zorde schema from the normalized
+refinement descriptor rather than requiring users to restate constraints.
+
+## Three declaration syntaxes, one runtime schema
+
+All accepted refinement syntax families lower into the same normalized
+constraint descriptor:
+
+    @Size(min=1, max=32)
+    type A = string;
+
+    type B = string with length gte 1 and length lte 32;
+
+    define newtype C(string)
+      with length gte 1 and length lte 32;
+
+A and B have equivalent refinement predicates. C adds nominal identity. For
+dynamic construction, compiler-generated C.try_from(...) must call the same
+generated/specialized predicate used by Zorde.
+
+General where predicates remain pure and deterministic. A where predicate may
+participate in runtime validation only when the compiler can emit a bounded,
+effect-checked validator. Unsupported predicates fail closed; Zorde must never
+silently erase a constraint.
+
+## Where refinements belong
+
+Refined aliases and nominal newtypes are the reusable form, but the type system
+should eventually permit refinement-bearing types anywhere an ordinary value
+type can appear:
+
+- class and struct fields;
+- function parameters and return types;
+- locals and constants;
+- tuple elements;
+- list/array element types;
+- map key/value types;
+- actor DATA message fields;
+- RPC/HTTP request and response DTO fields;
+- decoded configuration and environment values;
+- database/ORM row and column projections;
+- FFI/import/export boundary values;
+- serialization/deserialization schemas;
+- persistent actor state and hot-reload state migration contracts.
+
+Examples:
+
+    type Port = int with value gte 1 and value lte 65535;
+    type Percentage = int with value gte 0 and value lte 100;
+    type NonEmpty = string with length gt 0;
+    type Sha256 = bytes with length eq 32;
+    type NonEmptyList<T> = List<T> with length gt 0;
+
+    define struct User as
+      name: NonEmpty;
+      age: int with value gte 0 and value lte 150;
+    end
+
+Inline refined type expressions are a useful follow-up grammar feature:
+
+    fnc greet(string with length gt 0 name): void;
+    fnc choose(): int with value gte 0 and value lt 10;
+
+Until inline type-expression grammar is implemented, aliases/newtypes provide
+the same invariant without adding special parameter/field syntax.
+
+## Flow-sensitive refinement
+
+The compiler should also learn refinements from ordinary control flow when the
+predicate exactly matches a supported built-in constraint:
+
+    fnc use(string value): void {
+      if value.length gt 0 then
+        // value can be treated as string with length gt 0 here.
+      fi
+    }
+
+This is a compiler proof feature, not a runtime Zorde check. Arbitrary where
+predicates do not imply a general theorem prover.
+
+## Runtime trust boundaries
+
+The compiler should not insert surprise validation on arbitrary assignments.
+Runtime checks belong at explicit trust/construction boundaries:
+
+- Newtype.try_from(raw);
+- Zorde parse / safe-parse equivalents;
+- JSON/MessagePack/CBOR/Protobuf typed decode;
+- HTTP/RPC ingress;
+- actor DATA admission;
+- database/config/environment decoding;
+- FFI/imported host values;
+- hot-reload state migration.
+
+Network and actor serialization remain distinct capability domains. Supervisor
+CONTROL messages are sealed runtime protocol and are not made user-validatable
+merely by Zorde.
+
+## Schema generation
+
+The target API is reflection-free. A future compiler intrinsic such as:
+
+    val schema = zorde.schema<Username>();
+
+must lower at compile time to a static generated descriptor/validator. It must
+not discover fields or predicates through runtime reflection.
+
+For a known object type, generated decode should fuse construction and
+validation so invalid data is rejected before a complete invalid object is
+materialized. Standalone Zorde validation remains useful for
+application-created values and dynamic Value trees.
+
+## Current native facade
+
+src/zorde/zorde.ores currently exposes an ergonomic facade over the existing
+validator:
+
+- zorde_string(min, max)
+- zorde_nonempty_string()
+- zorde_exact_string(length) (negative exact bounds produce invalid rules; they never mean unbounded)
+- zorde_ascii_string(min, max)
+- zorde_email()
+- zorde_uuid()
+- zorde_url()
+- zorde_number(...)
+- zorde_array(...)
+- zorde_field(...)
+- zorde_object(...)
+- zorde_parse(...)
+- zorde_parse_object(...)
+- zorde_int_min(min), zorde_int_max(max), zorde_int_range(min, max)
+- zorde_parse_int(value, schema): Result<int, ValidationReport> (exact signed int64, native certification pending)
+
+The existing validation engine remains the implementation underneath. This
+initial facade does not claim compiler-generated zorde.schema<T>(), arbitrary
+where execution, regex/pattern validation, cross-field predicates, or full
+typed-object construction.
+
+## Compiler-owned constrained aliases: i64 v1 projection
+
+A report-only Oreslang adapter for the Java/LLVM
+`ores.type-constraint.v1` catalog now lives in
+[`src/zorde/compiler_constraint_v1.ores`](../src/zorde/compiler_constraint_v1.ores).
+It checks qualified alias identity and caller-provided fingerprint agreement,
+canonical one/two-sided inclusive i64 predicates and deterministic compiler
+error IDs, with exact bounded wire-int parsing. It returns a diagnostic
+`ValidationReport` or an ordinary `Result<int,ValidationReport>`.
+
+**This does not authenticate the caller-provided fingerprint or issue
+`Valid<T>` provenance.** Compiler-owned catalog admission, cryptographic
+fingerprint verification, opaque checked construction and transitive immutable
+ownership remain mandatory. Constrained-alias runtime use must keep failing
+closed with `CONSTRAINT_VALIDATION_BRIDGE_REQUIRED` until those compiler
+gates have executed successfully. See
+[`ZORDE-COMPILER-CONSTRAINT-V1.md`](ZORDE-COMPILER-CONSTRAINT-V1.md).
+
+## Refinement-to-Zorde normalization
+
+Built-in compiler predicates should normalize mechanically. Canonical textual comparators are `eq`, `ne`, `gt`, `gte`, `lt`, and `lte`; `==`, `!=`, `>`, `>=`, `<`, and `<=` are equivalent symbolic spellings. `ge`/`le` are not supported aliases:
+
+| Compiler refinement | Zorde runtime rule |
+| --- | --- |
+| string with length gt 0 | string min length 1 |
+| string with length eq N | string min/max length N |
+| string with length gte A and length lte B | string min/max A/B |
+| int with value gte A and value lte B | dedicated exact `ZordeIntSchema` + `zorde_parse_int` (native verification pending) |
+| int with value gt A and value lt B | integer-exact normalized interval with overflow-checked exclusive endpoints (compiler lowering pending) |
+| List<T> with length gte A | array min items A |
+| Map<K,V> with size lte B | object/map max entries B (future native rule) |
+| bytes with length eq N | byte exact length N |
+
+ne/excluded-value predicates, map-size predicates, and arbitrary where
+predicates require explicit runtime representations before the compiler may
+claim complete Zorde parity. Unsupported descriptors are errors, not ignored
+metadata.
+
+The current generic numeric ValueRule path materializes wire numbers through a
+float for range validation. It therefore must **not** be used to claim exact
+64-bit integer-refinement parity outside the exactly representable range.
+The new experimental `ZordeIntSchema` API — `zorde_int_min`,
+`zorde_int_max`, `zorde_int_range`, and `zorde_parse_int` — explicitly
+parses wire-number lexemes into exact signed `int` using the shared core
+`parse_int` and returns `Result<int, ValidationReport>`, not a mutable
+`ValidValue` wrapper. It rejects decimals, scientific notation, overflow,
+contradictory ranges and out-of-bounds integers instead of coercing to float.
+Compiler-generated descriptor/codegen integration and executed native tests
+are still required before declaring complete runtime parity.
+
+## ABI and hot reload
+
+Exported refinement predicates and Zorde schema fingerprints are part of the
+type contract. Tightening a public constraint can reject previously valid
+values and therefore participates in ABI/hot-reload compatibility checks.
+
+A schema fingerprint should include at least:
+
+- base/nominal type identity;
+- normalized constraint predicates;
+- Unicode length semantics;
+- object required/optional/forbidden fields;
+- unknown-field policy;
+- nested schema identities;
+- where predicate identity/version when present.
+
+The compiler, Zorde, serializers, actor admission, and hot-reload verifier
+should consume the same fingerprint rather than maintaining parallel notions
+of validity.
+
+## Security gates still pending
+
+- **Typestate/alias stability:** Validation of a mutable Value or ObjectSchema
+  does not make future mutations safe. Freeze/copy with proven ownership or
+  forbid invariant-breaking aliases before asserting trusted ValidValue.
+- **Opaque construction:** Audit that user modules cannot directly forge
+  ValidValue or a nominal newtype through a public/default constructor, FFI,
+  deserialization, reflection, or unchecked casting. A public-looking
+  wrapper alone is not evidence of unforgeability.
+- **Schema identity:** The common-source nominal_id is currently a prototype
+  simple name. Production fingerprints must use compiler-issued, fully
+  qualified and versioned nominal identities, not collision-prone short names.
+- **Integer precision:** Numeric wire validators must not round int64 into a
+  float before admission.
+- **Invalid schema construction:** Zorde exact-length builders must reject
+  negative lengths. The current facade maps these to an invalid rule and
+  returns an invalid_rule report from checked parse; a future builder can
+  expose Result<Schema, SchemaError> directly.
+
+These gates are mandatory before treating Zorde validation as a secure
+compiler refinement boundary.
+
+## Core/std-lib placement and annotation interoperability
+
+**Placement:** Zorde is an Oreslang standard-library capability; the canonical
+future import is `std/zorde`. The compiler/core layer owns normalized
+predicates and generated exact validators, and Zorde exposes schemas/checked
+parsing. Serialization formats use the same contracts, not a separate
+Java/LLVM/JS implementation. The numeric standard-library seed lives in
+`oreslang-source.java/stdlib/zorde.ores`; `src/zorde/stdlib.ores` mirrors that
+file with an identical Git blob. The generic `src/zorde/zorde.ores` facade
+remains an incubation implementation, not packaged stdlib certification.
+
+The following are **equivalent constraint declarations** (subject to future
+compiler admission and runtime construction gates):
+
+```ores
+@MinLength(3)
+@MaxLength(32)
+type Username = string;
+
+type Username2 = string with length gte 3 and length lte 32;
+
+@Min(1)
+@Max(65535)
+type Port = int;
+
+@Range(min=1,max=65535)
+type Port2 = int;
+
+type Port3 = int with value >= 1 and value <= 65535;
+```
+
+`@MinLength/@MaxLength` apply only to string Unicode-scalar lengths;
+`@Min/@Max/@Range` apply only to integer values with exact signed-int64
+comparisons. Bounds must be compile-time constants; negative string lengths,
+wrong type uses, duplicate annotations, and contradictions are errors. No
+runtime reflection or float conversion may silently change predicate meaning.
+
+**Status:** The Java parser normalizes these on aliases/newtypes but currently
+rejects their execution until checked type construction exists. Field/local
+annotations are rejected rather than silently retained. The Zorde native tests
+have not yet proved production end-to-end stdlib validation.
+
+## Compiler-generated schema ABI and checked conversion status
+
+The Java compiler branch now contains a source-only scalar schema planner
+(`ZordeSchemaGenerator`) and a versioned SHA-256 descriptor/fingerprint in
+`RefinementRules`. The independent common-source
+`conformance/refinements/schema_fingerprint.py` oracle verifies the
+canonical interval and nominal identity encoding. Schema artifacts derive from
+the compiler AST, never runtime reflection. Redundant exclusions outside the
+accepted interval do not change the fingerprint.
+
+The host `Plan.tryFrom` checked-conversion test substrate accepts only
+immutable Java `String`/`Long`, and is not a guest-language constructor.
+Native Zorde `zorde_parse_int` remains a separately incubated, exact integer
+runtime admission path; the actual compiler-generated `zorde.schema<T>()`
+binding and guest `T.try_from()` remain pending. Do not use the float-based
+generic `zorde_number` as an exact signed-int64 validator.
+
+## Schema-first is the planned authoritative public API
+
+The intended standard-library experience is schema-first, similar to Zod:
+`const PortSchema = Zorde.int().min(1).max(65535);`
+followed by `type Port = Zorde.infer<PortSchema>;`. Annotation-first
+`@Range(min=1,max=65535)` and `with value gte/lte` are frontends for the
+**same compiler-owned constraint IR**. Runtime parsing must consume the
+compiler-generated normalized descriptor, rather than rediscovering min/max
+annotations or using an independent floating-point number validator.
+
+Only immutable statically evaluable schemas support inferred compiler types;
+runtime callbacks, dynamic schemas and coercion may validate values but must
+not forge Oreslang refinements. A future `Schema<Input,Output>` representation
+must separate input from transformed output. A structural inferred type must
+not silently become nominal, and a checked `Valid<T>` must be ownership-safe.
+
+As of this branch, compiler source-AST inference and typed projections exist
+in Java/Graal's experimental planner, **not** in the executable Oreslang type
+checker. The native `ZordeIntSchema`/`zorde_parse_int` and string validation
+facade remain independent implementations under migration; they must be
+replaced by an adapter for the canonical versioned descriptor and pass
+cross-backend conformance before the phrase "fully unified" is warranted.
+Native array/object validation must also prove deep freeze/copy/borrow safety
+before returning persistent proof-carrying values.
+
+### Exact int64 codec dependency
+
+The source `src/core/value.ores` integer-to-decimal serializer previously had
+duplicated malformed loops and a missing digit computation. This was corrected
+with a signed-remainder algorithm that does not compute `abs(INT64_MIN)`.
+`tests/zorde_test.ores` now includes signed-int64 min/max/zero round-trips
+and overflow-negative fixtures. **Native test execution remains mandatory**:
+parser/JVM smoke or the Python reference oracle alone cannot certify this
+userland serialization and validation path.
+
+
+## Canonical scalar descriptor runtime adapter
+
+This branch now exposes a native `ZordeScalarDescriptor` adapter for the
+compiler/common-source `zorde.scalar/v1` shape. Runtime acceptance uses the
+same inclusive signed-int64 interval, Unicode-scalar length metric, and sorted
+effective exclusion list as `scalar_core.ores`; it does not rediscover
+exclusive source syntax or coerce integers through float.
+
+The adapter validates version, scalar kind, property, interval and exclusion
+canonicality before constructing a runtime rule. Unknown versions, kind/property
+confusion, contradictory intervals, duplicate/unsorted holes and off-domain
+holes fail closed.
+
+The descriptor is **validation metadata, not authority**. SHA-256 schema
+fingerprints and compiler-qualified nominal identities must be authenticated by
+the compiler/linker before this adapter is invoked; runtime scalar acceptance
+alone cannot manufacture a nominal newtype or bypass ownership checks.
+
+
+## Authored schema/WIT inventory security gate (2026-11-11)
+
+The initial `validation` WIT interface exports only `ErrorCode`,
+`ValidationIssue` and `ValidationReport`. The independently authored
+JSON Schema also contains `ComparisonStatus` and `SchemaComparison`.
+These additional types are **schema-only evidence contracts** today: their
+presence does not mean the WIT ABI supports schema comparison at runtime.
+
+The crosswalk must therefore check **all five** existing authored definitions
+with a closed keyword and type allowlist, rather than validating only the
+three WIT-exported types and silently permitting additional or narrowed
+comparison definitions. The authored schema must be inspected as raw JSON
+**before** `JSON.parse` collapses duplicate object members, including
+escaped-equivalent names. The build-time checker refuses unknown definitions,
+added constraints, removed fields, incorrect status enums, changed references,
+trailing JSON and over-depth objects.
+
+The source-only WIT checker reports a **measured 43 assertions**: one accepted
+canonical WIT/schema pair, 14 direct WIT negative cases, 24 mutated authored
+schema cases, and four rejected raw JSON input cases. The workflow requires
+that count before generating a syntax-only receipt and runs a separate
+Node test suite against the actual checker. A count inferred from source text,
+or a hard-coded number returned without executing every assertion, is not a
+valid execution receipt. Independent `wasm-tools` syntax parsing is still
+required for WIT grammar and is not equivalent to canonical ABI implementation.
+
+**Scope limitation:** This is a conservative *build-time* source contract
+check. It is not an Oreslang guest execution, a working
+`Zorde.infer<Schema>` type checker, an authoritative compile-time nominal
+schema fingerprint, immutable `Valid<T, SchemaId>` proof, or five-backend
+Serde/Zod feature parity. Those capabilities require separately verified
+runtime and ownership gates. Draft PRs #40/#41 (scalar input budgets), #43
+(deep checked Value preflight) and #57 (collision-work budgets) remain
+independent hardening candidates pending real guest execution.

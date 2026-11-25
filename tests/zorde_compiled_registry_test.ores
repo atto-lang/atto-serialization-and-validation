@@ -1,0 +1,347 @@
+// Executable Oreslang regression suite for the bounded compiled scalar registry.
+// This is NOT JSON Schema admission, ABI or cross-actor sharing certification.
+import fnc require_true from './assert';
+import class Utf8Text, IntParse from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, parse_int from '../src/core/value';
+import class ZordeScalarDescriptor from '../src/zorde/refinement_descriptor';
+import fnc zorde_scalar_descriptor from '../src/zorde/refinement_descriptor';
+import class ZordeScalarRegistry, ZordeScalarRegistrySpec from '../src/zorde/compiled_registry';
+import fnc zorde_compile_scalar_registry, zorde_registry_parse_scalar from '../src/zorde/compiled_registry';
+import fnc zorde_registry_max_entries from '../src/zorde/compiled_registry';
+import class ValidationReport from '../src/validation/validation';
+
+fnc port_id(): Utf8Text {
+  return new Utf8Text(new List<int>(112,111,114,116));
+}
+fnc word_id(): Utf8Text {
+  return new Utf8Text(new List<int>(119,111,114,100));
+}
+fnc port_descriptor(List<int> holes): ZordeScalarDescriptor {
+  return new ZordeScalarDescriptor(1,2,1,1,65535,holes);
+}
+
+pub fnc run_zorde_compiled_registry_tests(): void {
+  // Exact int64 admission uses integer cutoffs, never rounded floating-point
+  // division. Check parser boundaries independently of interval membership.
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56
+  ))).ok, "overflowed int64 positive value must not parse");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,57
+  ))).ok, "overflowed int64 negative value must not parse");
+  val IntParse canonical_negative_zero =
+    parse_int(value_number_lexeme(new List<int>(45,48)));
+  require_true(canonical_negative_zero.ok && canonical_negative_zero.value == 0,
+    "int64 parser accepts canonical JSON negative zero");
+  require_true(!parse_int(value_number_lexeme(new List<int>(45,48,49))).ok,
+    "int64 parser rejects noncanonical negative leading zero");
+
+  val List<int> mutable_holes = new List<int>(42);
+  val Utf8Text original_id = port_id();
+  val List<ZordeScalarRegistrySpec> source = new List<ZordeScalarRegistrySpec>();
+  source.add(new ZordeScalarRegistrySpec(
+    original_id, port_descriptor(mutable_holes)
+  ));
+  source.add(new ZordeScalarRegistrySpec(
+    word_id(), zorde_scalar_descriptor(1,3,2,1,1,new List<int>())
+  ));
+
+  val Result<ZordeScalarRegistry,ValidationReport> compiled =
+    zorde_compile_scalar_registry(rt borrow source);
+  require_true(!compiled.is_err(), "valid canonical scalar schemas must compile");
+  val ZordeScalarRegistry registry = compiled.unwrap();
+
+  val Result<int,ValidationReport> port =
+    zorde_registry_parse_scalar(rt borrow registry, port_id(), value_int(443));
+  require_true(!port.is_err(), "compiled registry accepts valid integer");
+  require_true(port.unwrap() == 443, "compiled registry returns exact int64 metric");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, port_id(), value_int(42)
+  ).is_err(), "canonical exclusion must be enforced");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, port_id(), value_int(0)
+  ).is_err(), "minimum bound must be enforced");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, port_id(), value_int(65536)
+  ).is_err(), "maximum bound must be enforced");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, port_id(),
+    value_number_lexeme(new List<int>(49,46,48))
+  ).is_err(), "integer schema never coerces decimal 1.0");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, port_id(),
+    value_string(new Utf8Text(new List<int>(52,52,51)))
+  ).is_err(), "integer schema never coerces string 443");
+
+  // The caller's descriptor, identifier and specs are mutable. Compilation
+  // must snapshot the key and exclusion list rather than retaining aliases.
+  mutable_holes.add(43);
+  original_id.bytes.add(33);
+  source.add(new ZordeScalarRegistrySpec(
+    new Utf8Text(new List<int>(101,118,105,108)),
+    port_descriptor(new List<int>())
+  ));
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow registry, port_id(), value_int(43)
+  ).is_err(), "post-compile source list mutation must not affect cached rule");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, original_id, value_int(443)
+  ).is_err(), "post-compile key mutation must not rename admitted entry");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry,
+    new Utf8Text(new List<int>(101,118,105,108)), value_int(443)
+  ).is_err(), "post-compile spec list mutations cannot add new schemas");
+
+  // Unknown selectors must fail without looking at attacker-controlled
+  // numeric or string representations, including values that exceed budgets.
+  val Utf8Text missing_selector = new Utf8Text(new List<int>(109,105,115,115,105,110,103));
+  val List<int> oversized_unknown_integer = new List<int>();
+  let int unknown_i = 0;
+  loop do
+    if unknown_i >= 256 then break; fi
+    oversized_unknown_integer.add(57);
+    unknown_i = unknown_i + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, missing_selector,
+    value_number_lexeme(oversized_unknown_integer)
+  ).is_err(), "unknown ID cannot select scalar parsing even with oversized numeric bytes");
+  val List<int> oversized_unknown_text = new List<int>();
+  unknown_i = 0;
+  loop do
+    if unknown_i >= 65537 then break; fi
+    oversized_unknown_text.add(97);
+    unknown_i = unknown_i + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, missing_selector,
+    value_string(new Utf8Text(oversized_unknown_text))
+  ).is_err(), "unknown ID cannot select UTF8 scanning even with oversized string");
+
+  // UTF-8 string length is Unicode scalar count, not bytes/UTF-16 units.
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow registry, word_id(),
+    value_string(new Utf8Text(new List<int>(240,159,152,128)))
+  ).is_err(), "emoji counts as exactly one Unicode scalar");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, word_id(),
+    value_string(new Utf8Text(new List<int>(101,204,129)))
+  ).is_err(), "combining-mark sequence contains two scalars");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry, word_id(),
+    value_string(new Utf8Text(new List<int>(192,175)))
+  ).is_err(), "overlong UTF8 must fail closed");
+
+  val List<ZordeScalarRegistrySpec> duplicate = new List<ZordeScalarRegistrySpec>();
+  duplicate.add(new ZordeScalarRegistrySpec(port_id(),port_descriptor(new List<int>())));
+  duplicate.add(new ZordeScalarRegistrySpec(port_id(),port_descriptor(new List<int>())));
+  require_true(zorde_compile_scalar_registry(duplicate).is_err(),
+    "duplicate IDs must fail registry compilation");
+
+  val List<ZordeScalarRegistrySpec> empty = new List<ZordeScalarRegistrySpec>();
+  require_true(zorde_compile_scalar_registry(empty).is_err(),
+    "empty registry must not claim admission");
+
+  val List<ZordeScalarRegistrySpec> control_id = new List<ZordeScalarRegistrySpec>();
+  control_id.add(new ZordeScalarRegistrySpec(
+    new Utf8Text(new List<int>(112,0,114,116)),port_descriptor(new List<int>())
+  ));
+  require_true(zorde_compile_scalar_registry(control_id).is_err(),
+    "embedded NUL in schema ID must fail");
+  val List<ZordeScalarRegistrySpec> utf8_id = new List<ZordeScalarRegistrySpec>();
+  utf8_id.add(new ZordeScalarRegistrySpec(
+    new Utf8Text(new List<int>(240,159,152,128)),port_descriptor(new List<int>())
+  ));
+  require_true(zorde_compile_scalar_registry(utf8_id).is_err(),
+    "non-ASCII schema IDs refused by version-one registry policy");
+  val List<int> too_long_id = new List<int>();
+  let int c = 0;
+  loop do
+    if c >= 129 then break; fi
+    too_long_id.add(120);
+    c = c + 1;
+  done
+  val List<ZordeScalarRegistrySpec> long_ids = new List<ZordeScalarRegistrySpec>();
+  long_ids.add(new ZordeScalarRegistrySpec(
+    new Utf8Text(too_long_id),port_descriptor(new List<int>())
+  ));
+  require_true(zorde_compile_scalar_registry(long_ids).is_err(),
+    "schema IDs must stay at or below the configured byte ceiling");
+
+  val List<ZordeScalarRegistrySpec> invalid = new List<ZordeScalarRegistrySpec>();
+  invalid.add(new ZordeScalarRegistrySpec(
+    port_id(),zorde_scalar_descriptor(2,2,1,1,65535,new List<int>())
+  ));
+  require_true(zorde_compile_scalar_registry(invalid).is_err(),
+    "unsupported descriptor version must fail closed");
+  val List<ZordeScalarRegistrySpec> unsorted = new List<ZordeScalarRegistrySpec>();
+  unsorted.add(new ZordeScalarRegistrySpec(
+    port_id(),port_descriptor(new List<int>(8,5))
+  ));
+  require_true(zorde_compile_scalar_registry(unsorted).is_err(),
+    "unsorted exclusions must fail closed");
+
+  val List<int> many_holes = new List<int>();
+  c = 1;
+  loop do
+    if c > 257 then break; fi
+    many_holes.add(c);
+    c = c + 1;
+  done
+  val List<ZordeScalarRegistrySpec> oversized_holes = new List<ZordeScalarRegistrySpec>();
+  oversized_holes.add(new ZordeScalarRegistrySpec(
+    port_id(),port_descriptor(many_holes)
+  ));
+  require_true(zorde_compile_scalar_registry(oversized_holes).is_err(),
+    "excluded list greater than 256 must fail before accepting metadata");
+
+  val List<ZordeScalarRegistrySpec> too_many = new List<ZordeScalarRegistrySpec>();
+  c = 0;
+  loop do
+    if c > zorde_registry_max_entries() then break; fi
+    too_many.add(new ZordeScalarRegistrySpec(
+      port_id(),port_descriptor(new List<int>())
+    ));
+    c = c + 1;
+  done
+  require_true(zorde_compile_scalar_registry(too_many).is_err(),
+    "bounded registry must reject over-capacity list before compilation");
+
+  val List<ZordeScalarRegistrySpec> exact = new List<ZordeScalarRegistrySpec>();
+  exact.add(new ZordeScalarRegistrySpec(
+    port_id(),zorde_scalar_descriptor(
+      1,2,1,9007199254740993,9007199254740993,new List<int>()
+    )
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> exact_compiled =
+    zorde_compile_scalar_registry(exact);
+  require_true(!exact_compiled.is_err(), "exact 2^53+1 descriptor must compile");
+  val ZordeScalarRegistry exact_registry = exact_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow exact_registry,port_id(),
+    value_number_lexeme(new List<int>(
+      57,48,48,55,49,57,57,50,53,52,55,52,48,57,57,51))
+  ).is_err(), "int64 2^53+1 must not narrow via float");
+  require_true(zorde_registry_parse_scalar(
+    rt borrow exact_registry,port_id(),
+    value_number_lexeme(new List<int>(
+      57,48,48,55,49,57,57,50,53,52,55,52,48,57,57,50))
+  ).is_err(), "adjacent 2^53 value must fail exact constraint");
+
+  // Work budgets are enforced *before* full integer/UTF-8 scanning.
+  // A well-formed 20-byte signed minimum must remain accepted, while an
+  // attacker-controlled overlong numeric lexeme cannot force unbounded work.
+  val List<ZordeScalarRegistrySpec> full_range = new List<ZordeScalarRegistrySpec>();
+  full_range.add(new ZordeScalarRegistrySpec(
+    port_id(), zorde_scalar_descriptor(
+      1,2,1,-9223372036854775807 - 1,9223372036854775807,new List<int>()
+    )
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> range_compiled =
+    zorde_compile_scalar_registry(full_range);
+  require_true(!range_compiled.is_err(), "full int64 range must compile");
+  val ZordeScalarRegistry range_registry = range_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow range_registry,port_id(),
+    value_number_lexeme(new List<int>(
+      45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56))
+  ).is_err(), "valid 20-byte signed int64 minimum must be accepted");
+  val List<int> long_lexeme = new List<int>();
+  c = 0;
+  loop do
+    if c >= 21 then break; fi
+    long_lexeme.add(49);
+    c = c + 1;
+  done
+  require_true(zorde_registry_parse_scalar(
+    rt borrow range_registry,port_id(),value_number_lexeme(long_lexeme)
+  ).is_err(), "21-byte numeric lexeme exceeds bounded int64 scan budget");
+
+  val List<int> max_string = new List<int>();
+  c = 0;
+  loop do
+    if c >= 65536 then break; fi
+    max_string.add(97);
+    c = c + 1;
+  done
+  // The one-scalar rule rejects large *valid* strings by its length. A
+  // 65537-byte payload must be rejected before Unicode scalar scanning.
+  max_string.add(97);
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry,word_id(),
+    value_string(new Utf8Text(max_string))
+  ).is_err(), "oversize UTF-8 byte buffer rejected before scalar validation");
+
+  // Accepted key length is inclusive: 128 ASCII bytes is valid, 129 fails.
+  val List<int> exact_id_bytes = new List<int>();
+  c = 0;
+  loop do
+    if c >= 128 then break; fi
+    exact_id_bytes.add(120);
+    c = c + 1;
+  done
+  val Utf8Text exact_id = new Utf8Text(exact_id_bytes);
+  val List<ZordeScalarRegistrySpec> exact_ids = new List<ZordeScalarRegistrySpec>();
+  exact_ids.add(new ZordeScalarRegistrySpec(
+    exact_id,port_descriptor(new List<int>())
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> exact_ids_compiled =
+    zorde_compile_scalar_registry(exact_ids);
+  require_true(!exact_ids_compiled.is_err(), "128 printable ASCII bytes are permitted");
+  val ZordeScalarRegistry key_registry = exact_ids_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow key_registry,exact_id,value_int(443)
+  ).is_err(), "maximum-length selector resolves its canonical compiled rule");
+
+  // Registry namespaces are deliberately case-sensitive and lack fallback.
+  require_true(zorde_registry_parse_scalar(
+    rt borrow registry,
+    new Utf8Text(new List<int>(80,79,82,84)),value_int(443)
+  ).is_err(), "case-changing a schema ID cannot alias a registered rule");
+
+  // Positive boundary cases prevent off-by-one limits from being used as
+  // silently restrictive policies. The 65th entry is already tested above.
+  val List<ZordeScalarRegistrySpec> max_entries = new List<ZordeScalarRegistrySpec>();
+  c = 0;
+  loop do
+    if c >= 64 then break; fi
+    max_entries.add(new ZordeScalarRegistrySpec(
+      new Utf8Text(new List<int>(33 + c)),
+      port_descriptor(new List<int>())
+    ));
+    c = c + 1;
+  done
+  val Result<ZordeScalarRegistry,ValidationReport> full_compiled =
+    zorde_compile_scalar_registry(max_entries);
+  require_true(!full_compiled.is_err(), "exactly 64 distinct selectors must compile");
+  val ZordeScalarRegistry full_registry = full_compiled.unwrap();
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow full_registry,
+    new Utf8Text(new List<int>(96)),value_int(443)
+  ).is_err(), "the 64th registered selector remains accessible");
+
+  val List<int> permitted_holes = new List<int>();
+  c = 1;
+  loop do
+    if c > 256 then break; fi
+    permitted_holes.add(c);
+    c = c + 1;
+  done
+  val List<ZordeScalarRegistrySpec> edge_holes = new List<ZordeScalarRegistrySpec>();
+  edge_holes.add(new ZordeScalarRegistrySpec(
+    port_id(),port_descriptor(permitted_holes)
+  ));
+  val Result<ZordeScalarRegistry,ValidationReport> edge_compiled =
+    zorde_compile_scalar_registry(edge_holes);
+  require_true(!edge_compiled.is_err(), "exactly 256 sorted in-domain exclusions must compile");
+  val ZordeScalarRegistry edge_registry = edge_compiled.unwrap();
+  require_true(zorde_registry_parse_scalar(
+    rt borrow edge_registry,port_id(),value_int(256)
+  ).is_err(), "last included exclusion must be rejected");
+  require_true(!zorde_registry_parse_scalar(
+    rt borrow edge_registry,port_id(),value_int(257)
+  ).is_err(), "adjacent nonexcluded number remains valid");
+
+  stdio.stdout.println("native Zorde compiled scalar registry tests passed");
+  return;
+}
