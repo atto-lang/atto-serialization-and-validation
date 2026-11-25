@@ -31,6 +31,26 @@ class ExpandedVisibilityTests(unittest.TestCase):
         self.assertFalse(accepted(b"error: SealedObjectSchema argument type mismatch", fixture))
         self.assertFalse(accepted(b"error: constructor SealedObjectSchema argument type mismatch", "unknown"))
 
+    def test_balanced_quotes_only(self):
+        fixture = "json-frame-visibility/private-state-import"
+        for quote in (b"'", b'"', b"`"):
+            with self.subTest(quote=quote):
+                self.assertTrue(accepted(b"error: " + quote + b"JsonPrivateFrameState" + quote + b" is not exported", fixture))
+        for line in (b"error: JsonPrivate'FrameState is not exported",
+                     b"error: JsonPrivateFrameState is not exported'",
+                     b"err'or: JsonPrivateFrameState is not exported",
+                     b"error: 'JsonPrivateFrameState` is not exported",
+                     b"error: 'JsonPrivateFrameState is not exported",
+                     b"error: JsonPrivateFrameState' is not exported",
+                     b"note:\x0berror: JsonPrivateFrameState is not exported",
+                     b"note:\rerror: JsonPrivateFrameState is not exported",
+                     b"note:\xc2\x85error: JsonPrivateFrameState is not exported",
+                     b"error: JsonPrivateFrameState is not exported\nerror: unrelated failure",
+                     b"error: JsonPrivateFrameState is not exported\nerror: JsonPrivateFrameState is not exported"):
+            with self.subTest(line=line):
+                self.assertFalse(accepted(line, fixture))
+        self.assertTrue(accepted(b"note: compiler diagnostic\r\nerror: JsonPrivateFrameState is not exported\r\n", fixture))
+
 
 if __name__ == "__main__":
     unittest.main()
