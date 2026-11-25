@@ -4,9 +4,10 @@
 //! more memory than it reserved. Payload is owned bytes, not decoded objects.
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation, Binding, Busy }
+pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation, Binding, Busy, Cancelled }
 // Shared by all endpoints in one trusted tenant. Never chosen by wire data.
 struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize, used_expansion: usize, max_expansion: usize }
 #[derive(Clone)]
@@ -69,12 +70,41 @@ struct State {
     max_bytes: usize, max_slots: usize,
     queue: VecDeque<Delivery>,
     tenant: TenantBudget,
+    suspended_dispatch: bool,
 }
 #[derive(Clone)]
 // All clones share the same dispatch gate. The gate is separate from
 // mailbox state so a synchronous handler can enqueue without deadlocking.
 pub struct Mailbox(Arc<Mutex<State>>, Arc<Mutex<()>>);
 pub struct Reservation { mailbox: Mailbox, generation: u64, bytes: usize, live: bool, tenant:Option<TenantLease> }
+/// Per-dispatch cancellation identity; an old handle cannot cancel a later
+/// dispatch, even in the same generation. Cancellation is cooperative.
+#[derive(Clone)]
+pub struct DispatchCancellation(Arc<AtomicBool>);
+impl DispatchCancellation {
+    pub fn cancel(&self) { self.0.store(true,Ordering::Release); }
+    pub fn is_cancelled(&self)->bool { self.0.load(Ordering::Acquire) }
+}
+/// A non-cloneable, owned fence; no OS mutex guard crosses suspension.
+/// Drop releases the fence. A cancellation request does not release it.
+#[must_use]
+pub struct SuspensionLease {
+    mailbox:Mailbox, generation:u64, cancellation:DispatchCancellation,
+}
+impl SuspensionLease {
+    pub fn cancellation(&self)->DispatchCancellation { self.cancellation.clone() }
+    pub fn checkpoint(&self)->Result<(),Reject> {
+        if self.cancellation.is_cancelled() { return Err(Reject::Cancelled); }
+        self.mailbox.check_generation(self.generation)
+    }
+}
+impl Drop for SuspensionLease {
+    fn drop(&mut self) {
+        if let Ok(mut s)=self.mailbox.lock() {
+            s.suspended_dispatch=false;
+        }
+    }
+}
 impl Mailbox {
     pub fn new(generation: u64, max_bytes: usize, max_slots: usize) -> Result<Self, Reject> {
         let tenant=TenantBudget::new(max_bytes,max_slots)?;
@@ -84,7 +114,7 @@ impl Mailbox {
         if generation == 0 || max_bytes == 0 || max_bytes > 16*1024*1024 ||
            max_slots == 0 || max_slots > 4096 { return Err(Reject::InvalidLimits); }
         Ok(Self(Arc::new(Mutex::new(State { generation, closed:false, bytes:0, slots:0,
-            max_bytes, max_slots, queue:VecDeque::new(), tenant })),Arc::new(Mutex::new(()))))
+            max_bytes, max_slots, queue:VecDeque::new(), tenant, suspended_dispatch:false })),Arc::new(Mutex::new(()))))
     }
     fn lock(&self) -> Result<MutexGuard<'_,State>, Reject> {
         self.0.lock().map_err(|_| Reject::Closed)
@@ -93,7 +123,10 @@ impl Mailbox {
     // acquire the gate. Busy is explicit; never wait on a running handler.
     fn dispatch_gate(&self)->Result<MutexGuard<'_,()>,Reject> {
         match self.1.try_lock() {
-            Ok(guard)=>Ok(guard),
+            Ok(guard)=>{
+                if self.lock()?.suspended_dispatch { return Err(Reject::Busy); }
+                Ok(guard)
+            }
             Err(TryLockError::WouldBlock)=>Err(Reject::Busy),
             Err(TryLockError::Poisoned(_))=>Err(Reject::Closed),
         }
@@ -106,6 +139,18 @@ impl Mailbox {
         let _guard=self.dispatch_gate()?;
         self.check_generation(generation)?;
         Ok(run())
+    }
+    /// Establish a fence that can survive suspension or thread migration.
+    /// The short gate/state lock ordering serializes acquisition with
+    /// synchronous dispatch and lifecycle changes. No lock is retained.
+    pub fn begin_suspended_dispatch(&self,generation:u64)->Result<SuspensionLease,Reject> {
+        let _guard=self.dispatch_gate()?;
+        let mut s=self.lock()?;
+        if s.closed { return Err(Reject::Closed); }
+        if generation!=s.generation { return Err(Reject::Stale); }
+        let cancellation=DispatchCancellation(Arc::new(AtomicBool::new(false)));
+        s.suspended_dispatch=true;
+        Ok(SuspensionLease{mailbox:self.clone(),generation,cancellation})
     }
     pub fn reserve(&self, generation: u64, bytes: usize) -> Result<Reservation,Reject> {
         let mut s=self.lock()?;
@@ -172,7 +217,9 @@ impl Mailbox {
             Err(TryLockError::WouldBlock)=>return Err(Reject::Busy),
             Err(TryLockError::Poisoned(error))=>error.into_inner(),
         };
-        let mut s=self.lock()?; s.closed=true;
+        let mut s=self.lock()?;
+        if s.suspended_dispatch { return Err(Reject::Busy); }
+        s.closed=true;
         while let Some(v)=s.queue.pop_front() { s.bytes-=v.len(); s.slots-=1; }
         Ok(())
     }

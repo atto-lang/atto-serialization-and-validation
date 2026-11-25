@@ -38,6 +38,22 @@ impl MaterializedDelivery {
     pub fn expansion_credit(&self)->usize { self.delivery.expansion_credit() }
     pub fn generation(&self)->u64 { self.generation }
 }
+/// Owned suspended-dispatch state. Field order drops the materialized
+/// value and tenant credits before releasing the lifecycle fence.
+#[must_use]
+pub struct SuspendedDelivery {
+    delivery:MaterializedDelivery,
+    lease:mailbox::SuspensionLease,
+}
+impl SuspendedDelivery {
+    pub fn cancellation(&self)->mailbox::DispatchCancellation { self.lease.cancellation() }
+    pub fn checkpoint(&self)->Result<(),Reject> { self.lease.checkpoint().map_err(Reject::Mailbox) }
+    pub fn value(&self)->Result<&MaterializedValue,Reject> {
+        self.checkpoint()?;
+        Ok(self.delivery.value())
+    }
+    pub fn expansion_credit(&self)->usize { self.delivery.expansion_credit() }
+}
 impl<'a> Endpoint<'a> {
     pub fn cbor(schema:&'a str, version:u32, digest:[u8;32], allowed:u8,
                 generation:u64, shape:&'a cbor::Shape<'a>, limits:cbor::Limits,
@@ -86,6 +102,17 @@ impl<'a> Endpoint<'a> {
             handler(delivery.value());
             Ok(true)
         }).map_err(Reject::Mailbox)?
+    }
+
+    /// Cooperative suspension adapter for a trusted host scheduler. The
+    /// returned object owns both lifecycle and memory-admission leases.
+    /// Dropping a cancelled task must drop this object before restart.
+    /// No future polling, guest suspension, or forced cancellation is implied.
+    pub fn begin_suspended_receive(&self)->Result<Option<SuspendedDelivery>,Reject> {
+        let lease=self.mailbox.begin_suspended_dispatch(self.generation).map_err(Reject::Mailbox)?;
+        let Some(delivery)=self.receive_materialized()? else { return Ok(None); };
+        lease.checkpoint().map_err(Reject::Mailbox)?;
+        Ok(Some(SuspendedDelivery{delivery,lease}))
     }
 
     /// Receiver-side host materialization. Only frames admitted by this
@@ -319,6 +346,66 @@ mod tests {
         assert_eq!(m.usage().unwrap(),(1,1));
         m.close().unwrap();
         assert_eq!(e.dispatch_next(|_| panic!("closed")),Err(Reject::Mailbox(mailbox::Reject::Closed)));
+    }
+
+    #[test] fn suspended_cancellation_retains_fence_and_credit_until_drop(){
+        let shape=cbor::Shape::Bool;
+        let t=mailbox::TenantBudget::new_with_expansion(64,2,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap();
+        let delivery=e.begin_suspended_receive().unwrap().unwrap();
+        assert_eq!(delivery.value().unwrap(),&MaterializedValue::Cbor(cbor::Value::Bool(true)));
+        let cancel=delivery.cancellation();
+        std::thread::spawn(move||cancel.cancel()).join().unwrap();
+        assert_eq!(delivery.checkpoint(),Err(Reject::Mailbox(mailbox::Reject::Cancelled)));
+        assert!(matches!(delivery.value(),Err(Reject::Mailbox(mailbox::Reject::Cancelled))));
+        assert_eq!(m.restart(1),Err(mailbox::Reject::Busy));
+        assert_eq!(m.close(),Err(mailbox::Reject::Busy));
+        assert_eq!(e.dispatch_next(|_| panic!("must not overlap")),Err(Reject::Mailbox(mailbox::Reject::Busy)));
+        assert!(matches!(e.begin_suspended_receive(),Err(Reject::Mailbox(mailbox::Reject::Busy))));
+        assert_eq!(t.expansion_usage().unwrap(),delivery.expansion_credit());
+        assert_eq!(t.usage().unwrap(),(1,1));
+        drop(delivery);
+        assert_eq!(t.expansion_usage().unwrap(),0);
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(m.restart(1),Ok(2));
+    }
+    #[test] fn suspension_handle_is_per_dispatch_not_per_generation(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        for _ in 0..2 { e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap(); }
+        let first=e.begin_suspended_receive().unwrap().unwrap();
+        let stale=first.cancellation();
+        drop(first);
+        let second=e.begin_suspended_receive().unwrap().unwrap();
+        stale.cancel();
+        assert_eq!(second.checkpoint(),Ok(()));
+        // Owned fence is Send; dropping on another thread unblocks lifecycle.
+        std::thread::spawn(move||drop(second)).join().unwrap();
+        assert_eq!(m.restart(1),Ok(2));
+    }
+    #[test] fn empty_and_mismatched_suspended_receive_release_fence(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        assert!(e.begin_suspended_receive().unwrap().is_none());
+        m.reserve(1,1).unwrap().publish(vec![0xf5].into_boxed_slice()).unwrap();
+        assert!(matches!(e.begin_suspended_receive(),Err(Reject::Mailbox(mailbox::Reject::Binding))));
+        assert_eq!(m.usage().unwrap(),(1,1));
+        assert_eq!(m.restart(1),Ok(2));
+        assert!(matches!(e.begin_suspended_receive(),Err(Reject::Mailbox(mailbox::Reject::Stale))));
+    }
+    #[test] fn synchronous_handler_cannot_start_suspended_dispatch(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap();
+        assert_eq!(e.dispatch_next(|_| {
+            assert!(matches!(e.begin_suspended_receive(),Err(Reject::Mailbox(mailbox::Reject::Busy))));
+        }),Ok(true));
+        assert_eq!(m.restart(1),Ok(2));
     }
 
 }
