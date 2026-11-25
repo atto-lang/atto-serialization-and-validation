@@ -5,7 +5,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/zorde-source-local-contracts.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-tmp="$(cd "$tmp" && pwd -P)"
 src="$tmp/source with spaces"
 out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
