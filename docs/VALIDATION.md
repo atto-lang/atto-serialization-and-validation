@@ -109,6 +109,22 @@ or prove physical heap bounds, ownership or metadata authenticity. Native
 tests remain required; exact cumulative structural-byte boundary tests
 are pending.
 
+## Schema builder ownership and explicit refusal
+
+Use `object_schema_checked(fields, reject_unknown_fields)` when constructing
+dynamic schemas. It checks the field count, per-key and aggregate key-byte
+limits before allocating copies, detaches the field list and each key buffer,
+and validates the detached schema. Invalid input returns a payload-free
+`Err(ValidationReport)`. The old `object_schema` adapter preserves its
+signature and returns an invalid UTF-8 sentinel on refusal, never an empty
+permissive schema. The sentinel itself is mutable, not a sealed capability.
+
+This is builder-input detachment, not deep freezing: the returned
+`ObjectSchema.fields` and key lists can still be deliberately mutated.
+Every validation rechecks schema validity. Callers must enforce actor-local
+ownership and must not treat dynamic success as a compiler-minted proof.
+Native execution and independent ownership review remain release gates.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:

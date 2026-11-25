@@ -7,7 +7,7 @@ import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes, max_key_lookup_candidates, max_key_lookup_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, object_schema_checked, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes, max_key_lookup_candidates, max_key_lookup_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
 import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 // Distinct legal ASCII keys; the one-over case is only one byte over the
@@ -206,7 +206,48 @@ fnc run_checked_graph_tests(): void {
   return;
 }
 
+fnc schema_snapshot_tests(): void {
+  val List<int> original_bytes = new List<int>();
+  original_bytes.add(97);
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(field_rule(new Utf8Text(original_bytes), true, false, any_rule()));
+  val Result<ObjectSchema, ValidationReport> built =
+    object_schema_checked(rt borrow fields, true);
+  require_true(!built.is_err(), "checked schema builder accepts valid fields");
+  val ObjectSchema detached = built.unwrap();
+  fields[0].key.bytes[0] = 98;
+  fields.add(field_rule(new Utf8Text(new List<int>(99)), true, false, any_rule()));
+  require_int(detached.fields.length, 1, "schema detaches outer list");
+  require_int(detached.fields[0].key.bytes[0], 97, "schema detaches key bytes");
+  val List<WireMember> original_members = new List<WireMember>();
+  original_members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+  require_true(report_is_valid(validate_object(value_object(original_members),
+    rt borrow detached, default_validation_options())), "original required key still accepted");
+  val List<WireMember> changed_members = new List<WireMember>();
+  changed_members.add(new WireMember(new Utf8Text(new List<int>(98)), value_int(1)));
+  require_true(!report_is_valid(validate_object(value_object(changed_members),
+    rt borrow detached, default_validation_options())), "mutated caller key is not admitted");
+  require_true(!object_schema_checked(aggregate_test_fields(16), false).is_err(),
+    "checked builder accepts exact aggregate key limit");
+  require_true(object_schema_checked(aggregate_test_fields(17), false).is_err(),
+    "checked builder rejects one byte over before copying");
+  require_true(!report_is_valid(validate_object(value_object(new List<WireMember>()),
+    object_schema(aggregate_test_fields(17), false), default_validation_options())),
+    "legacy oversize builder does not become an open empty schema");
+  val List<FieldRule> duplicate_fields = new List<FieldRule>();
+  duplicate_fields.add(field_rule(new Utf8Text(new List<int>(97)), false, false, any_rule()));
+  duplicate_fields.add(field_rule(new Utf8Text(new List<int>(97)), false, false, any_rule()));
+  require_true(object_schema_checked(duplicate_fields, false).is_err(),
+    "checked builder rejects duplicate schema names");
+  val List<FieldRule> contradiction = new List<FieldRule>();
+  contradiction.add(field_rule(new Utf8Text(new List<int>(97)), true, true, any_rule()));
+  require_true(object_schema_checked(contradiction, false).is_err(),
+    "checked builder rejects contradictory field rule");
+  return;
+}
+
 pub fnc run_validation_tests(): void {
+  schema_snapshot_tests();
   run_checked_graph_tests();
   require_int(max_key_lookup_candidates(), 16384, "key lookup candidate ceiling");
   require_int(max_key_lookup_bytes(), 2097152, "two-direction lookup byte ceiling");
