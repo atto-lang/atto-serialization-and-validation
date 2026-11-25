@@ -89,6 +89,15 @@ fnc graph_duplicate_object(): Value {
 }
 
 fnc run_checked_graph_tests(): void {
+  require_true(!report_is_valid(validate_value(graph_wrap(graph_duplicate_object()), any_rule(),
+    default_validation_options())), "report-only any_rule denies nested duplicate object");
+  require_true(!report_is_valid(validate_object(
+    value_object(new List<WireMember>(new WireMember(
+      new Utf8Text(new List<int>(97)), graph_duplicate_object()))),
+    object_schema(new List<FieldRule>(), false), default_validation_options())),
+    "report-only open schema denies malformed nested value");
+  require_true(!report_is_valid(validate_value(graph_depth(65), any_rule(),
+    default_validation_options())), "report-only any_rule denies over-depth graph");
   require_true(validate_value_checked(graph_wrap(graph_duplicate_object()), any_rule(),
     default_validation_options()).is_err(), "duplicate nested object keys denied");
   require_true(validate_value_checked(graph_wrap(value_extension(128, new List<int>(1))), any_rule(),
