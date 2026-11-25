@@ -1,0 +1,39 @@
+name: Tagged JSON and portable wire (Rust host only)
+on:
+  pull_request:
+    paths:
+      - 'tools/portable_wire_reference.rs'
+      - 'tests/portable_wire_reference.rs'
+      - '.github/workflows/tagged-json-host-reference.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+  push:
+    branches: [main]
+    paths:
+      - 'tools/portable_wire_reference.rs'
+      - 'tests/portable_wire_reference.rs'
+      - '.github/workflows/tagged-json-host-reference.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+permissions:
+  contents: read
+jobs:
+  host-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head and execute Rust host reference tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          git rev-parse 'HEAD^{tree}'
+          rustup toolchain install 1.88.0 --profile minimal
+          RUSTFLAGS="-D warnings" cargo +1.88.0 test --locked --test portable_wire_reference -- --test-threads=1
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'

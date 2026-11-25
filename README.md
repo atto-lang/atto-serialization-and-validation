@@ -55,3 +55,7 @@ Before an authorized transfer, coordinate in [migration issue #26](https://githu
 ## Actor DATA host references
 
 See [bounded Rust reference models](docs/ACTOR_DATA_HOST_REFERENCES.md). These are host test artifacts, not production codecs or compiled AttoLang guest support.
+
+## Tagged JSON and portable wire host reference
+
+See [the bounded Rust host reference](docs/PORTABLE_WIRE_HOST_REFERENCE.md) for the Option/Result JSON example, restricted MessagePack profile, and candidate ATB1 envelope. These are explicitly not native Atto codecs or a ratified binary ABI.
