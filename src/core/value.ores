@@ -938,6 +938,58 @@ pub fnc value_deep_equal_with_fuel(
 // 4 unsupported discriminant. Actual format/byte checks remain in writers.
 pub fnc max_encode_graph_nodes(): int { return 65536; }
 
+// A single budget belongs to each binary codec operation, not each map.
+// The hash is calculated once per key and reused for bucket insertion.
+pub fnc max_codec_key_work(): int { return 1000000; }
+
+pub fnc metered_map_entry_index(
+  List<MapEntry> entries,
+  Map<int, List<int>> buckets,
+  Value key,
+  int hash,
+  ValueWorkFuel mut fuel
+): int {
+  if !buckets.contains(hash) then return -1; fi
+  val List<int> candidates = buckets.get(hash);
+  for const index of candidates do
+    if !value_fuel_charge(fuel, 1) then return -2; fi
+    val ValueEqualAttempt attempt = value_deep_equal_with_fuel(
+      rt borrow entries[index].key, rt borrow key, fuel);
+    if !attempt.completed then return -2; fi
+    if attempt.equal then return index; fi
+  done
+  return -1;
+}
+
+pub fnc remember_metered_map_entry(Map<int, List<int>> buckets, int hash, int index): void {
+  if buckets.contains(hash) then
+    val List<int> candidates = buckets.get(hash);
+    candidates.add(index);
+  else
+    val List<int> candidates = new List<int>();
+    candidates.add(index);
+    buckets.set(hash, candidates);
+  fi
+  return;
+}
+
+// Status 0 unique, 1 duplicate, 2 incomplete. Never reuse an incomplete hash.
+pub fnc metered_map_keys_status(List<MapEntry> entries, ValueWorkFuel mut fuel): int {
+  val Map<int, List<int>> buckets = new Map<int, List<int>>();
+  let int i = 0;
+  for const entry of entries do
+    val ValueHashAttempt hash = value_hash_with_fuel(rt borrow entry.key, fuel);
+    if !hash.completed then return 2; fi
+    val int existing = metered_map_entry_index(rt borrow entries, buckets,
+      rt borrow entry.key, hash.hash, fuel);
+    if existing == -2 then return 2; fi
+    if existing >= 0 then return 1; fi
+    remember_metered_map_entry(buckets, hash.hash, i);
+    i = i + 1;
+  done
+  return 0;
+}
+
 pub fnc encode_graph_shape_status(Value root, int max_depth, int max_output): int {
   if max_depth < 0 || max_depth > 128 then return 1; fi
   if max_output < 1 then return 2; fi
