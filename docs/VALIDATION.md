@@ -90,6 +90,20 @@ to the same checks at validation. This is not a recursive graph budget,
 schema immutability guarantee or a bound on collision-comparison work.
 Native execution of these new boundary cases is required.
 
+## Checked dynamic graph structural preflight
+
+Checked value and object admission now walk the active payload graph before
+schema-rule validation. Limits: 65,536 node occurrences, root depth zero with
+maximum depth 64, 16 MiB cumulative active payload bytes, and the per-object
+key limits above. Map keys and values count separately. Repeated references
+are charged per occurrence; cycles cannot make the bounded walk infinite.
+Unknown kinds, malformed numeric lexemes, invalid UTF-8, and non-octet raw
+binary/extension payloads fail closed with a payload-free invalid_value_tree
+report. This does not validate inactive slots, add nested duplicate-key
+semantics, meter recursive hashing/equality, authenticate metadata or prove
+physical heap bounds. Those are separate release gates. Native tests remain
+required; exact cumulative-byte boundary tests are pending.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
@@ -226,3 +240,25 @@ The validator does not mint typed `Valid<T,S>`, dispatch automatically from
 guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
+
+## Bounded graph and uniqueness admission (2026-11-25 candidate)
+
+Both report-only and checked dynamic validation enter the same occurrence-based
+structural preflight; checked wrappers reuse the report result rather than
+scanning the tree twice. Nested malformed values and duplicate object keys
+cannot hide behind any_rule or open schemas. Structural denials return
+invalid_value_tree (including some formerly root-specific errors; review
+compatibility before release). This is a bounded expanded tree, not an identity
+preserving graph codec. Cyclic inputs are refused by depth or occurrence limits;
+shared acyclic subgraphs are charged for every expanded occurrence.
+
+Unique-items now ports the metered primitives from #30. One operation-local
+ValueWorkFuel is shared by all candidate hashes and comparisons, with a separate
+conservative structural cost limit and collision-attempt limit. Incomplete
+hash/equality is a validation error, never a successful hash or false equality.
+Compatibility value_hash and value_deep_equal remain unchanged for existing
+trusted callers; they are not certified untrusted-graph APIs. The meter is not
+a wall-clock quota, and the current code does not mint authoritative Valid<T>.
+Root/schema key lookup fuel, general-map duplicate semantics, true identity-aware
+cycle diagnostics, stable graph snapshots, and cross-backend AOT tests remain gates.
+Native guest execution remains NOT_EXECUTED until exact-head compiler evidence.
