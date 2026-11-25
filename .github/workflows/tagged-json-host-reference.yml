@@ -1,0 +1,34 @@
+name: Tagged JSON and portable wire (host only)
+on:
+  pull_request:
+    paths:
+      - 'reference/**'
+      - 'tests/test_tagged_json*.py'
+      - 'tests/test_portable_wire.py'
+      - '.github/workflows/tagged-json-host-reference.yml'
+  push:
+    branches: [feat/tagged-json-reference-20261114]
+permissions:
+  contents: read
+jobs:
+  host-reference:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head and run host reference tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          git rev-parse 'HEAD^{tree}'
+          python3 --version
+          python3 -m compileall -q reference
+          python3 -m unittest discover -s tests -p 'test_tagged_json*.py' -v
+          python3 -m unittest discover -s tests -p 'test_portable_wire.py' -v
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'
