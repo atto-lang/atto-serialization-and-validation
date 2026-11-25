@@ -400,3 +400,12 @@ a wall-clock quota, and the current code does not mint authoritative Valid<T>.
 Root/schema key lookup fuel, general-map duplicate semantics, true identity-aware
 cycle diagnostics, stable graph snapshots, and cross-backend AOT tests remain gates.
 Native guest execution remains NOT_EXECUTED until exact-head compiler evidence.
+
+## Native JSON cursor ownership follow-up
+
+Port the explicit mutable cursor and writer reborrows from legacy PR #33
+without reverting the newer comparison, materialization or terminal-state
+checks. Numeric lexeme append takes a mutable loan; integer UTF-8 byte
+extraction uses shifts instead of floating division. Standalone cursor
+smoke programs are staged for the independently approved native compiler.
+This is a source repair candidate, not a verified ownership result.

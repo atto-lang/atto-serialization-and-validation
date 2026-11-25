@@ -33,7 +33,7 @@ pub async fnc decode_one_from_channel(
   fi
 
   val int input_limit = options.max_input_bytes;
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(options);
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(options);
 
   loop do
     val Future<Option<List<int>>> pending = nb readch input;
