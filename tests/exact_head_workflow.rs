@@ -25,6 +25,8 @@ fn workflow_rejects_untracked_or_modified_fixture_trees_before_tests() {
     assert!(WORKFLOW.contains("tsp compile contracts/v1/"));
     assert!(WORKFLOW.contains("wasm-tools component wit contracts/v1"));
     let exact_head_gate = WORKFLOW.find("Verify exact PR head, tree").unwrap();
-    let rust_test = WORKFLOW.find("cargo +1.88.0 test --locked --all-targets").unwrap();
+    let rust_test = WORKFLOW
+        .find("cargo +1.88.0 test --locked --all-targets")
+        .unwrap();
     assert!(exact_head_gate < rust_test);
 }
