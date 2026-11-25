@@ -37,8 +37,16 @@ fn check_json(v: &Json, depth: usize, left: &mut usize) -> R<()> {
                 check_json(child, depth+1, left)?;
             }
         }
-        Json::Number(n) if !n.is_i64() && !n.is_u64() &&
-            !n.as_f64().is_some_and(f64::is_finite) => return Err(RefError),
+        Json::Number(n) => {
+            let raw=n.to_string();
+            if !raw.contains(['.', 'e', 'E']) {
+                if raw.parse::<i64>().is_err() && raw.parse::<u64>().is_err() {
+                    return Err(RefError);
+                }
+            } else if !n.as_f64().is_some_and(f64::is_finite) {
+                return Err(RefError);
+            }
+        }
         _ => {}
     }
     Ok(())
@@ -200,10 +208,35 @@ impl Write for Bounded {
     }
     fn flush(&mut self)->io::Result<()> { Ok(()) }
 }
+fn write_json(v:&Json,out:&mut Bounded)->R<()> {
+    match v {
+        Json::Object(o)=>{
+            out.write_all(b"{").map_err(|_|RefError)?;
+            let mut keys:Vec<_>=o.keys().collect();
+            keys.sort_unstable();
+            for (i,key) in keys.into_iter().enumerate() {
+                if i!=0 { out.write_all(b",").map_err(|_|RefError)?; }
+                serde_json::to_writer(&mut *out,key).map_err(|_|RefError)?;
+                out.write_all(b":").map_err(|_|RefError)?;
+                write_json(&o[key],out)?;
+            }
+            out.write_all(b"}").map_err(|_|RefError)
+        }
+        Json::Array(a)=>{
+            out.write_all(b"[").map_err(|_|RefError)?;
+            for (i,value) in a.iter().enumerate() {
+                if i!=0 { out.write_all(b",").map_err(|_|RefError)?; }
+                write_json(value,out)?;
+            }
+            out.write_all(b"]").map_err(|_|RefError)
+        }
+        _=>serde_json::to_writer(&mut *out,v).map_err(|_|RefError)
+    }
+}
 pub fn encode_tagged(v:&Json)->R<Vec<u8>> {
     validate_tagged(v)?;
     let mut out=Bounded(Vec::new());
-    serde_json::to_writer(&mut out,v).map_err(|_|RefError)?;
+    write_json(v,&mut out)?;
     Ok(out.0)
 }
 
@@ -384,13 +417,13 @@ pub fn validate_external_names(names:&BTreeMap<String,String>)->R<()> {
     if names.len()>MAX_ITEMS { return Err(RefError); }
     let mut seen=BTreeSet::new();
     for (internal,external) in names {
+        spend(&mut left,internal.len())?;
+        spend(&mut left,external.len())?;
         let b=internal.as_bytes();
         if b.is_empty() || !(b[0].is_ascii_alphabetic() || b[0]==b'_') ||
            !b.iter().all(|x|x.is_ascii_alphanumeric()||*x==b'_') {
             return Err(RefError);
         }
-        spend(&mut left,internal.len())?;
-        spend(&mut left,external.len())?;
         if !seen.insert(external.as_str()) { return Err(RefError); }
     }
     Ok(())
@@ -429,6 +462,15 @@ mod tests {
             json!({"kind":"result","variant":"ok","value":{"ñ":[1,true]}}),
             json!({"kind":"result","variant":"err","error":{"code":"not_found","message":"ñ"}})
         ] { assert_eq!(decode_tagged(&encode_tagged(&v).unwrap()).unwrap(),v); }
+    }
+    #[test] fn tagged_deterministic_nested_keys_and_unicode() {
+        let raw=r#"{"variant":"ok","value":{"z":1,"a":"\ud83d\ude00"},"kind":"result"}"#;
+        let v=decode_tagged(raw.as_bytes()).unwrap();
+        let canonical=r#"{"kind":"result","value":{"a":"😀","z":1},"variant":"ok"}"#;
+        // Lexicographic order is explicit even when serde_json's preserve_order
+        // feature is enabled by another dependency.
+        assert_eq!(encode_tagged(&v).unwrap(),r#"{"kind":"result","value":{"a":"😀","z":1},"variant":"ok"}"#.as_bytes());
+        assert_eq!(decode_tagged(canonical.as_bytes()).unwrap(),v);
     }
     #[test] fn tagged_fields_and_message_limits() {
         for v in [
