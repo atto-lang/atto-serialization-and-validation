@@ -5,9 +5,9 @@
 // Indefinite-length containers, tags, and float16/32/64 fail explicitly until
 // their exact dynamic representation is finalized.
 
-import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value';
-import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_deep_equal, value_hash, parse_int from '../core/value';
-import fnc bytes_equal, encode_graph_shape_status from '../core/value';
+import class Value, Utf8Text, WireMember, MapEntry, IntParse, ValueWorkFuel, ValueHashAttempt from '../core/value';
+import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_hash_with_fuel, parse_int from '../core/value';
+import fnc bytes_equal, encode_graph_shape_status, max_codec_key_work, metered_map_entry_index, remember_metered_map_entry, metered_map_keys_status from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
@@ -19,6 +19,7 @@ define class CborCursor as
   pub let int index;
   pub let bool failed;
   pub let DecodeError error;
+  pub let ValueWorkFuel key_fuel;
 end
 
 define class CborWriter as
@@ -26,6 +27,7 @@ define class CborWriter as
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
+  pub let ValueWorkFuel key_fuel;
 end
 
 fnc cursor_fail(
@@ -184,67 +186,6 @@ fnc read_bytes(
   return output;
 }
 
-fnc map_entry_index(
-  List<MapEntry> entries,
-  Map<int, List<int>> buckets,
-  Value key
-): int {
-  let int hash = value_hash(key);
-
-  if !buckets.contains(hash) then
-    return -1;
-  fi
-
-  val List<int> candidates = buckets.get(hash);
-  for const index of candidates do
-    if value_deep_equal(entries[index].key, key) then
-      return index;
-    fi
-  done
-
-  return -1;
-}
-
-fnc remember_map_entry(
-  Map<int, List<int>> buckets,
-  Value key,
-  int index
-): void {
-  let int hash = value_hash(key);
-
-  if buckets.contains(hash) then
-    val List<int> candidates = buckets.get(hash);
-    candidates.add(index);
-    return;
-  fi
-
-  val List<int> candidates = new List<int>();
-  candidates.add(index);
-  buckets.set(hash, candidates);
-  return;
-}
-
-fnc map_keys_unique(List<MapEntry> entries): bool {
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
-  let int i = 0;
-
-  loop do
-    if i >= entries.length then
-      break;
-    fi
-
-    let MapEntry entry = entries[i];
-    if map_entry_index(entries, buckets, entry.key) >= 0 then
-      return false;
-    fi
-
-    remember_map_entry(buckets, entry.key, i);
-    i = i + 1;
-  done
-
-  return true;
-}
-
 fnc decode_text(
   CborCursor mut cursor,
   int length
@@ -332,7 +273,17 @@ fnc decode_map(
       all_text_keys = false;
     fi
 
-    let int existing = map_entry_index(entries, buckets, key);
+    val ValueHashAttempt key_hash = value_hash_with_fuel(rt borrow key, cursor.key_fuel);
+    if !key_hash.completed then
+      cursor_fail(cursor, "key_work_limit", "CBOR map key hash work exhausted");
+      return value_map(entries);
+    fi
+    let int existing = metered_map_entry_index(rt borrow entries, buckets,
+      rt borrow key, key_hash.hash, cursor.key_fuel);
+    if existing == -2 then
+      cursor_fail(cursor, "key_work_limit", "CBOR map key comparison work exhausted");
+      return value_map(entries);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         cursor_fail(cursor, "duplicate_key", "duplicate CBOR map key");
@@ -343,7 +294,7 @@ fnc decode_map(
     else
       let int index = entries.length;
       entries.add(new MapEntry(key, member_value));
-      remember_map_entry(buckets, key, index);
+      remember_metered_map_entry(buckets, key_hash.hash, index);
     fi
 
     i = i + 1;
@@ -478,7 +429,8 @@ pub fnc decode(
     options,
     0,
     false,
-    empty_decode_error()
+    empty_decode_error(),
+    new ValueWorkFuel(max_codec_key_work())
   );
 
   let Value value = decode_value(cursor, 0);
@@ -677,7 +629,12 @@ fnc encode_value(
     for const member of value.object_value do
       object_entries.add(new MapEntry(value_string(member.key), member.value));
     done
-    if !map_keys_unique(object_entries) then
+    val int key_status = metered_map_keys_status(rt borrow object_entries, writer.key_fuel);
+    if key_status == 2 then
+      writer_fail(writer, "key_work_limit", "CBOR object key work exhausted");
+      return;
+    fi
+    if key_status == 1 then
       writer_fail(writer, "duplicate_key", "cannot encode CBOR object with duplicate keys");
       return;
     fi
@@ -699,7 +656,12 @@ fnc encode_value(
   fi
 
   if value.kind == 8 then
-    if !map_keys_unique(value.map_value) then
+    val int key_status = metered_map_keys_status(rt borrow value.map_value, writer.key_fuel);
+    if key_status == 2 then
+      writer_fail(writer, "key_work_limit", "CBOR map key work exhausted");
+      return;
+    fi
+    if key_status == 1 then
       writer_fail(writer, "duplicate_key", "cannot encode CBOR map with duplicate keys");
       return;
     fi
@@ -752,7 +714,8 @@ pub fnc encode(
     new List<int>(),
     options,
     false,
-    new EncodeError("", "")
+    new EncodeError("", ""),
+    new ValueWorkFuel(max_codec_key_work())
   );
 
   encode_value(writer, value, 0);

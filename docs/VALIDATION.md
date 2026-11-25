@@ -133,6 +133,19 @@ Native execution remains required. The isolated candidate programs under
 subgraphs; they are not yet admitted to the default native suite until
 compiler ownership behavior is established.
 
+## Binary codec comparison fuel
+
+Dynamic CBOR and MessagePack readers and writers allocate one logical
+1,000,000-credit key-work budget per operation. Every structural key hash,
+recursive semantic comparison and candidate probe consumes that budget.
+An incomplete hash or comparison yields `key_work_limit`, regardless of
+duplicate policy. Completed hashes are reused for bucket insertion. A
+metered key can have at most 64 recursive levels relative to its own root;
+this is a deliberate compatibility restriction independent of the
+configured wire nesting depth (up to 128). Separate structural, allocation,
+and JSON text-key work remain outside this meter. These are logical work
+units, not a wall-clock or heap guarantee.
+
 ## Schema builder ownership and explicit refusal
 
 Use `object_schema_checked(fields, reject_unknown_fields)` when constructing
