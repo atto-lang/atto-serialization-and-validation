@@ -1,0 +1,203 @@
+// Report-only adapter for Java/Graal and LLVM compiler-owned
+// ores.type-constraint.v1 inclusive signed-i64 descriptor semantics.
+//
+// A public descriptor and its caller-supplied expected metadata are DATA,
+// not AUTHORITY: this API never constructs Valid<T>, approves an import,
+// authenticates SHA-256, or grants a compiler alias. The compiler/loader must
+// bind canonical qualified identity + verified SHA-256 catalog provenance,
+// then enforce private checked construction and ownership. Until integrated,
+// CONSTRAINT_VALIDATION_BRIDGE_REQUIRED remains mandatory in the compiler.
+
+import class Value, Utf8Text, IntParse from '../core/value';
+import fnc parse_int, text_equal from '../core/value';
+import class ValidationReport, ValidationError, PathSegment from '../validation/validation';
+import fnc report_is_valid from '../validation/validation';
+import fnc zorde_registry_max_number_bytes from './compiled_registry';
+
+pub define class ZordeCompilerI64ConstraintV1 as
+  pub val int schema_version;
+  pub val Utf8Text schema_id;
+  pub val Utf8Text qualified_type;
+  pub val Utf8Text representation;
+  pub val Utf8Text fingerprint;
+  pub val bool validation_required;
+  pub val bool has_min;
+  pub val int minimum;
+  pub val bool has_max;
+  pub val int maximum;
+end
+
+// Internal non-authoritative projection. A single decoded i64 and its
+// diagnostic travel together; no public class/constructor or guest proof.
+define class ZordePrivateCompilerI64CheckV1 as
+  val bool accepted;
+  val int value;
+  val ValidationReport report;
+end
+
+fnc v1_schema_id(): Utf8Text {
+  // ores.type-constraint.v1
+  return new Utf8Text(new List<int>(
+    111,114,101,115,46,116,121,112,101,45,99,111,110,115,116,114,
+    97,105,110,116,46,118,49));
+}
+
+fnc v1_i64(): Utf8Text {
+  return new Utf8Text(new List<int>(105,54,52));
+}
+
+fnc valid_qualified_type(Utf8Text name): bool {
+  if name.bytes.length < 1 || name.bytes.length > 128 then return false; fi
+  let bool first_in_segment = true;
+  for const byte of name.bytes do
+    if byte == 46 then
+      if first_in_segment then return false; fi
+      first_in_segment = true;
+      continue;
+    fi
+    let bool letter = (byte >= 65 && byte <= 90) ||
+      (byte >= 97 && byte <= 122);
+    let bool underscore = byte == 95;
+    let bool digit = byte >= 48 && byte <= 57;
+    if !letter && !underscore && !digit then return false; fi
+    if first_in_segment && digit then return false; fi
+    first_in_segment = false;
+  done
+  return !first_in_segment;
+}
+
+fnc valid_sha256_hex(Utf8Text fingerprint): bool {
+  if fingerprint.bytes.length != 64 then return false; fi
+  for const byte of fingerprint.bytes do
+    if !(byte >= 48 && byte <= 57) &&
+       !(byte >= 97 && byte <= 102) then
+      return false;
+    fi
+  done
+  return true;
+}
+
+// Structural consistency only; not a cryptographic/provenance verdict.
+pub fnc zorde_compiler_i64_descriptor_valid(
+  ZordeCompilerI64ConstraintV1 descriptor
+): bool {
+  if descriptor.schema_version != 1 then return false; fi
+  if !text_equal(rt borrow descriptor.schema_id, v1_schema_id()) then
+    return false;
+  fi
+  if !text_equal(rt borrow descriptor.representation, v1_i64()) then
+    return false;
+  fi
+  if !descriptor.validation_required then return false; fi
+  if !valid_qualified_type(rt borrow descriptor.qualified_type) then
+    return false;
+  fi
+  if !valid_sha256_hex(rt borrow descriptor.fingerprint) then
+    return false;
+  fi
+  if !descriptor.has_min && !descriptor.has_max then return false; fi
+  // Canonical projection: a disabled predicate must not carry an ignored
+  // operand. Otherwise two public descriptors can appear equivalent while
+  // containing different latent constraints or misleading diagnostics.
+  if !descriptor.has_min && descriptor.minimum != 0 then return false; fi
+  if !descriptor.has_max && descriptor.maximum != 0 then return false; fi
+  if descriptor.has_min && descriptor.has_max &&
+     descriptor.minimum > descriptor.maximum then
+    return false;
+  fi
+  return true;
+}
+
+fnc v1_report(String code): ValidationReport {
+  val List<ValidationError> errors = new List<ValidationError>();
+  // The schema-defined diagnostic ID is the only returned failure detail.
+  // No actual value, schema contents or secret field is interpolated.
+  errors.add(new ValidationError(
+    code, new List<PathSegment>(), "compiler i64 constraint was refused", -1
+  ));
+  return new ValidationReport(errors, false);
+}
+
+fnc v1_ok(): ValidationReport {
+  return new ValidationReport(new List<ValidationError>(), false);
+}
+
+fnc v1_rejected(String code): ZordePrivateCompilerI64CheckV1 {
+  return new ZordePrivateCompilerI64CheckV1(false, 0, v1_report(code));
+}
+
+fnc v1_accepted(int value): ZordePrivateCompilerI64CheckV1 {
+  return new ZordePrivateCompilerI64CheckV1(true, value, v1_ok());
+}
+
+// Report-only bounded evaluation of canonical min/max semantics. The
+// expected identity and fingerprint MUST come from a trusted compiler-owned
+// catalog; ordinary callers can provide matching strings, but that cannot
+// mint a validated alias or make a registry trusted.
+fnc checked_compiler_i64_once_v1(
+  Value value,
+  ZordeCompilerI64ConstraintV1 descriptor,
+  Utf8Text expected_qualified_type,
+  Utf8Text expected_fingerprint
+): ZordePrivateCompilerI64CheckV1 {
+  if !zorde_compiler_i64_descriptor_valid(rt borrow descriptor) then
+    return v1_rejected("CONSTRAINT_DESCRIPTOR_INVALID");
+  fi
+  if !valid_qualified_type(rt borrow expected_qualified_type) ||
+     !valid_sha256_hex(rt borrow expected_fingerprint) ||
+     !text_equal(rt borrow descriptor.qualified_type,
+        rt borrow expected_qualified_type) ||
+     !text_equal(rt borrow descriptor.fingerprint,
+        rt borrow expected_fingerprint) then
+    return v1_rejected("CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH");
+  fi
+  // Reject over-budget wire lexemes before scanning/conversion; no float.
+  if value.kind != 2 ||
+     value.number_lexeme.length > zorde_registry_max_number_bytes() then
+    return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
+  fi
+  val IntParse decoded = parse_int(rt borrow value);
+  if !decoded.ok then
+    return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
+  fi
+  if descriptor.has_min && decoded.value < descriptor.minimum then
+    return v1_rejected("ORES_CONSTRAINT_MIN_INCLUSIVE_I64");
+  fi
+  if descriptor.has_max && decoded.value > descriptor.maximum then
+    return v1_rejected("ORES_CONSTRAINT_MAX_INCLUSIVE_I64");
+  fi
+  return v1_accepted(decoded.value);
+}
+
+// One canonical single-pass evaluation; the report remains caller-
+// constructible diagnostic data and must never mint a constrained alias.
+pub fnc zorde_check_compiler_i64_v1(
+  Value value,
+  ZordeCompilerI64ConstraintV1 descriptor,
+  Utf8Text expected_qualified_type,
+  Utf8Text expected_fingerprint
+): ValidationReport {
+  val ZordePrivateCompilerI64CheckV1 checked = checked_compiler_i64_once_v1(
+    rt borrow value, rt borrow descriptor,
+    rt borrow expected_qualified_type, rt borrow expected_fingerprint
+  );
+  return checked.report;
+}
+
+// Useful for a caller that needs an exact owned int metric, *not* an alias.
+// Parsing occurs once, with <=20 wire bytes; no authority attaches to int.
+pub fnc zorde_parse_compiler_i64_v1(
+  Value value,
+  ZordeCompilerI64ConstraintV1 descriptor,
+  Utf8Text expected_qualified_type,
+  Utf8Text expected_fingerprint
+): Result<int, ValidationReport> {
+  val ZordePrivateCompilerI64CheckV1 checked = checked_compiler_i64_once_v1(
+    rt borrow value, rt borrow descriptor,
+    rt borrow expected_qualified_type, rt borrow expected_fingerprint
+  );
+  if !checked.accepted then return Err(checked.report); fi
+  // The exact number validated above is the exact number returned; never
+  // parse a mutable wire buffer twice and risk check/use divergence.
+  return Ok(checked.value);
+}
