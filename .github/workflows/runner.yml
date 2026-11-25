@@ -30,7 +30,9 @@ jobs:
             bash -n "$script"
           done < <(find scripts -type f -name '*.sh' -print0)
       - name: Verify native import/export closure
-        run: bash scripts/check-exports.sh
+        run: |
+          bash scripts/check-exports.sh
+          bash scripts/test-check-exports.sh
       - name: Verify runner failure and invocation contracts
         run: bash scripts/test-runner.sh
   # Does not use private cross-org carriers. An administrator must separately
