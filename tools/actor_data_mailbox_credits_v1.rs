@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation }
+pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation, Binding }
 // Shared by all endpoints in one trusted tenant. Never chosen by wire data.
 struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize, used_expansion: usize, max_expansion: usize }
 #[derive(Clone)]
@@ -56,7 +56,7 @@ impl Drop for TenantLease {
 }
 // Tenant credit follows the owned frame through the queue and receiver delivery.
 // Only borrowed access is exposed; a trusted receiver must separately account copies.
-pub struct Delivery { frame:Box<[u8]>, _tenant:TenantLease }
+pub struct Delivery { frame:Box<[u8]>, binding:Option<Arc<()>>, _tenant:TenantLease }
 impl Delivery {
     pub fn bytes(&self)->&[u8] { &self.frame }
     pub fn len(&self)->usize { self.frame.len() }
@@ -111,6 +111,28 @@ impl Mailbox {
         if let Some(ref v)=value { s.bytes-=v.len(); s.slots-=1; }
         Ok(value)
     }
+    /// Trusted in-process binding: a mismatched head remains queued.
+    /// Not a cryptographic identity or transport authentication.
+    pub fn pop_bound(&self, generation:u64, binding:&Arc<()>)->Result<Option<Delivery>,Reject> {
+        let mut s=self.lock()?;
+        if s.closed { return Err(Reject::Closed); }
+        if generation != s.generation { return Err(Reject::Stale); }
+        if let Some(v)=s.queue.front() {
+            if !v.binding.as_ref().is_some_and(|b| Arc::ptr_eq(b,binding)) {
+                return Err(Reject::Binding);
+            }
+        }
+        let value=s.queue.pop_front();
+        if let Some(ref v)=value { s.bytes-=v.len(); s.slots-=1; }
+        Ok(value)
+    }
+    /// A successful check is an observation, not a lock held across actor execution.
+    pub fn check_generation(&self, generation:u64)->Result<(),Reject> {
+        let s=self.lock()?;
+        if s.closed { return Err(Reject::Closed); }
+        if generation!=s.generation { return Err(Reject::Stale); }
+        Ok(())
+    }
     // Pending old-generation reservations remain charged until dropped; never
     // reset counters under in-flight work. Queued owned frames are discarded.
     pub fn restart(&self, generation:u64) -> Result<u64,Reject> {
@@ -137,7 +159,13 @@ impl Reservation {
         self.tenant.as_mut().ok_or(Reject::Closed)?.reserve_expansion(amount)
     }
     // Consumes non-cloneable lease. Failure drops it after lock release.
-    pub fn publish(mut self, frame:Box<[u8]>) -> Result<(),Reject> {
+    pub fn publish(self, frame:Box<[u8]>) -> Result<(),Reject> {
+        self.publish_inner(frame,None)
+    }
+    pub fn publish_bound(self, frame:Box<[u8]>, binding:&Arc<()>) -> Result<(),Reject> {
+        self.publish_inner(frame,Some(binding.clone()))
+    }
+    fn publish_inner(mut self, frame:Box<[u8]>, binding:Option<Arc<()>>) -> Result<(),Reject> {
         if frame.len()!=self.bytes { return Err(Reject::Size); }
         {
             let mut s=self.mailbox.lock()?;
@@ -145,7 +173,7 @@ impl Reservation {
             if s.generation!=self.generation { return Err(Reject::Stale); }
             s.queue.try_reserve(1).map_err(|_|Reject::Allocation)?;
             let tenant=self.tenant.take().ok_or(Reject::Closed)?;
-            s.queue.push_back(Delivery { frame, _tenant:tenant });
+            s.queue.push_back(Delivery { frame, binding, _tenant:tenant });
             self.live=false; // credit now belongs to queue entry
         }
         Ok(())
