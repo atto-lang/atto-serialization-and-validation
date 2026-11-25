@@ -1,7 +1,7 @@
 //! Host-only deterministic actor DATA CBOR subset preflight.
 //! Preflight is allocation-free; typed decode allocates only after charging.
 //! No descriptor inference, no maps/tags/indefinite items.
-//! Includes opt-in typed decoding using the same reader and cumulative meter.
+//! Includes opt-in typed decoding and bounded deterministic encoding.
 //! Not a general RFC 8949 implementation.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -153,6 +153,15 @@ pub fn decode_typed(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<(
 }
 
 fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>) -> Result<(Option<Value>, Usage), Reject> {
+    validate_limits(limits)?;
+    if bytes.len() > limits.wire { return Err(Reject::Budget); }
+    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default() };
+    let value = r.item(0, shape)?;
+    if r.pos != bytes.len() { return Err(Reject::Trailing); }
+    Ok((value, r.usage))
+}
+
+fn validate_limits(limits: Limits) -> Result<(), Reject> {
     if limits.wire == 0 || limits.wire > 1024*1024 ||
        limits.expanded == 0 || limits.expanded > 8*1024*1024 ||
        limits.nodes == 0 || limits.nodes > 100000 ||
@@ -160,11 +169,107 @@ fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>) -> Result<(Opt
        limits.work == 0 || limits.work > 4*1024*1024 || limits.depth > 64 {
         return Err(Reject::Limits);
     }
-    if bytes.len() > limits.wire { return Err(Reject::Budget); }
-    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default() };
-    let value = r.item(0, shape)?;
-    if r.pos != bytes.len() { return Err(Reject::Trailing); }
-    Ok((value, r.usage))
+    Ok(())
+}
+
+/// Bounded deterministic encoder for the same trusted homogeneous profile.
+/// Measures without allocating, then reserves the exact wire length once.
+/// Work is cumulative across both passes; expanded includes output bytes.
+/// This is a logical budget, not a physical allocator/receiver heap guarantee.
+pub fn encode_typed(value: &Value, shape: &Shape<'_>, limits: Limits) -> Result<(Vec<u8>, Usage), Reject> {
+    validate_limits(limits)?;
+    let mut e = Encoder { limits, usage: Usage::default(), pos: 0, output: None };
+    e.item(value, shape, 0)?;
+    let size = e.pos;
+    charge(&mut e.usage.expanded, size, limits.expanded)?;
+    // Both passes visit precisely the same immutable value and descriptor.
+    // Reject an insufficient total work budget before allocating output.
+    if e.usage.work > limits.work - e.usage.work { return Err(Reject::Budget); }
+    let mut out = Vec::new();
+    out.try_reserve_exact(size).map_err(|_| Reject::Allocation)?;
+    e.output = Some(out);
+    e.pos = 0;
+    e.item(value, shape, 0)?;
+    if e.pos != size { return Err(Reject::Range); }
+    Ok((e.output.take().ok_or(Reject::Allocation)?, e.usage))
+}
+
+struct Encoder {
+    limits: Limits,
+    usage: Usage,
+    pos: usize,
+    output: Option<Vec<u8>>,
+}
+
+impl Encoder {
+    fn emit(&mut self, bytes: &[u8]) -> Result<(), Reject> {
+        charge(&mut self.pos, bytes.len(), self.limits.wire)?;
+        charge(&mut self.usage.work, bytes.len(), self.limits.work)?;
+        if let Some(out) = &mut self.output {
+            if self.pos > out.capacity() { return Err(Reject::Allocation); }
+            out.extend_from_slice(bytes);
+        }
+        Ok(())
+    }
+
+    fn arg(&mut self, major: u8, v: u64) -> Result<(), Reject> {
+        let head = major << 5;
+        match v {
+            0..=23 => self.emit(&[head | v as u8]),
+            24..=255 => self.emit(&[head | 24, v as u8]),
+            256..=65535 => {
+                self.emit(&[head | 25])?;
+                self.emit(&(v as u16).to_be_bytes())
+            }
+            65536..=4294967295 => {
+                self.emit(&[head | 26])?;
+                self.emit(&(v as u32).to_be_bytes())
+            }
+            _ => {
+                self.emit(&[head | 27])?;
+                self.emit(&v.to_be_bytes())
+            }
+        }
+    }
+
+    fn item(&mut self, value: &Value, shape: &Shape<'_>, depth: usize) -> Result<(), Reject> {
+        if depth > self.limits.depth { return Err(Reject::Budget); }
+        let measuring = self.output.is_none();
+        charge(&mut self.usage.work, 1, self.limits.work)?;
+        if measuring {
+            charge(&mut self.usage.nodes, 1, self.limits.nodes)?;
+            charge(&mut self.usage.expanded, 32, self.limits.expanded)?;
+        }
+        match (value, shape) {
+            (Value::Bool(v), Shape::Bool) => self.emit(&[if *v { 0xf5 } else { 0xf4 }]),
+            (Value::I64(v), Shape::I64) => {
+                if *v >= 0 { self.arg(0, *v as u64) }
+                else { self.arg(1, (-1 - *v) as u64) }
+            }
+            (Value::F64(v), Shape::F64) => {
+                if !v.is_finite() { return Err(Reject::Range); }
+                self.emit(&[0xfb])?;
+                self.emit(&v.to_bits().to_be_bytes())
+            }
+            (Value::Text(v), Shape::Text) => {
+                if measuring {
+                    charge(&mut self.usage.expanded, v.len().checked_mul(4).ok_or(Reject::Budget)?, self.limits.expanded)?;
+                }
+                self.arg(3, u64::try_from(v.len()).map_err(|_| Reject::Range)?)?;
+                self.emit(v.as_bytes())
+            }
+            (Value::List(items), Shape::List(child)) => {
+                if measuring {
+                    charge(&mut self.usage.elements, items.len(), self.limits.elements)?;
+                    charge(&mut self.usage.expanded, items.len().checked_mul(8).ok_or(Reject::Budget)?, self.limits.expanded)?;
+                }
+                self.arg(4, u64::try_from(items.len()).map_err(|_| Reject::Range)?)?;
+                for item in items { self.item(item, child, depth + 1)?; }
+                Ok(())
+            }
+            _ => Err(Reject::Shape),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +346,54 @@ mod tests {
         let b=[0x81,0x81,0x81,0xf4];
         assert_eq!(preflight(&b,Limits{depth:2,..limits()}),Err(Reject::Budget));
         assert_eq!(preflight(&[0xf4],Limits{depth:65,..limits()}),Err(Reject::Limits));
+    }
+
+    #[test] fn encode_nested_exact_cumulative_budget() {
+        let leaf = Shape::Text;
+        let inner = Shape::List(&leaf);
+        let shape = Shape::List(&inner);
+        let v = Value::List(vec![Value::List(vec![Value::Text("a".into()),Value::Text("b".into())])]);
+        let exact = Limits {wire:6,expanded:166,nodes:4,elements:3,work:20,depth:2};
+        let (b,u) = encode_typed(&v,&shape,exact).unwrap();
+        assert_eq!(b,[0x81,0x82,0x61,b'a',0x61,b'b']);
+        assert_eq!(u,Usage{expanded:166,nodes:4,elements:3,work:20});
+        assert_eq!(decode_typed(&b,exact,&shape).unwrap().0,v);
+        for l in [Limits{wire:5,..exact}, Limits{expanded:165,..exact},
+                  Limits{nodes:3,..exact}, Limits{elements:2,..exact},
+                  Limits{work:19,..exact}, Limits{depth:1,..exact}] {
+            assert_eq!(encode_typed(&v,&shape,l),Err(Reject::Budget));
+        }
+    }
+    #[test] fn encode_canonical_signed_boundaries() {
+        for n in [i64::MIN,-4294967297,-65537,-257,-25,-24,-1,0,23,24,255,256,65535,65536,4294967295,4294967296,i64::MAX] {
+            let v=Value::I64(n);
+            let (b,_)=encode_typed(&v,&Shape::I64,limits()).unwrap();
+            assert_eq!(decode_typed(&b,limits(),&Shape::I64).unwrap().0,v);
+            assert!(preflight(&b,limits()).is_ok());
+        }
+        assert_eq!(encode_typed(&Value::I64(i64::MIN),&Shape::I64,limits()).unwrap().0,[0x3b,0x7f,0xff,0xff,0xff,0xff,0xff,0xff,0xff]);
+        assert_eq!(encode_typed(&Value::I64(24),&Shape::I64,limits()).unwrap().0,[0x18,24]);
+    }
+    #[test] fn encode_text_float_and_empty() {
+        let v=Value::Text("é🙂".into());
+        let (b,_)=encode_typed(&v,&Shape::Text,limits()).unwrap();
+        assert_eq!(b[0],0x66);
+        assert_eq!(decode_typed(&b,limits(),&Shape::Text).unwrap().0,v);
+        for n in [-0.0f64,0.0,1.5,f64::MIN,f64::MAX] {
+            let (b,_)=encode_typed(&Value::F64(n),&Shape::F64,limits()).unwrap();
+            assert_eq!(b[0],0xfb);
+            assert_eq!(b[1..],n.to_bits().to_be_bytes());
+        }
+        assert_eq!(encode_typed(&Value::List(vec![]),&Shape::List(&Shape::Bool),limits()).unwrap().0,[0x80]);
+        assert_eq!(encode_typed(&Value::Bool(false),&Shape::Bool,limits()).unwrap().0,[0xf4]);
+    }
+    #[test] fn encode_refuses_shape_range_and_limits() {
+        let v=Value::List(vec![Value::Bool(true),Value::I64(1)]);
+        assert_eq!(encode_typed(&v,&Shape::List(&Shape::Bool),limits()),Err(Reject::Shape));
+        for n in [f64::NAN,f64::INFINITY,f64::NEG_INFINITY] {
+            assert_eq!(encode_typed(&Value::F64(n),&Shape::F64,limits()),Err(Reject::Range));
+        }
+        assert_eq!(encode_typed(&Value::Bool(true),&Shape::Bool,Limits{depth:65,..limits()}),Err(Reject::Limits));
     }
     #[test] fn bounded_mutation_smoke() {
         let mut state=0x12345678u32;
