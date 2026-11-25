@@ -1,0 +1,89 @@
+// Native guest-language conformance for canonical compiler scalar constraints.
+// Minimal import graph: core/value + core/utf8 + Zorde scalar kernel.
+// This test returns no nominal/structural validated typestate.
+import fnc require_true from './assert';
+import class Value, Utf8Text, IntParse from '../src/core/value';
+import fnc value_int, value_string, value_number_lexeme, parse_int from '../src/core/value';
+import class ZordeScalarRule from '../src/zorde/scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_accepts from '../src/zorde/scalar';
+
+pub fnc main(): void {
+  val int minimum = -9223372036854775807 - 1;
+  val int maximum = 9223372036854775807;
+  val IntParse min_roundtrip = parse_int(value_int(minimum));
+  val IntParse max_roundtrip = parse_int(value_int(maximum));
+  require_true(min_roundtrip.ok && min_roundtrip.value == minimum,
+    "canonical native signed int64 minimum round trip");
+  require_true(max_roundtrip.ok && max_roundtrip.value == maximum,
+    "canonical native signed int64 maximum round trip");
+
+  // A near-endpoint parse must never use int/int real division for
+  // overflow checks or accidentally admit rounded/wrapped integers.
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,56
+  ))).ok, "int64 maximum plus one must fail");
+  require_true(!parse_int(value_number_lexeme(new List<int>(
+    45,57,50,50,51,51,55,50,48,51,54,56,53,52,55,55,53,56,48,57
+  ))).ok, "int64 minimum minus one must fail");
+  require_true(!parse_int(value_number_lexeme(new List<int>(48,49))).ok,
+    "noncanonical integer leading zero fails");
+  val IntParse negative_zero = parse_int(value_number_lexeme(new List<int>(45,48)));
+  require_true(negative_zero.ok && negative_zero.value == 0,
+    "signed negative zero is canonical JSON integer zero");
+
+  val ZordeScalarRule port = zorde_scalar_int(1, 65535, new List<int>());
+  require_true(zorde_scalar_rule_valid(rt borrow port), "compiler Port is a valid interval");
+  require_true(zorde_scalar_accepts(value_int(1), rt borrow port),
+    "Port accepts inclusive minimum");
+  require_true(zorde_scalar_accepts(value_int(443), rt borrow port),
+    "Port accepts integer 443");
+  require_true(zorde_scalar_accepts(value_int(65535), rt borrow port),
+    "Port accepts inclusive maximum");
+  require_true(!zorde_scalar_accepts(value_int(0), rt borrow port),
+    "Port rejects zero");
+  require_true(!zorde_scalar_accepts(value_int(65536), rt borrow port),
+    "Port rejects above bound");
+  require_true(!zorde_scalar_accepts(
+    value_number_lexeme(new List<int>(49, 46, 48)), rt borrow port),
+    "Port rejects lexical decimal 1.0");
+  require_true(!zorde_scalar_accepts(value_string(
+    new Utf8Text(new List<int>(52, 52, 51))), rt borrow port),
+    "Port rejects number-as-string coercion");
+  require_true(zorde_scalar_accepts(value_number_lexeme(
+    new List<int>(57,48,48,55,49,57,57,50,53,52,55,52,48,57,57,51)),
+    zorde_scalar_int(9007199254740993,9007199254740993,new List<int>())),
+    "2^53+1 remains exact as integer");
+
+  val ZordeScalarRule hole = zorde_scalar_int(1, 3, new List<int>(2));
+  require_true(zorde_scalar_rule_valid(rt borrow hole), "one in-domain excluded value");
+  require_true(zorde_scalar_accepts(value_int(1), rt borrow hole), "hole lower accepted");
+  require_true(!zorde_scalar_accepts(value_int(2), rt borrow hole), "hole rejected");
+  require_true(zorde_scalar_accepts(value_int(3), rt borrow hole), "hole upper accepted");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1,2,new List<int>(1,2))),
+    "fully excluded interval rejected");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1,3,new List<int>(3,2))),
+    "unsorted exclusion rejected");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1,3,new List<int>(2,2))),
+    "duplicate exclusion rejected");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_int(1,3,new List<int>(0))),
+    "noncanonical off-domain exclusion rejected");
+
+  val ZordeScalarRule one_scalar = zorde_scalar_string(1,1,new List<int>());
+  require_true(zorde_scalar_accepts(value_string(new Utf8Text(
+    new List<int>(240,159,152,128))), rt borrow one_scalar),
+    "emoji counts as one Unicode scalar");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(
+    new List<int>(101,204,129))), rt borrow one_scalar),
+    "combining-mark sequence counts as two scalars");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(
+    new List<int>())), rt borrow one_scalar), "nonempty rejects empty");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(
+    new List<int>(192,175))), rt borrow one_scalar), "overlong UTF8 rejected");
+  require_true(!zorde_scalar_accepts(value_string(new Utf8Text(
+    new List<int>(237,160,128))), rt borrow one_scalar), "encoded surrogate rejected");
+  require_true(!zorde_scalar_rule_valid(zorde_scalar_string(-1,3,new List<int>())),
+    "negative string length rejected");
+
+  stdio.stdout.println("native scalar ConstraintIR validation passed");
+  return;
+}

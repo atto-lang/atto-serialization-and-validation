@@ -1,0 +1,25 @@
+name: static-audit
+
+on:
+  push:
+    branches:
+      - main
+      - 'harden/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build and test Rust audit
+        run: cargo test --all-targets
+      - name: Audit Oreslang source invariants
+        run: cargo run --quiet --bin audit

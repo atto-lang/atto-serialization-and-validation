@@ -1,0 +1,11 @@
+// Expected compiler denial: unexported internal entry is not importable.
+// NOT part of the normal executable native test suite.
+import class ZordePrivateCompiledEntry from '../../src/zorde/compiled_registry';
+
+pub fnc impossible(ZordePrivateCompiledEntry entry): void {
+  return;
+}
+
+pub fnc main(): void {
+  return;
+}
