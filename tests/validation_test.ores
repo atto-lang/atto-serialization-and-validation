@@ -7,7 +7,7 @@ import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes, max_key_lookup_candidates, max_key_lookup_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
 import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 // Distinct legal ASCII keys; the one-over case is only one byte over the
@@ -143,6 +143,12 @@ fnc run_checked_graph_tests(): void {
 
 pub fnc run_validation_tests(): void {
   run_checked_graph_tests();
+  require_int(max_key_lookup_candidates(), 16384, "key lookup candidate ceiling");
+  require_int(max_key_lookup_bytes(), 2097152, "two-direction lookup byte ceiling");
+  require_true(report_is_valid(validate_object(
+    aggregate_test_object(16), object_schema(aggregate_test_fields(16), true),
+    default_validation_options())),
+    "closed schema accepts exact 1 MiB keys in both lookup directions");
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
   val Utf8Text age_key = new Utf8Text(new List<int>(97, 103, 101));
 
