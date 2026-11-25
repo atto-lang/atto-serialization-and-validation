@@ -1,0 +1,52 @@
+import class Value from '../../src/core/value';
+import fnc value_array, value_bytes, encode_graph_shape_status from '../../src/core/value';
+import fnc any_rule, default_validation_options, validate_value_checked from '../../src/validation/validation';
+import fnc require_true from '../../tests/assert';
+
+fnc shared_graph(): Value {
+  val Value leaf = value_bytes(new List<int>(0,255));
+  val List<Value> edges = new List<Value>();
+  // Candidate ownership probe: shared immutable storage or an explicit
+  // ownership denial are distinct outcomes, not evidence of the same thing.
+  edges.add(rt borrow leaf);
+  edges.add(rt borrow leaf);
+  return value_array(edges);
+}
+
+// 256 occurrences of a 64 KiB binary leaf: exactly 16 MiB expanded
+// payload, but only 64 KiB of key/payload storage if truly shared.
+// One additional byte is the first rejected cumulative byte.
+fnc shared_payload_graph(bool over): Value {
+  val List<int> bytes = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= 65536 then break; fi
+    bytes.add(0);
+    i = i + 1;
+  done
+  val Value leaf = value_bytes(bytes);
+  val List<Value> edges = new List<Value>();
+  let int j = 0;
+  loop do
+    if j >= 256 then break; fi
+    edges.add(rt borrow leaf);
+    j = j + 1;
+  done
+  if over then edges.add(value_bytes(new List<int>(0))); fi
+  return value_array(edges);
+}
+
+pub fnc main(): void {
+  require_true(!validate_value_checked(shared_payload_graph(false), any_rule(),
+    default_validation_options()).is_err(), "exact expanded 16 MiB payload admitted");
+  require_true(validate_value_checked(shared_payload_graph(true), any_rule(),
+    default_validation_options()).is_err(), "expanded payload one byte over denied");
+  require_true(encode_graph_shape_status(shared_graph(), 64, 7) == 0,
+    "shared leaf counts twice at exact output lower bound");
+  require_true(encode_graph_shape_status(shared_graph(), 64, 6) == 2,
+    "shared leaf cannot bypass occurrence-based byte charging");
+  require_true(!validate_value_checked(shared_graph(), any_rule(),
+    default_validation_options()).is_err(), "finite shared DAG is admitted");
+  stdio.stdout.println("graph ownership shared-subgraph runtime controls");
+  return;
+}

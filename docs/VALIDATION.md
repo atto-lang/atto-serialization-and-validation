@@ -110,6 +110,29 @@ or prove physical heap bounds, ownership or metadata authenticity. Native
 tests remain required; exact cumulative structural-byte boundary tests
 are pending.
 
+## Dynamic encoder graph admission
+
+JSON, MessagePack and CBOR dynamic encoders now run the same structural
+preflight before constructing a writer or hashing general-map keys. Expanded
+Value occurrences are limited to 65,536 and depth to the caller's valid
+`EncodeOptions.max_depth` (maximum 128). Every occurrence and active string,
+binary or extension payload contributes to a conservative minimum output
+size. Object keys also charge their length plus one byte. The actual writer
+still enforces exact output length and codec-specific format validity.
+Numeric lexemes do not contribute their full textual length because binary
+formats can compress them. This is a new compatibility limit for oversized
+dynamic graphs; a graph_limit error is a resource refusal.
+
+Cycles and shared subgraphs cannot expand the structural traversal beyond
+these limits. This is not an identity-preserving graph codec, physical heap
+bound, or complete bound on writer-side collision comparisons; recursive
+hashing and equality in compatibility codec paths remain separate work.
+The numbered Protobuf wire codec is not a dynamic Value encoder.
+Native execution remains required. The isolated candidate programs under
+`fixtures/graph-ownership/` exercise direct and mutual cycles and shared
+subgraphs; they are not yet admitted to the default native suite until
+compiler ownership behavior is established.
+
 ## Schema builder ownership and explicit refusal
 
 Use `object_schema_checked(fields, reject_unknown_fields)` when constructing

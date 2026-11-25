@@ -6,7 +6,7 @@
 
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
-import fnc bytes_equal, text_hash from '../core/value';
+import fnc bytes_equal, text_hash, encode_graph_shape_status from '../core/value';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
 import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
@@ -1338,6 +1338,22 @@ pub fnc encode(
 ): Result<List<int>, EncodeError> {
   if !encode_options_valid(options) then
     return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
+  fi
+
+  // A recursive key must not reach a hash before graph admission.
+  val int graph_status = encode_graph_shape_status(rt borrow value,
+    options.max_depth, options.max_output_bytes);
+  if graph_status == 1 then
+    return Err(encode_error("depth_limit", "encoding graph exceeds max_depth"));
+  fi
+  if graph_status == 2 then
+    return Err(encode_error("output_limit", "graph cannot fit output byte limit"));
+  fi
+  if graph_status == 3 then
+    return Err(encode_error("graph_limit", "expanded encoding graph exceeds node ceiling"));
+  fi
+  if graph_status != 0 then
+    return Err(encode_error("unsupported_value", "unknown dynamic Value kind"));
   fi
 
   let JsonWriter writer = new JsonWriter(

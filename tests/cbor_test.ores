@@ -1,12 +1,25 @@
 import fnc require_true, require_int from './assert';
 
-import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc value_int, value_string, value_object, value_deep_equal, value_lookup_path from '../src/core/value';
-import class DecodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
+import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
+import fnc value_int, value_string, value_array, value_object, value_map, value_deep_equal, value_lookup_path from '../src/core/value';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import fnc encode, decode from '../src/cbor/cbor';
 
 pub fnc run_cbor_tests(): void {
+  val List<Value> deep_key = new List<Value>();
+  deep_key.add(value_int(7));
+  val List<MapEntry> deep_entries = new List<MapEntry>();
+  deep_entries.add(new MapEntry(value_array(deep_key), value_int(1)));
+  require_true(encode(value_map(deep_entries), new EncodeOptions(1,64)).is_err(),
+    "cbor writer denies nested key beyond depth before hashing");
+  val List<Value> legal_key = new List<Value>();
+  legal_key.add(value_int(7));
+  val List<MapEntry> legal_entries = new List<MapEntry>();
+  legal_entries.add(new MapEntry(value_array(legal_key), value_int(1)));
+  require_true(!encode(value_map(legal_entries), new EncodeOptions(2,64)).is_err(),
+    "cbor writer accepts legal nested key control");
+
   val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(

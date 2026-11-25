@@ -931,6 +931,84 @@ pub fnc value_deep_equal_with_fuel(
   return value_equal_fuel_depth(rt borrow left, rt borrow right, 0, fuel);
 }
 
+// Structural encoder admission precedes any writer-side map hashing.
+// Count expanded occurrences, not distinct object identities. This bounds
+// cycles and shared-subgraph expansion even without identity primitives.
+// Status: 0 admitted, 1 depth, 2 output lower bound, 3 node ceiling,
+// 4 unsupported discriminant. Actual format/byte checks remain in writers.
+pub fnc max_encode_graph_nodes(): int { return 65536; }
+
+pub fnc encode_graph_shape_status(Value root, int max_depth, int max_output): int {
+  if max_depth < 0 || max_depth > 128 then return 1; fi
+  if max_output < 1 then return 2; fi
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+  let int remaining = max_output - 1;
+  let int cursor = 0;
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value node = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+    if node.kind < 0 || node.kind > 8 then return 4; fi
+    let int payload = 0;
+    if node.kind == 3 then
+      payload = node.string_value.bytes.length;
+    elseif node.kind == 4 || node.kind == 7 then
+      payload = node.bytes_value.length;
+    fi
+    // Each node requires at least one output byte. Strings/binary also
+    // require at least their payload length. Number lexemes can compress.
+    if payload > remaining then return 2; fi
+    remaining = remaining - payload;
+    let int children = 0;
+    if node.kind == 5 then
+      children = node.array_value.length;
+    elseif node.kind == 6 then
+      children = node.object_value.length;
+    elseif node.kind == 8 then
+      val int count = node.map_value.length;
+      val int slots = max_encode_graph_nodes() - pending.length;
+      if count > slots then return 3; fi
+      if count > slots - count then return 3; fi
+      children = count + count;
+    fi
+    if children > 0 && depth >= max_depth then return 1; fi
+    if children > max_encode_graph_nodes() - pending.length then return 3; fi
+    if children > remaining then return 2; fi
+    remaining = remaining - children;
+    if node.kind == 5 then
+      for const item of node.array_value do
+        pending.add(item);
+        depths.add(depth + 1);
+      done
+    elseif node.kind == 6 then
+      // String keys are not Value nodes; charge their bytes and at least
+      // one format byte for each key before any writer hashing.
+      for const member of node.object_value do
+        if remaining <= 0 then return 2; fi
+        remaining = remaining - 1;
+        if member.key.bytes.length > remaining then return 2; fi
+        remaining = remaining - member.key.bytes.length;
+      done
+      for const member of node.object_value do
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+    elseif node.kind == 8 then
+      for const entry of node.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+  return 0;
+}
+
 pub fnc parse_int(Value value): IntParse {
   if value.kind != 2 then
     return new IntParse(false, 0);
