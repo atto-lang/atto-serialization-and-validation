@@ -28,7 +28,7 @@ pub enum Shape<'a> { Bool, I64, F64, Text, List(&'a Shape<'a>), Record(&'a [Shap
 pub enum Value { Bool(bool), I64(i64), F64(f64), Text(String), List(Vec<Value>), Record(Vec<Value>) }
 
 struct Reader<'a> {
-    bytes: &'a [u8], pos: usize, limits: Limits, usage: Usage,
+    bytes: &'a [u8], pos: usize, limits: Limits, usage: Usage, materialize: bool,
 }
 
 fn charge(counter: &mut usize, amount: usize, cap: usize) -> Result<(), Reject> {
@@ -81,16 +81,17 @@ impl Reader<'_> {
             0 | 1 => {
                 let v = self.arg(ai)?;
                 if v > i64::MAX as u64 { return Err(Reject::Range); }
-                shape.map(|_| Value::I64(if major == 0 { v as i64 } else { -1 - v as i64 }))
+                self.materialize.then(|| Value::I64(if major == 0 { v as i64 } else { -1 - v as i64 }))
             }
             3 => {
                 let n = usize::try_from(self.arg(ai)?).map_err(|_| Reject::Range)?;
                 let expanded = n.checked_mul(4).ok_or(Reject::Budget)?;
                 charge(&mut self.usage.expanded, expanded, self.limits.expanded)?;
                 charge(&mut self.usage.work, n, self.limits.work)?;
-                if shape.is_some() { charge(&mut self.usage.work, n, self.limits.work)?; }
+                if self.materialize { charge(&mut self.usage.work, n, self.limits.work)?; }
+                let materialize = self.materialize;
                 let text = std::str::from_utf8(self.take(n)?).map_err(|_| Reject::Utf8)?;
-                if shape.is_some() {
+                if materialize {
                     let mut owned = String::new();
                     owned.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
                     owned.push_str(text);
@@ -113,7 +114,7 @@ impl Reader<'_> {
                 if let Some(expected) = shape {
                     // Charge element writes and all minimum child-node costs
                     // before allocation; recursive calls charge their own nodes.
-                    charge(&mut self.usage.work, n, self.limits.work)?;
+                    if self.materialize { charge(&mut self.usage.work, n, self.limits.work)?; }
                     let min_children = n.checked_mul(32).ok_or(Reject::Budget)?;
                     // Every child needs at least one visit and one head-byte
                     // read. Check this lower bound without double charging:
@@ -125,20 +126,23 @@ impl Reader<'_> {
                         return Err(Reject::Budget);
                     }
                     let mut values = Vec::new();
-                    values.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
+                    if self.materialize { values.try_reserve_exact(n).map_err(|_| Reject::Allocation)?; }
                     for index in 0..n {
                         let child = match expected {
                             Shape::List(child) => *child,
                             Shape::Record(fields) => fields.get(index).ok_or(Reject::Shape)?,
                             _ => return Err(Reject::Shape),
                         };
-                        values.push(self.item(depth + 1, Some(child))?.ok_or(Reject::Shape)?);
+                        let value = self.item(depth + 1, Some(child))?;
+                        if self.materialize { values.push(value.ok_or(Reject::Shape)?); }
                     }
-                    Some(match expected {
-                        Shape::List(_) => Value::List(values),
-                        Shape::Record(_) => Value::Record(values),
-                        _ => return Err(Reject::Shape),
-                    })
+                    if self.materialize {
+                        Some(match expected {
+                            Shape::List(_) => Value::List(values),
+                            Shape::Record(_) => Value::Record(values),
+                            _ => return Err(Reject::Shape),
+                        })
+                    } else { None }
                 } else {
                     for _ in 0..n { let _ = self.item(depth + 1, None)?; }
                     None
@@ -147,12 +151,12 @@ impl Reader<'_> {
             // Fixed binary64 profile, not RFC preferred shortest float encoding.
             // Reject binary16/32, null, undefined and every simple value but bool.
             7 => match ai {
-                20 | 21 => shape.map(|_| Value::Bool(ai == 21)),
+                20 | 21 => self.materialize.then(|| Value::Bool(ai == 21)),
                 27 => {
                     let b: [u8; 8] = self.take(8)?.try_into().map_err(|_| Reject::Truncated)?;
                     let v = f64::from_bits(u64::from_be_bytes(b));
                     if !v.is_finite() { return Err(Reject::Range); }
-                    shape.map(|_| Value::F64(v))
+                    self.materialize.then(|| Value::F64(v))
                 }
                 _ => return Err(Reject::Unsupported),
             },
@@ -163,21 +167,26 @@ impl Reader<'_> {
 }
 
 pub fn preflight(bytes: &[u8], limits: Limits) -> Result<Usage, Reject> {
-    parse(bytes, limits, None).map(|(_, usage)| usage)
+    parse(bytes, limits, None, false).map(|(_, usage)| usage)
 }
 
 /// Single pass, immutable input, pinned caller-owned descriptor; charges
 /// materialization in addition to parsing. Caller still needs tenant and
 /// receiver heap credit, authenticated codec binding and atomic publication.
 pub fn decode_typed(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<(Value, Usage), Reject> {
-    let (value, usage) = parse(bytes, limits, Some(shape))?;
+    let (value, usage) = parse(bytes, limits, Some(shape), true)?;
     Ok((value.ok_or(Reject::Shape)?, usage))
 }
 
-fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>) -> Result<(Option<Value>, Usage), Reject> {
+/// Allocation-free shape validation for authenticated ingress; not a materialization receipt.
+pub fn preflight_typed(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<Usage, Reject> {
+    parse(bytes, limits, Some(shape), false).map(|(_, usage)| usage)
+}
+
+fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>, materialize: bool) -> Result<(Option<Value>, Usage), Reject> {
     validate_limits(limits)?;
     if bytes.len() > limits.wire { return Err(Reject::Budget); }
-    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default() };
+    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default(), materialize };
     let value = r.item(0, shape)?;
     if r.pos != bytes.len() { return Err(Reject::Trailing); }
     Ok((value, r.usage))
