@@ -1,5 +1,5 @@
 //! Host reference: bounded per-endpoint DATA mailbox with generation-fenced
-//! reservations. No guest, peer authentication, CONTROL or tenant-wide quota.
+//! reservations. No guest, peer authentication or CONTROL. Shared tenant credits cover owned wire bytes.
 //! The trusted caller reserves before allocation/decoding and never retains
 //! more memory than it reserved. Payload is owned bytes, not decoded objects.
 use std::collections::VecDeque;
@@ -7,20 +7,61 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation }
+// Shared by all endpoints in one trusted tenant. Never chosen by wire data.
+struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize }
+#[derive(Clone)]
+pub struct TenantBudget(Arc<Mutex<TenantState>>);
+struct TenantLease { tenant: TenantBudget, bytes: usize }
+impl TenantBudget {
+    pub fn new(max_bytes:usize,max_slots:usize)->Result<Self,Reject> {
+        if max_bytes==0 || max_bytes>256*1024*1024 || max_slots==0 || max_slots>65536 {
+            return Err(Reject::InvalidLimits);
+        }
+        Ok(Self(Arc::new(Mutex::new(TenantState{used_bytes:0,used_slots:0,max_bytes,max_slots}))))
+    }
+    fn reserve(&self,bytes:usize)->Result<TenantLease,Reject> {
+        let mut s=self.0.lock().map_err(|_|Reject::Closed)?;
+        if bytes>s.max_bytes-s.used_bytes || s.used_slots==s.max_slots { return Err(Reject::Full); }
+        s.used_bytes+=bytes; s.used_slots+=1;
+        Ok(TenantLease{tenant:self.clone(),bytes})
+    }
+    pub fn usage(&self)->Result<(usize,usize),Reject> {
+        let s=self.0.lock().map_err(|_|Reject::Closed)?;
+        Ok((s.used_bytes,s.used_slots))
+    }
+}
+impl Drop for TenantLease {
+    fn drop(&mut self) {
+        if let Ok(mut s)=self.tenant.0.lock() { s.used_bytes-=self.bytes; s.used_slots-=1; }
+    }
+}
+// Tenant credit follows the owned frame through the queue and receiver delivery.
+// Only borrowed access is exposed; a trusted receiver must separately account copies.
+pub struct Delivery { frame:Box<[u8]>, _tenant:TenantLease }
+impl Delivery {
+    pub fn bytes(&self)->&[u8] { &self.frame }
+    pub fn len(&self)->usize { self.frame.len() }
+    pub fn is_empty(&self)->bool { self.frame.is_empty() }
+}
 struct State {
     generation: u64, closed: bool, bytes: usize, slots: usize,
     max_bytes: usize, max_slots: usize,
-    queue: VecDeque<Box<[u8]>>,
+    queue: VecDeque<Delivery>,
+    tenant: TenantBudget,
 }
 #[derive(Clone)]
 pub struct Mailbox(Arc<Mutex<State>>);
-pub struct Reservation { mailbox: Mailbox, generation: u64, bytes: usize, live: bool }
+pub struct Reservation { mailbox: Mailbox, generation: u64, bytes: usize, live: bool, tenant:Option<TenantLease> }
 impl Mailbox {
     pub fn new(generation: u64, max_bytes: usize, max_slots: usize) -> Result<Self, Reject> {
+        let tenant=TenantBudget::new(max_bytes,max_slots)?;
+        Self::new_with_tenant(generation,max_bytes,max_slots,tenant)
+    }
+    pub fn new_with_tenant(generation:u64,max_bytes:usize,max_slots:usize,tenant:TenantBudget)->Result<Self,Reject> {
         if generation == 0 || max_bytes == 0 || max_bytes > 16*1024*1024 ||
            max_slots == 0 || max_slots > 4096 { return Err(Reject::InvalidLimits); }
         Ok(Self(Arc::new(Mutex::new(State { generation, closed:false, bytes:0, slots:0,
-            max_bytes, max_slots, queue:VecDeque::new() }))))
+            max_bytes, max_slots, queue:VecDeque::new(), tenant }))))
     }
     fn lock(&self) -> Result<MutexGuard<'_,State>, Reject> {
         self.0.lock().map_err(|_| Reject::Closed)
@@ -31,15 +72,17 @@ impl Mailbox {
         if generation != s.generation { return Err(Reject::Stale); }
         if bytes > 1024*1024 { return Err(Reject::Size); }
         if bytes > s.max_bytes-s.bytes || s.slots == s.max_slots { return Err(Reject::Full); }
+        // Lock order is always mailbox -> tenant. Tenant code never enters mailbox.
+        let tenant=s.tenant.reserve(bytes)?;
         s.bytes+=bytes; s.slots+=1;
-        Ok(Reservation { mailbox:self.clone(), generation, bytes, live:true })
+        Ok(Reservation { mailbox:self.clone(), generation, bytes, live:true, tenant:Some(tenant) })
     }
     pub fn usage(&self) -> Result<(usize,usize),Reject> {
         let s=self.lock()?; Ok((s.bytes,s.slots))
     }
-    // This model releases mailbox credit when delivery removes the owned frame;
-    // production must separately charge receiver-owned allocations.
-    pub fn pop(&self, generation:u64) -> Result<Option<Box<[u8]>>,Reject> {
+    // This model releases endpoint mailbox credit when delivery removes the frame;
+    // tenant credit follows delivery; decoded allocations require separate accounting.
+    pub fn pop(&self, generation:u64) -> Result<Option<Delivery>,Reject> {
         let mut s=self.lock()?;
         if s.closed { return Err(Reject::Closed); }
         if generation != s.generation { return Err(Reject::Stale); }
@@ -72,7 +115,8 @@ impl Reservation {
             if s.closed { return Err(Reject::Closed); }
             if s.generation!=self.generation { return Err(Reject::Stale); }
             s.queue.try_reserve(1).map_err(|_|Reject::Allocation)?;
-            s.queue.push_back(frame);
+            let tenant=self.tenant.take().ok_or(Reject::Closed)?;
+            s.queue.push_back(Delivery { frame, _tenant:tenant });
             self.live=false; // credit now belongs to queue entry
         }
         Ok(())
@@ -129,6 +173,35 @@ mod tests {
         m.close().unwrap(); m.close().unwrap();
         assert_eq!(a.publish(frame(4)),Err(Reject::Closed));
         assert_eq!(m.usage().unwrap(),(0,0));
+    }
+    #[test] fn shared_tenant_budget_survives_delivery_and_restart() {
+        let t=TenantBudget::new(8,2).unwrap();
+        let a=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        let b=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        a.reserve(1,8).unwrap().publish(frame(8)).unwrap();
+        assert!(matches!(b.reserve(1,1),Err(Reject::Full)));
+        let delivery=a.pop(1).unwrap().unwrap();
+        assert_eq!(delivery.bytes().len(),8);
+        assert_eq!(a.usage().unwrap(),(0,0));
+        assert_eq!(t.usage().unwrap(),(8,1));
+        a.restart(1).unwrap();
+        assert!(matches!(b.reserve(1,1),Err(Reject::Full)));
+        drop(delivery);
+        let pending=b.reserve(1,8).unwrap();
+        b.restart(1).unwrap();
+        assert_eq!(t.usage().unwrap(),(8,1));
+        drop(pending);
+        assert_eq!(t.usage().unwrap(),(0,0));
+    }
+    #[test] fn tenant_slots_and_queue_close() {
+        let t=TenantBudget::new(8,1).unwrap();
+        let a=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        let b=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        a.reserve(1,0).unwrap().publish(frame(0)).unwrap();
+        assert!(matches!(b.reserve(1,0),Err(Reject::Full)));
+        a.close().unwrap();
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert!(b.reserve(1,0).is_ok());
     }
     #[test] fn concurrent_credit_race() {
         let m=Mailbox::new(1,8,1).unwrap();
