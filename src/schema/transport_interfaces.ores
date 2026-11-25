@@ -1,0 +1,53 @@
+// Two deliberately distinct compile-time serialization interfaces.
+//
+// These interfaces are type signatures, NOT proof that any existing compiler
+// or runtime has registered a codec or enabled a zero-copy transport.
+// Only a compiler-produced descriptor plus a verified codec implementation
+// may authorize a network or mailbox boundary.
+//
+// NetworkCodec<T, F>:
+// - F is a compiler-validated wire-format marker (JSON, MessagePack or
+//   Protobuf), chosen explicitly by the caller/protocol, never guessed from
+//   attacker-supplied bytes; separate F implementations cannot authorize one
+//   another or an actor mailbox transport;
+// - externally supplied bytes are untrusted and must pass strict format,
+//   version, schema, UTF-8, quota and numeric validation;
+// - decode_network returns an independently owned T, never a borrowed view
+//   into bytes that the caller can release/reuse;
+// - encode_network may read a synchronous borrow, but may not retain it
+//   across async I/O or write to the input owner.
+//
+// Sendable<T> is a compiler-owned proof of recursively owned/immutable DATA,
+// not a user-implementable interface, marker annotation or codec-derived flag.
+// A Serializable/NetworkCodec implementation does not prove Sendable<T>.
+//
+// ActorMessageCodec<T>:
+// - for data messages among supervisors and actors (and between actors);
+// - the source must be recursively owned, data-only and sendable;
+// - encode_actor_message is a pre-admission immutable snapshot of the
+//   complete transitive value graph; no sender aliases reach the receiver;
+// - the runtime, not the user, binds schema ID/shape, actor identity,
+//   generation, sender capability and mailbox admission;
+// - decode_actor_message reconstructs a distinct receiver-owned value;
+// - failed encode/admission leaves sender ownership intact.
+//
+// The supervisor's reserved CONTROL lane (panic/raise/throw/termination)
+// is NOT a user-extensible ActorMessageCodec payload. CONTROL never gains
+// authority from decoding bytes or implementing this interface.
+//
+// Borrowed views and source-inaccessible backend handles may NEVER be serialized as identities.
+// A synchronous borrowed read while the owner remains alive is different
+// from exporting the borrow. Futures/Channels/Streams/Observables may carry
+// separately owned bytes, but not the serializer's input borrow.
+
+import class DecodeError, EncodeError from '../core/options';
+
+pub define interface NetworkCodec<T, F> as
+  fnc encode_network(borrow T value) => Result<List<int>, EncodeError>;
+  fnc decode_network(borrow List<int> bytes) => Result<T, DecodeError>;
+end
+
+pub define interface ActorMessageCodec<T> as
+  fnc encode_actor_message(borrow T value) => Result<List<int>, EncodeError>;
+  fnc decode_actor_message(borrow List<int> bytes) => Result<T, DecodeError>;
+end

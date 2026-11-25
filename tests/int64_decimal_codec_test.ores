@@ -17,6 +17,10 @@ fnc check_round_trip(int n, List<int> expected): void {
 pub fnc run_int64_decimal_codec_tests(): void {
   check_round_trip(0, new List<int>(48));
   check_round_trip(-1, new List<int>(45,49));
+  check_round_trip(7, new List<int>(55));
+  check_round_trip(-7, new List<int>(45,55));
+  check_round_trip(12003, new List<int>(49,50,48,48,51));
+  check_round_trip(-12003, new List<int>(45,49,50,48,48,51));
   check_round_trip(1000, new List<int>(49,48,48,48));
   check_round_trip(-1000, new List<int>(45,49,48,48,48));
   check_round_trip(
