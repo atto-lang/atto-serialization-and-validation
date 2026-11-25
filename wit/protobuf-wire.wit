@@ -1,0 +1,39 @@
+// Proposed bounded Component Model adapter, NOT an implemented export.
+// WIT types cannot enforce Protobuf varint canonicality, tag reservations,
+// payload lengths, Zorde constraints, resource budgets, or ownership proofs.
+package oreslang:protobuf-wire@0.1.0;
+
+interface protobuf-wire {
+  record wire-field {
+    field-number: u32,
+    wire-type: u8,
+    // Exact on-wire varint bytes, fixed-width bytes, or type-2 content bytes.
+    payload: list<u8>,
+  }
+
+  record wire-message {
+    fields: list<wire-field>,
+  }
+
+  record decode-limits {
+    max-input-bytes: u32,
+    max-fields: u32,
+    max-length-delimited-bytes: u32,
+  }
+
+  record encode-limits {
+    max-output-bytes: u32,
+  }
+
+  record codec-error {
+    code: string,
+    offset: u32,
+  }
+
+  decode: func(data: list<u8>, limits: decode-limits) -> result<wire-message, codec-error>;
+  encode: func(message: wire-message, limits: encode-limits) -> result<list<u8>, codec-error>;
+}
+
+world protobuf-wire-guest {
+  export protobuf-wire;
+}
