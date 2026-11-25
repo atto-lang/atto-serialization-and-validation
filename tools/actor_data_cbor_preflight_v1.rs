@@ -108,7 +108,13 @@ impl Reader<'_> {
                     // before allocation; recursive calls charge their own nodes.
                     charge(&mut self.usage.work, n, self.limits.work)?;
                     let min_children = n.checked_mul(32).ok_or(Reject::Budget)?;
-                    if min_children > self.limits.expanded - self.usage.expanded {
+                    // Every child needs at least one visit and one head-byte
+                    // read. Check this lower bound without double charging:
+                    // the recursive calls account for the actual work.
+                    let min_child_work = n.checked_mul(2).ok_or(Reject::Budget)?;
+                    if min_children > self.limits.expanded - self.usage.expanded ||
+                       min_child_work > self.limits.work - self.usage.work ||
+                       (n != 0 && depth == self.limits.depth) {
                         return Err(Reject::Budget);
                     }
                     let mut values = Vec::new();
@@ -292,6 +298,22 @@ mod tests {
         assert_eq!(decode_typed(&bytes,Limits{expanded:159,..exact},&shape),Err(Reject::Budget));
         assert_eq!(decode_typed(&bytes,limits(),&Shape::Bool),Err(Reject::Shape));
         assert_eq!(decode_typed(&[0x81,0x81,0xf5],limits(),&shape),Err(Reject::Shape));
+    }
+    #[test] fn typed_list_reservation_requires_minimum_child_credits() {
+        let shape = Shape::List(&Shape::Bool);
+        let bytes = [0x82, 0xf5, 0xf4];
+        let exact = Limits { wire: 3, expanded: 112, nodes: 3, elements: 2, work: 8, depth: 1 };
+        let (_, usage) = decode_typed(&bytes, exact, &shape).unwrap();
+        assert_eq!(usage, Usage { expanded: 112, nodes: 3, elements: 2, work: 8 });
+        assert_eq!(decode_typed(&bytes, Limits { work: 7, ..exact }, &shape), Err(Reject::Budget));
+        assert_eq!(decode_typed(&bytes, Limits { depth: 0, ..exact }, &shape), Err(Reject::Budget));
+        // When even the minimum child work cannot fit, fail on the budget
+        // before inspecting a malformed child or reserving the list.
+        assert_eq!(decode_typed(&[0x82, 0xf6, 0xf4], Limits { work: 7, ..exact }, &shape), Err(Reject::Budget));
+        assert_eq!(decode_typed(&[0x82, 0xf6, 0xf4], exact, &shape), Err(Reject::Shape));
+        // Empty lists require no child depth or work.
+        let empty = Limits { wire: 1, expanded: 32, nodes: 1, elements: 1, work: 2, depth: 0 };
+        assert_eq!(decode_typed(&[0x80], empty, &shape), Ok((Value::List(vec![]), Usage { expanded: 32, nodes: 1, elements: 0, work: 2 })));
     }
     #[test] fn typed_scalar_and_no_partial_value() {
         assert_eq!(decode_typed(&[0xf5],limits(),&Shape::Bool).unwrap().0,Value::Bool(true));
