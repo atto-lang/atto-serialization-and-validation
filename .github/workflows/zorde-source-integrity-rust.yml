@@ -1,0 +1,26 @@
+name: Rust Zorde source integrity candidate
+on:
+  pull_request:
+    paths: ['scripts/verify-zorde-checkout.rs', 'scripts/test-verify-zorde-checkout-rust.sh', '.github/workflows/zorde-source-integrity-rust.yml']
+permissions:
+  contents: read
+jobs:
+  source-integrity:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Exact-head compiled source integrity verification
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          rustc --edition=2021 -D warnings scripts/verify-zorde-checkout.rs -o "$RUNNER_TEMP/source-integrity"
+          "$RUNNER_TEMP/source-integrity" "$EXPECTED_HEAD" "$tree"
+          bash scripts/test-verify-zorde-checkout-rust.sh
+          echo NATIVE_COMPILER_NOT_EXECUTED
