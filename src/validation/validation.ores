@@ -1237,6 +1237,11 @@ pub fnc validate_value(
     );
   fi
 
+  if !checked_value_tree_valid(rt borrow value) then
+    return config_report("invalid_value_tree",
+      "dynamic value tree is malformed or exceeds validation work limits");
+  fi
+
   let ValidationReport report = new ValidationReport(
     new List<ValidationError>(),
     false
@@ -1333,6 +1338,11 @@ pub fnc validate_object(
       "invalid_schema",
       "object schema contains duplicate, contradictory, or invalid field rules"
     );
+  fi
+
+  if !checked_value_tree_valid(rt borrow value) then
+    return config_report("invalid_value_tree",
+      "dynamic value tree is malformed or exceeds validation work limits");
   fi
 
   let ValidationReport report = new ValidationReport(
@@ -1604,13 +1614,6 @@ pub fnc validate_value_checked(
   ValueRule rule,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
-  if !validation_options_valid(rt borrow options) then
-    return Err(config_report("invalid_options", "validation options are outside supported bounds"));
-  fi
-  if !checked_value_tree_valid(rt borrow value) then
-    return Err(config_report("invalid_value_tree",
-      "dynamic value tree is malformed or exceeds checked-validation limits"));
-  fi
   let ValidationReport report = validate_value(value, rule, options);
   if report_is_valid(report) then
     return Ok(value);
@@ -1623,13 +1626,6 @@ pub fnc validate_object_checked(
   ObjectSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
-  if !validation_options_valid(rt borrow options) then
-    return Err(config_report("invalid_options", "validation options are outside supported bounds"));
-  fi
-  if !checked_value_tree_valid(rt borrow value) then
-    return Err(config_report("invalid_value_tree",
-      "dynamic value tree is malformed or exceeds checked-validation limits"));
-  fi
   let ValidationReport report = validate_object(value, schema, options);
   if report_is_valid(report) then
     return Ok(value);
