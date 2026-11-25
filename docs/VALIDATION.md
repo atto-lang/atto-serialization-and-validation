@@ -180,8 +180,11 @@ result.
 
 The limits do not measure actual allocator overhead, temporary containers,
 input buffering, map bucket internals or backend-specific object sizes.
-Native compilation, allocator instrumentation and exact decoder integration
-boundary tests remain required.
+Native compilation and allocator instrumentation remain required. The native
+suite contains exact/one-over cumulative node and duplicate occurrence
+integration controls. Large 16 MiB payload boundary tests still require
+an independently bounded test carrier; direct meter boundary assertions
+are not a substitute for those integration tests.
 
 ## Incremental decoder private storage
 

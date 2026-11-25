@@ -53,7 +53,43 @@ fnc codec_work_wire(int second_payload): List<int> {
   return wire;
 }
 
+fnc nested_node_wire(bool over): List<int> {
+  val List<int> wire = new List<int>();
+  wire.add(130);
+  let int group = 0;
+  loop do
+    if group >= 2 then break; fi
+    wire.add(153);
+    if group == 0 then
+      wire.add(127);
+      wire.add(254);
+    elseif over then
+      wire.add(128);
+      wire.add(0);
+    else
+      wire.add(127);
+      wire.add(255);
+    fi
+    let int count = 32766;
+    if group == 1 then count = 32767; fi
+    if group == 1 && over then count = count + 1; fi
+    let int i = 0;
+    loop do
+      if i >= count then break; fi
+      wire.add(0);
+      i = i + 1;
+    done
+    group = group + 1;
+  done
+  return wire;
+}
+
 pub fnc run_cbor_tests(): void {
+  require_true(!decode(nested_node_wire(false), default_decode_options()).is_err(),
+    "cbor exact cumulative node count across nested arrays");
+  require_true(decode(nested_node_wire(true), default_decode_options()).is_err(),
+    "cbor cumulative node count one over across nested arrays");
+
   require_true(!encode(codec_work_graph(499999), default_encode_options()).is_err(),
     "cbor writer exact shared key budget");
   require_true(encode(codec_work_graph(500000), default_encode_options()).is_err(),
