@@ -1,0 +1,30 @@
+name: Actor DATA mailbox credits v1 (host only)
+on:
+  push:
+    branches: [draft/actor-data-mailbox-credits-v1-20261124]
+  pull_request:
+    paths:
+      - 'tools/actor_data_mailbox_credits_v1.rs'
+      - '.github/workflows/actor-data-mailbox-credits-v1.yml'
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Exact-head host-only tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          rustc --version
+          rustc --edition=2021 -D warnings --test tools/actor_data_mailbox_credits_v1.rs -o "$RUNNER_TEMP/credits"
+          "$RUNNER_TEMP/credits"
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'
