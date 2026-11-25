@@ -9,7 +9,9 @@ and exact reviewed tree. Run each separately with a bounded timeout.
   must refuse and print the runtime marker.
 - mutual-cycle: same, with two active nodes.
 - shared-subgraph: if the compiler permits sharing, both exact/one-over
-  expanded-output checks and the successful DAG validation must execute.
+  expanded-output checks, exact 16 MiB expanded payload and one byte over,
+  and the successful DAG validation must execute. Use a bounded memory
+  environment as well as a timeout because an implementation may copy.
 
 A targeted compiler ownership rejection is evidence only of static denial
 for that candidate, not runtime cycle protection. A syntax/import error,
