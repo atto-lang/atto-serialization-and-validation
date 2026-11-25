@@ -49,7 +49,7 @@ jobs:
         with:
           node-version: 22.18.0
       - name: Independently compare TypeSpec and JSON Schema
-        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: contracts/protobuf/main.tsp
           schema: contracts/protobuf/authored.schema.json
@@ -71,7 +71,7 @@ jobs:
       - name: Require drift detection
         id: negative
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: contracts/protobuf/main.tsp
           schema: protobuf-mutant.schema.json
