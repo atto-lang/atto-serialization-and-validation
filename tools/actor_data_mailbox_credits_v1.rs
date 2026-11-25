@@ -3,10 +3,10 @@
 //! The trusted caller reserves before allocation/decoding and never retains
 //! more memory than it reserved. Payload is owned bytes, not decoded objects.
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, TryLockError};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation, Binding }
+pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation, Binding, Busy }
 // Shared by all endpoints in one trusted tenant. Never chosen by wire data.
 struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize, used_expansion: usize, max_expansion: usize }
 #[derive(Clone)]
@@ -71,7 +71,9 @@ struct State {
     tenant: TenantBudget,
 }
 #[derive(Clone)]
-pub struct Mailbox(Arc<Mutex<State>>);
+// All clones share the same dispatch gate. The gate is separate from
+// mailbox state so a synchronous handler can enqueue without deadlocking.
+pub struct Mailbox(Arc<Mutex<State>>, Arc<Mutex<()>>);
 pub struct Reservation { mailbox: Mailbox, generation: u64, bytes: usize, live: bool, tenant:Option<TenantLease> }
 impl Mailbox {
     pub fn new(generation: u64, max_bytes: usize, max_slots: usize) -> Result<Self, Reject> {
@@ -82,10 +84,28 @@ impl Mailbox {
         if generation == 0 || max_bytes == 0 || max_bytes > 16*1024*1024 ||
            max_slots == 0 || max_slots > 4096 { return Err(Reject::InvalidLimits); }
         Ok(Self(Arc::new(Mutex::new(State { generation, closed:false, bytes:0, slots:0,
-            max_bytes, max_slots, queue:VecDeque::new(), tenant }))))
+            max_bytes, max_slots, queue:VecDeque::new(), tenant })),Arc::new(Mutex::new(()))))
     }
     fn lock(&self) -> Result<MutexGuard<'_,State>, Reject> {
         self.0.lock().map_err(|_| Reject::Closed)
+    }
+    // Acquire the dispatch gate before state. No path holding state may
+    // acquire the gate. Busy is explicit; never wait on a running handler.
+    fn dispatch_gate(&self)->Result<MutexGuard<'_,()>,Reject> {
+        match self.1.try_lock() {
+            Ok(guard)=>Ok(guard),
+            Err(TryLockError::WouldBlock)=>Err(Reject::Busy),
+            Err(TryLockError::Poisoned(_))=>Err(Reject::Closed),
+        }
+    }
+    /// Trusted synchronous host dispatch: excludes restart, close and
+    /// another fenced dispatch for this mailbox through callback completion.
+    /// No mailbox-state or tenant lock is held while the callback runs.
+    /// Panic poisons this gate; only close may recover to discard the queue.
+    pub fn with_generation_dispatch<R>(&self,generation:u64,run:impl FnOnce()->R)->Result<R,Reject> {
+        let _guard=self.dispatch_gate()?;
+        self.check_generation(generation)?;
+        Ok(run())
     }
     pub fn reserve(&self, generation: u64, bytes: usize) -> Result<Reservation,Reject> {
         let mut s=self.lock()?;
@@ -136,6 +156,7 @@ impl Mailbox {
     // Pending old-generation reservations remain charged until dropped; never
     // reset counters under in-flight work. Queued owned frames are discarded.
     pub fn restart(&self, generation:u64) -> Result<u64,Reject> {
+        let _guard=self.dispatch_gate()?;
         let mut s=self.lock()?;
         if s.closed { return Err(Reject::Closed); }
         if s.generation != generation { return Err(Reject::Stale); }
@@ -144,6 +165,13 @@ impl Mailbox {
         s.generation=next; Ok(next)
     }
     pub fn close(&self) -> Result<(),Reject> {
+        // A panicked handler cannot restart the mailbox. Cleanup may
+        // recover the poisoned gate, but never run another handler.
+        let _guard=match self.1.try_lock() {
+            Ok(guard)=>guard,
+            Err(TryLockError::WouldBlock)=>return Err(Reject::Busy),
+            Err(TryLockError::Poisoned(error))=>error.into_inner(),
+        };
         let mut s=self.lock()?; s.closed=true;
         while let Some(v)=s.queue.pop_front() { s.bytes-=v.len(); s.slots-=1; }
         Ok(())
