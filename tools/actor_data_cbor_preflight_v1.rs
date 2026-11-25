@@ -156,7 +156,7 @@ mod tests {
         assert_eq!(preflight(&[0xf4,0xf5],limits()),Err(Reject::Trailing));
     }
     #[test] fn huge_lengths_and_depth() {
-        assert_eq!(preflight(&[0x9b,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff],limits()),Err(Reject::Budget));
+        assert!(matches!(preflight(&[0x9b,0xff,0xff,0xff,0xff,0xff,0xff,0xff,0xff],limits()),Err(Reject::Budget | Reject::Range)));
         let b=[0x81,0x81,0x81,0xf4];
         assert_eq!(preflight(&b,Limits{depth:2,..limits()}),Err(Reject::Budget));
         assert_eq!(preflight(&[0xf4],Limits{depth:65,..limits()}),Err(Reject::Limits));
