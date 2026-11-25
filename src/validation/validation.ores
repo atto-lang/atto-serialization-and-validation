@@ -913,6 +913,11 @@ fnc validate_rule_at(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  if value.kind < 0 || value.kind > 8 then
+    add_error(report, options, "invalid_value_kind", path,
+      "value has an unsupported wire kind");
+    return;
+  fi
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
@@ -1312,11 +1317,109 @@ pub fnc report_is_valid(ValidationReport report): bool {
 }
 
 
+// Structural preflight only. The bounded work here counts visits and
+// active payload bytes, NOT recursive hash/equality or physical allocation.
+// Inactive Value slots are intentionally ignored.
+pub fnc max_checked_value_nodes(): int { return 65536; }
+pub fnc max_checked_value_depth(): int { return 64; }
+pub fnc max_checked_value_bytes(): int { return 16777216; }
+
+fnc checked_value_tree_valid(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  pending.add(root);
+  depths.add(0);
+  let int cursor = 0;
+  let int remaining_bytes = max_checked_value_bytes();
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+    if value.kind < 0 || value.kind > 8 then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > remaining_bytes then return false; fi
+      remaining_bytes = remaining_bytes - value.number_lexeme.length;
+      if !number_lexeme_valid(rt borrow value) then return false; fi
+    fi
+    if value.kind == 3 then
+      if value.string_value.bytes.length > remaining_bytes then return false; fi
+      remaining_bytes = remaining_bytes - value.string_value.bytes.length;
+      if !utf8_is_valid(rt borrow value.string_value.bytes) then return false; fi
+    fi
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > remaining_bytes then return false; fi
+      remaining_bytes = remaining_bytes - value.bytes_value.length;
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length ||
+         (depth >= max_checked_value_depth() && value.array_value.length > 0) then
+        return false;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 6 then
+      if value.object_value.length > max_schema_fields() ||
+         value.object_value.length > max_checked_value_nodes() - pending.length ||
+         (depth >= max_checked_value_depth() && value.object_value.length > 0) then
+        return false;
+      fi
+      let int remaining_keys = max_schema_total_key_bytes();
+      // Length-only admission of every key before scanning or enqueuing.
+      for const member of value.object_value do
+        if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > remaining_keys ||
+           member.key.bytes.length > remaining_bytes then
+          return false;
+        fi
+        remaining_keys = remaining_keys - member.key.bytes.length;
+        remaining_bytes = remaining_bytes - member.key.bytes.length;
+      done
+      for const member of value.object_value do
+        if !utf8_is_valid(rt borrow member.key.bytes) then return false; fi
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+    fi
+    if value.kind == 8 then
+      // Two child slots per map entry; subtract rather than multiply or divide.
+      val int slots = max_checked_value_nodes() - pending.length;
+      val int entries = value.map_value.length;
+      if entries > slots then return false; fi
+      if entries > slots - entries ||
+         (depth >= max_checked_value_depth() && entries > 0) then
+        return false;
+      fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+  return true;
+}
+
 pub fnc validate_value_checked(
   Value value,
   ValueRule rule,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !validation_options_valid(rt borrow options) then
+    return Err(config_report("invalid_options", "validation options are outside supported bounds"));
+  fi
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report("invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"));
+  fi
   let ValidationReport report = validate_value(value, rule, options);
   if report_is_valid(report) then
     return Ok(value);
@@ -1329,6 +1432,13 @@ pub fnc validate_object_checked(
   ObjectSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !validation_options_valid(rt borrow options) then
+    return Err(config_report("invalid_options", "validation options are outside supported bounds"));
+  fi
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report("invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"));
+  fi
   let ValidationReport report = validate_object(value, schema, options);
   if report_is_valid(report) then
     return Ok(value);

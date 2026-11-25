@@ -90,6 +90,20 @@ to the same checks at validation. This is not a recursive graph budget,
 schema immutability guarantee or a bound on collision-comparison work.
 Native execution of these new boundary cases is required.
 
+## Checked dynamic graph structural preflight
+
+Checked value and object admission now walk the active payload graph before
+schema-rule validation. Limits: 65,536 node occurrences, root depth zero with
+maximum depth 64, 16 MiB cumulative active payload bytes, and the per-object
+key limits above. Map keys and values count separately. Repeated references
+are charged per occurrence; cycles cannot make the bounded walk infinite.
+Unknown kinds, malformed numeric lexemes, invalid UTF-8, and non-octet raw
+binary/extension payloads fail closed with a payload-free invalid_value_tree
+report. This does not validate inactive slots, add nested duplicate-key
+semantics, meter recursive hashing/equality, authenticate metadata or prove
+physical heap bounds. Those are separate release gates. Native tests remain
+required; exact cumulative-byte boundary tests are pending.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
