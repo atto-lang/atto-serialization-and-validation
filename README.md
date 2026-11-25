@@ -51,3 +51,7 @@ The historical predecessor was `ores-truffle-oreslang/oreslang-serialization-and
 Portable structured serialization, typed validation and deterministic compatibility tests belong here; managed ingestion and production database administration do not. [atto-lang](https://github.com/atto-lang) maintains language, portable libraries and tooling; [atto-co](https://github.com/atto-co) separately governs commercial deployment, tenant infrastructure, identity, marketplace and billing. Any further original-ID transfer or commercial carve-out requires separate owner authorization and independent security review. This document authorizes no transfer or private-source mirror.
 
 Before an authorized transfer, coordinate in [migration issue #26](https://github.com/ores-truffle-oreslang/.github/issues/26) and review the authorized runbook. Record source/target administrators, numeric ID, exact SHA/tree, history, visibility, access, rulesets, open PRs/issues, releases, packages, consumers, CI/billing/runners, secrets, deploy keys, apps, webhooks, Pages and rollback ownership. Verify unchanged ID/history/tree and restored controls afterward; execute exact-head tests before changing consumers. Zero-step jobs are NOT_EXECUTED; host-only and source-free checks do not certify compiled guest execution or production capabilities.
+
+## Actor DATA host references
+
+See [bounded Rust reference models](docs/ACTOR_DATA_HOST_REFERENCES.md). These are host test artifacts, not production codecs or compiled AttoLang guest support.
