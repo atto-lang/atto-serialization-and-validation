@@ -163,6 +163,26 @@ successful root through EOF to reject trailing data. This is a change
 from retryable failed feed calls; create a new decoder for a new frame.
 Native execution and compiler ownership checks remain required.
 
+## Cumulative dynamic decoder materialization limits
+
+JSON, CBOR and MessagePack use one operation-local logical materialization
+budget: 65,536 node visits and 16 MiB of decoded payload credits. Keys count
+separately from values, even when first/last-wins discards an occurrence.
+JSON counts decoded string/key bytes and number lexemes before appending,
+including full UTF-8 scalar widths. Binary payload lengths are charged
+before copying; integer conversion reserves 20 lexical bytes per integer
+conservatively. Declared binary child counts must fit the remaining node
+budget before child decoding starts. JSON map-entry count now measures
+wire occurrences rather than unique retained fields. These are new
+compatibility limits in addition to DecodeOptions. No public constructor
+arity changes. Budget denial aborts the parse and cannot publish a partial
+result.
+
+The limits do not measure actual allocator overhead, temporary containers,
+input buffering, map bucket internals or backend-specific object sizes.
+Native compilation, allocator instrumentation and exact decoder integration
+boundary tests remain required.
+
 ## Schema builder ownership and explicit refusal
 
 Use `object_schema_checked(fields, reject_unknown_fields)` when constructing

@@ -8,8 +8,8 @@
 import class Value, Utf8Text, WireMember, MapEntry, IntParse, ValueWorkFuel, ValueHashAttempt from '../core/value';
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_hash_with_fuel, parse_int from '../core/value';
 import fnc bytes_equal, encode_graph_shape_status, max_codec_key_work, metered_map_entry_index, remember_metered_map_entry, metered_map_keys_status from '../core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeMaterializationBudget from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -20,6 +20,7 @@ define class CborCursor as
   pub let bool failed;
   pub let DecodeError error;
   pub let ValueWorkFuel key_fuel;
+  pub let DecodeMaterializationBudget materialization;
 end
 
 define class CborWriter as
@@ -173,6 +174,10 @@ fnc read_bytes(
     return output;
   fi
 
+  if !charge_decode_bytes(cursor.materialization, length) then
+    cursor_fail(cursor, "materialization_limit", "CBOR cumulative decoded byte limit exhausted");
+    return output;
+  fi
   let int i = 0;
   loop do
     if i >= length then
@@ -221,6 +226,13 @@ fnc decode_array(
     return value_array(values);
   fi
 
+  // Reject impossible declared child counts before materializing children.
+  val int slots = cursor.materialization.nodes_remaining;
+  if count < 0 || count > slots then
+    cursor_fail(cursor, "node_limit", "CBOR cumulative child node limit exhausted");
+    return value_array(values);
+  fi
+
   let int i = 0;
   loop do
     if i >= count then
@@ -250,6 +262,17 @@ fnc decode_map(
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "CBOR map exceeds max_map_entries");
+    return value_map(entries);
+  fi
+
+  // Reject impossible declared child counts before materializing children.
+  val int slots = cursor.materialization.nodes_remaining;
+  if count < 0 || count > slots then
+    cursor_fail(cursor, "node_limit", "CBOR cumulative child node limit exhausted");
+    return value_map(entries);
+  fi
+  if count > slots - count then
+    cursor_fail(cursor, "node_limit", "CBOR cumulative key/value node limit exhausted");
     return value_map(entries);
   fi
 
@@ -311,6 +334,17 @@ fnc decode_map(
   return value_map(entries);
 }
 
+// Binary integer conversion creates at most 20 decimal bytes. Reserve
+// the worst case before allocating its lexical representation.
+fnc decode_integer(CborCursor mut cursor, int number): Value {
+  if cursor.failed then return value_null(); fi
+  if !charge_decode_bytes(cursor.materialization, 20) then
+    cursor_fail(cursor, "materialization_limit", "CBOR cumulative integer storage budget exhausted");
+    return value_null();
+  fi
+  return value_int(number);
+}
+
 fnc decode_value(
   CborCursor mut cursor,
   int depth
@@ -320,6 +354,10 @@ fnc decode_value(
     return value_null();
   fi
 
+  if !charge_decode_nodes(cursor.materialization, 1) then
+    cursor_fail(cursor, "node_limit", "CBOR cumulative materialized node limit exhausted");
+    return value_null();
+  fi
   let int initial = read_u8(cursor);
   if cursor.failed then
     return value_null();
@@ -329,7 +367,7 @@ fnc decode_value(
   let int additional = initial % 32;
 
   if major == 0 then
-    return value_int(read_argument(cursor, additional));
+    return decode_integer(cursor, read_argument(cursor, additional));
   fi
 
   if major == 1 then
@@ -337,7 +375,7 @@ fnc decode_value(
     if cursor.failed then
       return value_null();
     fi
-    return value_int(-1 - argument);
+    return decode_integer(cursor, -1 - argument);
   fi
 
   if major == 2 then
@@ -430,7 +468,8 @@ pub fnc decode(
     0,
     false,
     empty_decode_error(),
-    new ValueWorkFuel(max_codec_key_work())
+    new ValueWorkFuel(max_codec_key_work()),
+    new_decode_materialization_budget()
   );
 
   let Value value = decode_value(cursor, 0);

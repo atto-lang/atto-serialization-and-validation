@@ -52,6 +52,38 @@ pub define class DecodeStep as
   pub val DecodeError error;
 end
 
+// Operation-local logical materialization budget. Not physical heap bytes.
+// A JSON key and every binary map key count separately from their values.
+// No refund on discarded/replaced duplicate members or failed admission.
+pub define class DecodeMaterializationBudget as
+  pub let int nodes_remaining;
+  pub let int bytes_remaining;
+end
+
+pub fnc max_decode_materialized_nodes(): int { return 65536; }
+pub fnc max_decode_materialized_bytes(): int { return 16777216; }
+
+pub fnc new_decode_materialization_budget(): DecodeMaterializationBudget {
+  return new DecodeMaterializationBudget(max_decode_materialized_nodes(),
+    max_decode_materialized_bytes());
+}
+
+pub fnc charge_decode_nodes(DecodeMaterializationBudget mut budget, int count): bool {
+  if count < 0 || budget.nodes_remaining < 0 || count > budget.nodes_remaining then
+    return false;
+  fi
+  budget.nodes_remaining = budget.nodes_remaining - count;
+  return true;
+}
+
+pub fnc charge_decode_bytes(DecodeMaterializationBudget mut budget, int count): bool {
+  if count < 0 || budget.bytes_remaining < 0 || count > budget.bytes_remaining then
+    return false;
+  fi
+  budget.bytes_remaining = budget.bytes_remaining - count;
+  return true;
+}
+
 pub fnc default_decode_options(): DecodeOptions {
   return new DecodeOptions(
     0,
