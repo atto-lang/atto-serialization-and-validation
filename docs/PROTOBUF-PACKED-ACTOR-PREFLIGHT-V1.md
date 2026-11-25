@@ -1,0 +1,3 @@
+# Packed scalar Protobuf actor DATA preflight
+
+Explicit registered Packed(Varint|Fixed32|Fixed64) accepts only wire type 2. Each segment consumes an outer field credit even if empty, each scalar consumes another field credit and logical/work charges using the SAME recursive meter. Fixed-width payloads require exact alignment; varints cannot extend beyond their segment. Repeated segments and nested messages cannot reset the counter. This conservative opt-in profile rejects unpacked aliases; full Protobuf interoperable repeated-field semantics, typed scalar conversion/cardinality and materialization are future work. Host reference only; no guest claim.
