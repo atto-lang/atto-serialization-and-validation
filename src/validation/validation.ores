@@ -3,8 +3,8 @@
 // Generated typed validators can lower annotations/contracts into the same rule
 // records so standalone validation and decode-time validation share semantics.
 
-import class Value, Utf8Text, WireMember from '../core/value';
-import fnc bytes_equal, text_equal, text_hash, value_deep_equal, value_hash from '../core/value';
+import class Value, Utf8Text, WireMember, ValueWorkFuel, ValueHashAttempt, ValueEqualAttempt from '../core/value';
+import fnc bytes_equal, text_equal, text_hash, value_hash_with_fuel, value_deep_equal_with_fuel from '../core/value';
 import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
@@ -870,36 +870,199 @@ pub fnc parse_number(Value value): ParsedNumber {
   return new ParsedNumber(true, result);
 }
 
+// A unique-items rule is an untrusted-input work boundary even when
+// no schema max_items was requested.
+pub fnc max_unique_validation_items(): int { return 4096; }
+pub fnc max_unique_candidate_checks(): int { return 16384; }
+// Conservative per-operation fuel for hashing and deep equality. Cost includes
+// all active bytes/nodes and pessimistically weights nested object/map
+// collision scans; a failed estimate denies the entire validation.
+pub fnc max_unique_validation_work(): int { return 1000000; }
+
+// Returns -1 on budget denial. Multiplication is safe: both operands
+// are first <= 1,000,000, hence their product fits signed int64.
+fnc unique_work_product(int a, int b): int {
+  if a < 0 || b < 0 ||
+     a > max_unique_validation_work() ||
+     b > max_unique_validation_work() then return -1; fi
+  val int result = a * b;
+  if result > max_unique_validation_work() then return -1; fi
+  return result;
+}
+
+fnc unique_work_add(int used, int extra): int {
+  // An exhausted (-1) sentinel must never be revived by a later charge.
+  if used < 0 || used > max_unique_validation_work() ||
+     extra < 0 || extra > max_unique_validation_work() - used then
+    return -1;
+  fi
+  return used + extra;
+}
+
+// Expanded tree walk: copies/aliases are charged on every occurrence. A
+// nested map/object may invoke many equality comparisons on hash collisions.
+// The multiplicity factor (n*n+n+1) pessimistically charges those probes
+// through every descendant before the native hash/equality routines run.
+fnc unique_value_work_cost(Value root): int {
+  val List<Value> pending = new List<Value>();
+  val List<int> weights = new List<int>();
+  pending.add(root);
+  weights.add(1);
+  let int cursor = 0;
+  let int work = 0;
+
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int weight = weights[cursor];
+    cursor = cursor + 1;
+
+    if value.kind < 0 || value.kind > 8 then return -1; fi
+    work = unique_work_add(work, weight);
+    if work < 0 then return -1; fi
+
+    if value.kind == 2 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.number_lexeme.length));
+    elseif value.kind == 3 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.string_value.bytes.length));
+    elseif value.kind == 4 || value.kind == 7 then
+      work = unique_work_add(work,
+        unique_work_product(weight, value.bytes_value.length));
+    fi
+    if work < 0 then return -1; fi
+
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length then
+        return -1;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        weights.add(weight);
+      done
+    fi
+
+    if value.kind == 6 then
+      val int length = value.object_value.length;
+      if length > max_checked_value_nodes() - pending.length then return -1; fi
+      val int factor = length * length + length + 1;
+      val int child_weight = unique_work_product(weight, factor);
+      if child_weight < 0 then return -1; fi
+      for const member of value.object_value do
+        work = unique_work_add(work,
+          unique_work_product(child_weight, member.key.bytes.length));
+        if work < 0 then return -1; fi
+        pending.add(member.value);
+        weights.add(child_weight);
+      done
+    fi
+
+    if value.kind == 8 then
+      val int length = value.map_value.length;
+      if length > max_checked_value_nodes() - pending.length then return -1; fi
+      if length > max_checked_value_nodes() - pending.length - length then
+        return -1;
+      fi
+      val int factor = length * length + length + 1;
+      val int child_weight = unique_work_product(weight, factor);
+      if child_weight < 0 then return -1; fi
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        weights.add(child_weight);
+        pending.add(entry.value);
+        weights.add(child_weight);
+      done
+    fi
+  done
+  return work;
+}
+
 fnc validate_unique(
   Value value,
   ValidationReport mut report,
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  if value.array_value.length > max_unique_validation_items() then
+    add_error(report, options, "unique_items_limit", path,
+      "unique-items validation exceeds its bounded item count");
+    return;
+  fi
+
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
+  val Map<int, List<int>> costs = new Map<int, List<int>>();
+  let int candidate_checks = 0;
+  let int spent_work = 0;
+  // One caller-owned meter spans every hash and equality in this admission.
+  // Conservative structural estimates remain an additional defense-in-depth
+  // limit; actual metered operations fail closed on fuel exhaustion.
+  let ValueWorkFuel fuel = new ValueWorkFuel(max_unique_validation_work());
 
   for const item of value.array_value do
-    let int hash = value_hash(item);
+    // Charge the entire expanded item BEFORE hashing it.
+    val int item_cost = unique_value_work_cost(rt borrow item);
+    spent_work = unique_work_add(spent_work, item_cost);
+    if spent_work < 0 then
+      add_error(report, options, "unique_items_work_limit", path,
+        "nested uniqueness hash/equality work exceeds the bounded budget");
+      return;
+    fi
 
+    val ValueHashAttempt hash_attempt = value_hash_with_fuel(
+      rt borrow item, fuel);
+    if !hash_attempt.completed then
+      add_error(report, options, "unique_items_work_limit", path,
+        "metered Value hashing exhausted the operation work budget");
+      return;
+    fi
+    val int hash = hash_attempt.hash;
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
+      val List<int> candidate_costs = costs.get(hash);
+      let int i = 0;
       for const candidate of candidates do
-        if value_deep_equal(candidate, item) then
-          add_error(
-            report,
-            options,
-            "unique_items",
-            path,
-            "array contains duplicate values"
-          );
+        if candidate_checks >= max_unique_candidate_checks() then
+          add_error(report, options, "unique_items_complexity_limit", path,
+            "unique-items collision comparisons exceed the bounded budget");
           return;
         fi
+        candidate_checks = candidate_checks + 1;
+
+        // Conservatively account for both graphs before native deep equality.
+        spent_work = unique_work_add(spent_work, item_cost);
+        if spent_work >= 0 then
+          spent_work = unique_work_add(spent_work, candidate_costs[i]);
+        fi
+        if spent_work < 0 then
+          add_error(report, options, "unique_items_work_limit", path,
+            "nested uniqueness hash/equality work exceeds the bounded budget");
+          return;
+        fi
+
+        val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(
+          rt borrow candidate, rt borrow item, fuel);
+        if !equal_attempt.completed then
+          add_error(report, options, "unique_items_work_limit", path,
+            "metered Value comparison exhausted the operation work budget");
+          return;
+        fi
+        if equal_attempt.equal then
+          add_error(report, options, "unique_items", path,
+            "array contains duplicate values");
+          return;
+        fi
+        i = i + 1;
       done
       candidates.add(item);
+      candidate_costs.add(item_cost);
     else
       val List<Value> candidates = new List<Value>();
+      val List<int> candidate_costs = new List<int>();
       candidates.add(item);
+      candidate_costs.add(item_cost);
       buckets.set(hash, candidates);
+      costs.set(hash, candidate_costs);
     fi
   done
 
