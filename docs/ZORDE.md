@@ -245,6 +245,10 @@ The compiler, Zorde, serializers, actor admission, and hot-reload verifier
 should consume the same fingerprint rather than maintaining parallel notions
 of validity.
 
+## Direct scalar input work budgets
+
+Direct scalar acceptance, exact integer parsing, descriptor parsing, and the freestanding UTF-8 kernel share the registry's 20-byte signed-int64 and 65,536-byte UTF-8 limits. Reject before parsing or scanning. These are per-scalar representation limits, not document, allocation, or mailbox quotas. Dynamic validation does not issue a nominal proof. Native execution of these changes is required before release qualification.
+
 ## Security gates still pending
 
 - **Typestate/alias stability:** Validation of a mutable Value or ObjectSchema
