@@ -36,7 +36,10 @@ def safe_path(path):
 def digest(path):
     require(path.is_file() and not path.is_symlink(), "not a regular evidence file")
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "sha256").hexdigest()
+        sha = hashlib.sha256()
+        for block in iter(lambda: stream.read(65536), b""):
+            sha.update(block)
+        return sha.hexdigest()
 
 
 def verify_source(sha, tree, compiler, compiler_sha):
