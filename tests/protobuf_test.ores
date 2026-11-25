@@ -30,6 +30,60 @@ pub fnc run_protobuf_tests(): void {
   require_true(!decode_message(actor_wire, actor_options).is_err(),
     "legacy flat wire reader remains unchanged");
 
+  // The bounded actor profile must preserve the wire reader's exact failure
+  // and ownership boundary, including when all budgets would permit a message.
+  val List<int> empty_actor_wire = new List<int>();
+  val ProtoDecodeOptions empty_actor_options = new ProtoDecodeOptions(0, 0, 0);
+  val Result<ProtoMessage, ProtoError> actor_empty =
+    decode_actor_message_bounded(empty_actor_wire, empty_actor_options, 128, 1);
+  require_true(!actor_empty.is_err(), "empty message accepts base charge with zero field cap");
+  require_int(actor_empty.unwrap().fields.length, 0, "empty actor message has no fields");
+
+  // One field of every supported wire type; 20 wire bytes and four field
+  // credits: 128 + 20*16 + 4*128 = 960; work = 20*3 + 4 = 64.
+  val List<int> mixed_actor_wire = new List<int>(
+    8, 1, 21, 1, 2, 3, 4, 25, 1, 2, 3, 4, 5, 6, 7, 8, 34, 2, 65, 66
+  );
+  val ProtoDecodeOptions mixed_actor_options = new ProtoDecodeOptions(20, 4, 2);
+  val Result<ProtoMessage, ProtoError> mixed_actor =
+    decode_actor_message_bounded(mixed_actor_wire, mixed_actor_options, 960, 64);
+  require_true(!mixed_actor.is_err(), "all supported wire types accept exact cumulative budget");
+  val ProtoMessage mixed_actor_message = mixed_actor.unwrap();
+  require_int(mixed_actor_message.fields.length, 4, "mixed actor field count");
+  require_int(mixed_actor_message.fields[0].wire_type, 0, "actor varint type");
+  require_int(mixed_actor_message.fields[1].wire_type, 5, "actor fixed32 type");
+  require_int(mixed_actor_message.fields[2].wire_type, 1, "actor fixed64 type");
+  require_int(mixed_actor_message.fields[3].wire_type, 2, "actor length-delimited type");
+  require_true(decode_actor_message_bounded(mixed_actor_wire, mixed_actor_options, 959, 64).is_err(),
+    "mixed wire profile refuses one less allocation credit");
+  require_true(decode_actor_message_bounded(mixed_actor_wire, mixed_actor_options, 960, 63).is_err(),
+    "mixed wire profile refuses one less work credit");
+  require_true(decode_actor_message_bounded(mixed_actor_wire,
+    new ProtoDecodeOptions(20, 4, 1), 960, 64).is_err(),
+    "actor profile preserves independent payload ceiling");
+  // Payloads are fresh lists. Mutating the owned input after successful
+  // decoding must not change the decoded message.
+  mixed_actor_wire[18] = 90;
+  require_int(mixed_actor_message.fields[3].payload[0], 65, "actor payload detached from input");
+
+  val ProtoDecodeOptions malformed_actor_options = new ProtoDecodeOptions(64, 8, 64);
+  require_true(decode_actor_message_bounded(new List<int>(10, 3, 1),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses truncated length-delimited payload");
+  require_true(decode_actor_message_bounded(new List<int>(8, 128),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses truncated varint");
+  require_true(decode_actor_message_bounded(new List<int>(0, 0),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses field number zero");
+  require_true(decode_actor_message_bounded(new List<int>(11, 12),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses legacy group wire type");
+  require_true(decode_actor_message_bounded(new List<int>(8, 256),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses non-byte input");
+  require_true(decode_actor_message_bounded(new List<int>(8, -1),
+    malformed_actor_options, 4096, 256).is_err(), "actor refuses negative input byte");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 8388609, 14).is_err(),
+    "actor refuses oversized logical cap");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 448, 4194305).is_err(),
+    "actor refuses oversized work cap");
+
   val List<ProtoField> fields = new List<ProtoField>();
   fields.add(proto_varint(1, 150));
   fields.add(proto_bytes(2, new List<int>(104, 105)));
