@@ -41,7 +41,7 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.source_local_native }}
     environment: zorde-source-local-trusted
     runs-on: [self-hosted, linux, x64, zorde-source-ephemeral]
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -100,5 +100,8 @@ jobs:
           # The administrator must retain the private evidence directory
           # within the approved source trust boundary for independent review.
           bash scripts/test-zorde-registry-source-local.sh
+          python3 -B scripts/test-zorde-expanded-native.py
           sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"
           cat "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum "$ZORDE_EVIDENCE_DIR/zorde-expanded-native-receipt.json"
+          cat "$ZORDE_EVIDENCE_DIR/zorde-expanded-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"

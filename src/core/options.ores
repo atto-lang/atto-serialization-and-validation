@@ -84,6 +84,19 @@ pub fnc charge_decode_bytes(DecodeMaterializationBudget mut budget, int count): 
   return true;
 }
 
+// Shared restricted actor profile: logical credits only, not allocator
+// bytes or wall-clock guarantees. Limit wire length before multiplication.
+pub fnc actor_decode_profile_valid(
+  DecodeOptions options, int wire_length, int max_logical_bytes, int max_work
+): bool {
+  return decode_options_valid(rt borrow options) &&
+    !options.allow_trailing_data && options.duplicate_key_policy == 0 &&
+    options.max_depth <= 64 &&
+    wire_length >= 0 && wire_length <= 1048576 &&
+    max_logical_bytes >= 128 && max_logical_bytes <= 8388608 &&
+    max_work >= 1 && max_work <= 4194304;
+}
+
 pub fnc default_decode_options(): DecodeOptions {
   return new DecodeOptions(
     0,

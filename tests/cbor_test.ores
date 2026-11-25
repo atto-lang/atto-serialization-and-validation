@@ -4,7 +4,7 @@ import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
 import fnc value_bytes, value_int, value_string, value_array, value_object, value_map, value_deep_equal, value_lookup_path from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
-import fnc encode, decode from '../src/cbor/cbor';
+import fnc encode, decode, decode_actor_bounded from '../src/cbor/cbor';
 
 fnc codec_work_map(int payload): Value {
   val List<int> bytes = new List<int>();
@@ -84,7 +84,55 @@ fnc nested_node_wire(bool over): List<int> {
   return wire;
 }
 
+fnc cbor_actor_options(): DecodeOptions {
+  return new DecodeOptions(0,false,64,64,64,64,64,64,64);
+}
+
+fnc cbor_actor_nested(): List<int> {
+  return new List<int>(130,130,1,2,129,3);
+}
+
 pub fnc run_cbor_tests(): void {
+  val Result<DecodedValue, DecodeError> actor_exact =
+    decode_actor_bounded(cbor_actor_nested(), cbor_actor_options(), 992, 24);
+  require_true(!actor_exact.is_err(), "CBOR actor exact shared credits");
+  require_int(actor_exact.unwrap().value.array_value.length, 2, "CBOR actor nested shape");
+  require_true(decode_actor_bounded(cbor_actor_nested(), cbor_actor_options(), 991, 24).is_err(),
+    "CBOR actor one byte under denied");
+  require_true(decode_actor_bounded(cbor_actor_nested(), cbor_actor_options(), 992, 23).is_err(),
+    "CBOR actor one work credit under denied");
+  require_true(!decode_actor_bounded(new List<int>(129,245), cbor_actor_options(), 416,8).is_err(),
+    "CBOR actor exact array and bool");
+  require_true(decode_actor_bounded(new List<int>(129,161,1,2),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor nested map denied");
+  require_true(decode_actor_bounded(new List<int>(184,0),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor long map header denied");
+  require_true(decode_actor_bounded(new List<int>(129,192,1),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor nested tag denied");
+  require_true(decode_actor_bounded(new List<int>(159,1,255),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor indefinite array denied");
+  require_true(decode_actor_bounded(new List<int>(249,0,0),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor float denied");
+  require_true(decode_actor_bounded(new List<int>(129,130,1),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor truncated array denied");
+  require_true(decode_actor_bounded(new List<int>(1,2),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor trailing bytes denied");
+  require_true(decode_actor_bounded(new List<int>(97,255),
+    cbor_actor_options(),4096,256).is_err(), "CBOR actor invalid UTF8 denied");
+  require_true(decode_actor_bounded(new List<int>(152,64),
+    cbor_actor_options(),512,256).is_err(), "CBOR actor declared children exceed credits");
+  require_true(!decode(new List<int>(161,1,2), cbor_actor_options()).is_err(),
+    "CBOR generic map remains supported");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(1,false,64,64,64,64,64,64,64),4096,256).is_err(),
+    "CBOR actor permissive duplicate policy denied");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(0,true,64,64,64,64,64,64,64),4096,256).is_err(),
+    "CBOR actor permissive trailing policy denied");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(0,false,65,64,64,64,64,64,64),4096,256).is_err(),
+    "CBOR actor excessive depth policy denied");
+
   require_true(!decode(nested_node_wire(false), default_decode_options()).is_err(),
     "cbor exact cumulative node count across nested arrays");
   require_true(decode(nested_node_wire(true), default_decode_options()).is_err(),

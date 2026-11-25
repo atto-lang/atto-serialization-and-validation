@@ -432,3 +432,28 @@ before taking the next loan. This avoids overlapping mutable loans and keeps
 post-parse cursor state available. Existing actor, graph, key and
 materialization limits remain in place. This is a source repair candidate;
 compiler execution and field-projection loan review remain release gates.
+
+## Restricted CBOR actor admission
+
+CBOR exposes the same decode_actor_bounded signature and shares the profile
+predicate with MessagePack. The same cumulative logical credit formula and
+array child precheck apply; maps and tags are refused before argument reads
+at every depth. Indefinite containers and floats remain unsupported. Generic
+CBOR maps are unchanged. These are not physical heap or CPU quotas. Native
+assertions and mailbox integration remain release gates.
+
+## Expanded native visibility gates
+
+The protected source-local workflow now runs four standalone positive native
+controls and six targeted negative visibility/constructor probes after the
+existing approved native suite. Exact source, tree and compiler digest are
+checked before and after; logs stay in private evidence storage. A separate
+receipt binds the base receipt and all probe logs. Unknown compiler diagnostic
+wording is a refusal, not permission to relax the classifier. Source-free
+classifier tests are not native evidence. No compiler or administrator
+approval gates have been removed.
+
+The expanded gate rechecks the base receipt schema, strict JSON keys, every
+required control, exact identities, log hashes and success markers before
+and after additional probes. Synthetic tests establish structural refusal
+only; trusted runner and compiler provenance remain separate requirements.
