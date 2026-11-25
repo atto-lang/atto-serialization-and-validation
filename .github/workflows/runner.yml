@@ -1,7 +1,7 @@
 name: Test runner contracts
 on:
   push:
-    branches: [main, "hardening/**"]
+    branches: [main, "hardening/**", "fix/map-key-collision-work-budget-v2-20261103"]
   pull_request:
   workflow_dispatch:
     inputs:
@@ -24,6 +24,11 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Verify exact checkout
+        run: |
+          test "$(git rev-parse HEAD)" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          git rev-parse HEAD 'HEAD^{tree}'
       - name: Check shell syntax
         run: |
           while IFS= read -r -d '' script; do
