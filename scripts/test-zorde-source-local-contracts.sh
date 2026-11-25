@@ -5,6 +5,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/zorde-source-local-contracts.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+tmp="$(cd "$tmp" && pwd -P)"
 src="$tmp/source with spaces"
 out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
@@ -16,6 +17,7 @@ cp "$root/scripts/verify-zorde-checkout.py" "$src/scripts/"
 # Copy it into the disposable fixture as well; otherwise the intended
 # HEAD-change denial is masked by a missing helper script.
 cp "$root/scripts/zorde_visibility_diagnostic.py" "$src/scripts/"
+cp "$root/scripts/check-zorde-denial.py" "$src/scripts/"
 # Synthetic-only script: no production source, compiler, or backend is copied.
 # It is used solely to prove tampering cannot lead to a receipt.
 mkdir -p "$src/tests" "$src/fixtures/zorde-compile-positive"
