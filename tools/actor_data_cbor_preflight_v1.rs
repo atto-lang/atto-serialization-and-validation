@@ -1,5 +1,6 @@
 //! Host-only deterministic actor DATA CBOR subset preflight.
-//! No allocations, no descriptor inference, no maps/tags/indefinite items.
+//! Preflight is allocation-free; typed decode allocates only after charging.
+//! No descriptor inference, no maps/tags/indefinite items.
 //! Includes opt-in typed decoding using the same reader and cumulative meter.
 //! Not a general RFC 8949 implementation.
 
@@ -117,7 +118,7 @@ impl Reader<'_> {
                     }
                     Some(Value::List(values))
                 } else {
-                    for _ in 0..n { self.item(depth + 1, None)?; }
+                    for _ in 0..n { let _ = self.item(depth + 1, None)?; }
                     None
                 }
             }
