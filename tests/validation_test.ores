@@ -135,7 +135,60 @@ fnc graph_map_shared_work(int last_key_bytes): Value {
   return value_array(children);
 }
 
+// Single-item unique arrays require one node plus each payload byte.
+// These distinct fields exercise operation-wide fuel, not duplicate rejection.
+fnc graph_unique_array(int bytes_count): Value {
+  val List<int> bytes = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= bytes_count then break; fi
+    bytes.add(97);
+    i = i + 1;
+  done
+  return graph_wrap(value_bytes(bytes));
+}
+
+fnc graph_comparison_schema(bool include_map): ObjectSchema {
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(field_rule(new Utf8Text(new List<int>(97)), true, false,
+    array_rule(-1, -1, true)));
+  if include_map then
+    fields.add(field_rule(new Utf8Text(new List<int>(98)), true, false, any_rule()));
+  else
+    fields.add(field_rule(new Utf8Text(new List<int>(98)), true, false,
+      array_rule(-1, -1, true)));
+  fi
+  return object_schema(fields, true);
+}
+
+fnc graph_comparison_object(bool include_map, int second_bytes): Value {
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(new Utf8Text(new List<int>(97)), graph_unique_array(499999)));
+  if include_map then
+    members.add(new WireMember(new Utf8Text(new List<int>(98)), graph_map_large_key(second_bytes)));
+  else
+    members.add(new WireMember(new Utf8Text(new List<int>(98)), graph_unique_array(second_bytes)));
+  fi
+  return value_object(members);
+}
+
 fnc run_checked_graph_tests(): void {
+  require_true(report_is_valid(validate_object(graph_comparison_object(false, 499999),
+    graph_comparison_schema(false), default_validation_options())),
+    "two unique fields accept exact shared comparison work");
+  require_true(validate_object_checked(graph_comparison_object(false, 500000),
+    graph_comparison_schema(false), default_validation_options()).is_err(),
+    "two unique fields reject one credit over shared work");
+  require_true(report_is_valid(validate_object(graph_comparison_object(true, 499999),
+    graph_comparison_schema(true), default_validation_options())),
+    "map key and unique field accept exact shared comparison work");
+  require_true(validate_object_checked(graph_comparison_object(true, 500000),
+    graph_comparison_schema(true), default_validation_options()).is_err(),
+    "map key and unique field cannot reset shared comparison fuel");
+  require_true(validate_object_checked(graph_comparison_object(true, 500000),
+    graph_comparison_schema(true), new ValidationOptions(false, 0)).is_err(),
+    "exhausted comparison fuel cannot become success with zero diagnostic slots");
+
   require_true(validate_value_checked(graph_map_pair(7,7), any_rule(),
     default_validation_options()).is_err(), "duplicate scalar map key denied");
   require_true(!validate_value_checked(graph_map_pair(7,8), any_rule(),

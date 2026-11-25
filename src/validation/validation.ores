@@ -1043,13 +1043,25 @@ fnc unique_value_work_cost(Value root): int {
   return work;
 }
 
+// One admission shares these counters across every general map and every
+// uniqueness rule; a separate conservative estimate is also cumulative.
+define class ComparisonWork as
+  let int candidate_checks;
+  let int spent_estimate;
+  let bool exhausted;
+end
+
 fnc validate_unique(
   Value value,
   ValidationReport mut report,
   ValidationOptions options,
-  List<PathSegment> path
+  List<PathSegment> path,
+  ValueWorkFuel mut fuel,
+  ComparisonWork mut work
 ): void {
+  if work.exhausted then return; fi
   if value.array_value.length > max_unique_validation_items() then
+    work.exhausted = true;
     add_error(report, options, "unique_items_limit", path,
       "unique-items validation exceeds its bounded item count");
     return;
@@ -1057,18 +1069,15 @@ fnc validate_unique(
 
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
   val Map<int, List<int>> costs = new Map<int, List<int>>();
-  let int candidate_checks = 0;
-  let int spent_work = 0;
-  // One caller-owned meter spans every hash and equality in this admission.
-  // Conservative structural estimates remain an additional defense-in-depth
-  // limit; actual metered operations fail closed on fuel exhaustion.
-  let ValueWorkFuel fuel = new ValueWorkFuel(max_unique_validation_work());
+  // All arrays use the admission's existing meter, including map-key work.
+  // Do not reset either the actual or conservative estimate counter here.
 
   for const item of value.array_value do
     // Charge the entire expanded item BEFORE hashing it.
     val int item_cost = unique_value_work_cost(rt borrow item);
-    spent_work = unique_work_add(spent_work, item_cost);
-    if spent_work < 0 then
+    work.spent_estimate = unique_work_add(work.spent_estimate, item_cost);
+    if work.spent_estimate < 0 then
+      work.exhausted = true;
       add_error(report, options, "unique_items_work_limit", path,
         "nested uniqueness hash/equality work exceeds the bounded budget");
       return;
@@ -1077,6 +1086,7 @@ fnc validate_unique(
     val ValueHashAttempt hash_attempt = value_hash_with_fuel(
       rt borrow item, fuel);
     if !hash_attempt.completed then
+      work.exhausted = true;
       add_error(report, options, "unique_items_work_limit", path,
         "metered Value hashing exhausted the operation work budget");
       return;
@@ -1087,19 +1097,22 @@ fnc validate_unique(
       val List<int> candidate_costs = costs.get(hash);
       let int i = 0;
       for const candidate of candidates do
-        if candidate_checks >= max_unique_candidate_checks() then
+        if work.candidate_checks >= max_unique_candidate_checks() || fuel.remaining <= 0 then
+          work.exhausted = true;
           add_error(report, options, "unique_items_complexity_limit", path,
             "unique-items collision comparisons exceed the bounded budget");
           return;
         fi
-        candidate_checks = candidate_checks + 1;
+        work.candidate_checks = work.candidate_checks + 1;
+        fuel.remaining = fuel.remaining - 1;
 
         // Conservatively account for both graphs before native deep equality.
-        spent_work = unique_work_add(spent_work, item_cost);
-        if spent_work >= 0 then
-          spent_work = unique_work_add(spent_work, candidate_costs[i]);
+        work.spent_estimate = unique_work_add(work.spent_estimate, item_cost);
+        if work.spent_estimate >= 0 then
+          work.spent_estimate = unique_work_add(work.spent_estimate, candidate_costs[i]);
         fi
-        if spent_work < 0 then
+        if work.spent_estimate < 0 then
+          work.exhausted = true;
           add_error(report, options, "unique_items_work_limit", path,
             "nested uniqueness hash/equality work exceeds the bounded budget");
           return;
@@ -1108,6 +1121,7 @@ fnc validate_unique(
         val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(
           rt borrow candidate, rt borrow item, fuel);
         if !equal_attempt.completed then
+          work.exhausted = true;
           add_error(report, options, "unique_items_work_limit", path,
             "metered Value comparison exhausted the operation work budget");
           return;
@@ -1139,7 +1153,9 @@ fnc validate_rule_at(
   ValueRule rule,
   ValidationReport mut report,
   ValidationOptions options,
-  List<PathSegment> path
+  List<PathSegment> path,
+  ValueWorkFuel mut fuel,
+  ComparisonWork mut work
 ): void {
   if value.kind < 0 || value.kind > 8 then
     add_error(report, options, "invalid_value_kind", path,
@@ -1231,7 +1247,7 @@ fnc validate_rule_at(
     fi
 
     if rule.require_unique_items then
-      validate_unique(value, report, options, path);
+      validate_unique(value, report, options, path, fuel, work);
     fi
   fi
 
@@ -1302,7 +1318,9 @@ pub fnc validate_value(
     );
   fi
 
-  if !checked_value_tree_valid(rt borrow value) then
+  let ValueWorkFuel comparison_fuel = new ValueWorkFuel(max_unique_validation_work());
+  let ComparisonWork comparison_work = new ComparisonWork(0, 0, false);
+  if !checked_value_tree_valid(rt borrow value, comparison_fuel, comparison_work) then
     return config_report("invalid_value_tree",
       "dynamic value tree is malformed or exceeds validation work limits");
   fi
@@ -1311,7 +1329,7 @@ pub fnc validate_value(
     new List<ValidationError>(),
     false
   );
-  validate_rule_at(value, rule, report, options, new List<PathSegment>());
+  validate_rule_at(value, rule, report, options, new List<PathSegment>(), comparison_fuel, comparison_work);
   return report;
 }
 
@@ -1396,7 +1414,9 @@ pub fnc validate_object(
     );
   fi
 
-  if !checked_value_tree_valid(rt borrow value) then
+  let ValueWorkFuel comparison_fuel = new ValueWorkFuel(max_unique_validation_work());
+  let ComparisonWork comparison_work = new ComparisonWork(0, 0, false);
+  if !checked_value_tree_valid(rt borrow value, comparison_fuel, comparison_work) then
     return config_report("invalid_value_tree",
       "dynamic value tree is malformed or exceeds validation work limits");
   fi
@@ -1476,9 +1496,13 @@ pub fnc validate_object(
       field.value_rule,
       report,
       options,
-      key_path(field.key)
+      key_path(field.key),
+      comparison_fuel,
+      comparison_work
     );
 
+    // A resource refusal is terminal even with fail_fast=false.
+    if comparison_work.exhausted then return report; fi
     if should_stop(report, options) then
       return report;
     fi
@@ -1525,7 +1549,7 @@ pub fnc max_checked_value_bytes(): int { return 16777216; }
 pub fnc max_checked_map_key_work(): int { return 1000000; }
 pub fnc max_checked_map_key_candidates(): int { return 16384; }
 
-fnc checked_value_tree_valid(Value root): bool {
+fnc checked_value_tree_valid(Value root, ValueWorkFuel mut map_fuel, ComparisonWork mut work): bool {
   val List<Value> pending = new List<Value>();
   val List<int> depths = new List<int>();
   pending.add(root);
@@ -1638,8 +1662,6 @@ fnc checked_value_tree_valid(Value root): bool {
   // Do not hash or compare arbitrary map keys until the entire active graph
   // passes structural admission. Reuse the bounded occurrence queue.
   // Neither a partial hash nor incomplete equality may admit a key.
-  let ValueWorkFuel map_fuel = new ValueWorkFuel(max_checked_map_key_work());
-  let int remaining_map_candidates = max_checked_map_key_candidates();
   for const map_value of pending do
     if map_value.kind != 8 then continue; fi
     val Map<int, List<int>> buckets = new Map<int, List<int>>();
@@ -1652,8 +1674,8 @@ fnc checked_value_tree_valid(Value root): bool {
       if buckets.contains(hash) then
         val List<int> candidates = buckets.get(hash);
         for const index of candidates do
-          if remaining_map_candidates <= 0 || map_fuel.remaining <= 0 then return false; fi
-          remaining_map_candidates = remaining_map_candidates - 1;
+          if work.candidate_checks >= max_checked_map_key_candidates() || map_fuel.remaining <= 0 then return false; fi
+          work.candidate_checks = work.candidate_checks + 1;
           map_fuel.remaining = map_fuel.remaining - 1;
           val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(
             rt borrow map_value.map_value[index].key,
