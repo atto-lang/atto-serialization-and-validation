@@ -133,6 +133,17 @@ jobs:
           report: protobuf-parity.json
           sarif: protobuf-parity.sarif
           output_dir: protobuf-generated
+      - name: Retain failed schema comparison diagnostics (not a receipt)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: protobuf-schema-failure-diagnostics
+          retention-days: 7
+          if-no-files-found: warn
+          path: |
+            protobuf-parity.json
+            protobuf-parity.sarif
+            protobuf-generated/
       - name: Require meaningful semantic positive report
         run: |
           node --input-type=module - <<'JS'
@@ -194,7 +205,7 @@ jobs:
           receipt={'schema':'oreslang.protobuf.dual-authority.v1',
             'head_sha':os.environ['HEAD_SHA'],
             'sha256':{p:hashlib.sha256(Path(p).read_bytes()).hexdigest() for p in files},
-            'parity_tool_sha':'a9aa7e0a258a0514b433178842288ab798b0947c',
+            'parity_tool_sha':'f386c78e44c93309029e186799d926c652cb0d96',
             'native_oreslang_executed':False,'wit_abi_implemented':False,
             'release_ready':False}
           Path('protobuf-schema-receipt.json').write_text(json.dumps(receipt,indent=2,sort_keys=True)+'\n')
