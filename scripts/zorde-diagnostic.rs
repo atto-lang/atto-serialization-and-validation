@@ -13,32 +13,37 @@ fn fixture_valid(f: &str) -> bool {
     matches!(f, "private-entry-import" | "private-storage-access")
 }
 
-// Accept only well-formed SGR escapes. Never remove arbitrary CSI sequences
-// or an escape embedded inside a token; that could manufacture a subject.
-fn normalize(raw: &str) -> Option<String> {
-    let mut out = String::with_capacity(raw.len());
-    let mut chars = raw.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if out.chars().last().is_some_and(|p| p.is_alphanumeric() || p == '_') {
-                return None;
-            }
-            if chars.next() != Some('[') { return None; }
-            let mut n = 0;
-            loop {
-                match chars.next()? {
-                    'm' => break,
-                    '0'..='9' | ';' if n < 32 => n += 1,
-                    _ => return None,
-                }
-            }
-        } else if c == '\r' {
-            if chars.peek() != Some(&'\n') { return None; }
-        } else if (c.is_control() && c != '\n' && c != '\t') || matches!(c, '\u{2028}' | '\u{2029}') {
-            return None;
-        } else {
-            out.push(c);
+// Only SGR decorations surrounding a complete line may be removed.
+// Interior escapes could splice a subject or a denial phrase; reject them.
+fn strip_sgr(s: &str) -> Option<&str> {
+    let rest=s.strip_prefix("\x1b[")?;
+    for (i,b) in rest.bytes().enumerate() {
+        match b {
+            b'm' if i<=32 => return Some(&rest[i+1..]),
+            b'0'..=b'9' | b';' if i<32 => (),
+            _ => return None,
         }
+    }
+    None
+}
+fn normalize(raw: &str) -> Option<String> {
+    let mut out=String::with_capacity(raw.len());
+    for (i,physical) in raw.split('\n').enumerate() {
+        if i>0 { out.push('\n'); }
+        let mut line=physical.strip_suffix('\r').unwrap_or(physical);
+        // A final bare CR is not CRLF; reject in assess before normalization.
+        while line.starts_with('\x1b') { line=strip_sgr(line)?; }
+        let text=if let Some(at)=line.find('\x1b') {
+            let mut tail=&line[at..];
+            while tail.starts_with('\x1b') { tail=strip_sgr(tail)?; }
+            if !tail.bytes().all(|b|matches!(b,b' '|b'\t')) { return None; }
+            &line[..at]
+        } else { line };
+        if text.chars().any(|c|
+            (c.is_control() && c!='\t') || matches!(c,'\u{2028}'|'\u{2029}')) {
+            return None;
+        }
+        out.push_str(text);
     }
     Some(out)
 }
@@ -93,6 +98,12 @@ fn subject(t: &[&str], f: &str) -> bool {
         return t.len()==1 && exact(t[0],ENTRY);
     }
     if t.len()==1 { return qualified(t[0]); }
+    if t.len()==2 {
+        return [".","::"].iter().any(|sep|
+            t[0].strip_suffix(sep).is_some_and(|owner|exact(owner,OWNER))
+                && exact(t[1],MEMBER)
+            || exact(t[0],OWNER) && t[1].strip_prefix(sep).is_some_and(|member|exact(member,MEMBER)));
+    }
     // Owner/member association belongs to the very same grammatical subject.
     if t.len()==3 {
         return (exact(t[0],OWNER) && matches!(t[1], "."|"::"|"member"|"field") && exact(t[2],MEMBER))
@@ -122,7 +133,7 @@ fn denial(line: &str, f: &str) -> bool {
 /// refuses ambiguous continuation-only or mixed failures. Real compiler wording
 /// must be confirmed before replacing the existing production harness.
 pub fn assess(raw: &[u8], fixture: &str) -> bool {
-    if !fixture_valid(fixture) || raw.is_empty() || raw.len()>MAX_LOG || raw.contains(&0) {
+    if !fixture_valid(fixture) || raw.is_empty() || raw.len()>MAX_LOG || raw.contains(&0) || raw.ends_with(b"\r") {
         return false;
     }
     // Measure physical bytes before removing formatting.
@@ -236,4 +247,103 @@ mod tests {
         assert!(!assess(subject,"unknown"));
         assert!(!assess(&vec![b'x';MAX_LOG+1],E));
     }
+    #[test] fn legacy_combined_gate_positive_matrix() {
+        for (text,fixture) in [
+            ("error: private class ZordePrivateCompiledEntry",E),
+            ("error: private type \"ZordePrivateCompiledEntry\"",E),
+            ("error: cannot access ZordePrivateCompiledEntry\n",E),
+            ("error: cannot import \x60ZordePrivateCompiledEntry\x60",E),
+            ("error: ZordePrivateCompiledEntry is not accessible",E),
+            ("error: ZordePrivateCompiledEntry is inaccessible",E),
+            ("error: ZordePrivateCompiledEntry cannot be accessed",E),
+            ("error: ZordePrivateCompiledEntry has private access",E),
+            ("error: ZordePrivateCompiledEntry\tIS PRIVATE\r\n",E),
+            ("note: evaluating visibility\nerror: private class 'ZordePrivateCompiledEntry'",E),
+            ("error: ZordeScalarRegistry. entries is private",S),
+            ("error: ZordeScalarRegistry ::entries is private",S),
+            ("error: ZordeScalarRegistry member entries is private",S),
+            ("error: cannot access field 'entries' in ZordeScalarRegistry",S),
+            ("error: access denied to entries on ZordeScalarRegistry",S),
+            ("\x1b[31merror: ZordePrivateCompiledEntry not public\x1b[0m",E),
+            ("\x1b[1m\x1b[31merror: ZordePrivateCompiledEntry not public\x1b[0m\x1b[39m\r\n",E),
+        ] { assert!(assess(text.as_bytes(),fixture),"{text:?}"); }
+    }
+    #[test] fn legacy_rejections_and_intentional_stricter_outcomes() {
+        // These include inputs accepted by the old unqualified same-line
+        // verifier alone but refused by the combined owner-aware gate.
+        for (text,fixture) in [
+            ("error: cannot access member entries",S),
+            ("error: field entries is private",S),
+            ("error: access denied to 'entries'",S),
+            ("error: ZordeScalarRegistry is private",S),
+            ("error: private field entriesSuffix",S),
+            ("error: reentries is private",S),
+            ("error: entries_shadow is private",S),
+            ("error: entries2 is private",S),
+            ("error: preentries is private",S),
+            ("error: entries unknown; Other is private",S),
+            ("error: entries unexpected; cannot access Other",S),
+            ("error: other is private, entries mentioned",S),
+            ("warning: entries visible; Other is private",S),
+            ("error: private class Other ZordePrivateCompiledEntry",E),
+            ("error: ZordePrivateCompiledEntry not found; access denied to Other",E),
+            ("error: cannot access Other; ZordePrivateCompiledEntry unknown",E),
+            ("error: ZordePrivateCompiledEntry undefined identifier",E),
+            ("error: unknown symbol ZordePrivateCompiledEntry",E),
+            ("error: SomeOtherType is private",E),
+            ("error: Other is private\nZordePrivateCompiledEntry",E),
+            ("error: private type OtherClass\nignored\nwarning: ZordePrivateCompiledEntry",E),
+            ("ZordePrivateCompiledEntry\nprivate class Unexpected",E),
+            ("entries\nerror: symbol elsewhere is private",S),
+            ("error: private type\nOtherClass\nZordePrivateCompiledEntry",E),
+            ("error: Other field is private\nentries",S),
+            ("error: ZordePrivateCompiledEntry is private",S),
+            ("error: ZordeScalarRegistry.entries is private",E),
+            ("error: ZordePrivateCompiledEntry is private\ninternal compiler error",E),
+            ("error: ZordePrivateCompiledEntry is private\nexception in thread",E),
+            ("error: ZordePrivateCompiledEntry is private\nsegmentation fault",E),
+            ("error: ZordePrivateCompiledEntry is private\nmodule not found",E),
+        ] { assert!(!assess(text.as_bytes(),fixture),"{text:?}"); }
+    }
+    #[test] fn decoration_must_not_manufacture_a_token_or_a_line() {
+        for text in [
+            "error: ZordePrivate\x1b[31mCompiledEntry is private",
+            "error: \x1b[31mZordePrivateCompiledEntry is private",
+            "error: ZordePrivateCompiledEntry \x1b[31mis private",
+            "error: ZordePrivateCompiledEntry is private\x1b[0m extra",
+            "error: ZordePrivateCompiledEntry is private\x1b[",
+            "error: ZordePrivateCompiledEntry is private\x1b[2J",
+            "error: ZordePrivateCompiledEntry is private\r",
+            "error: ZordePrivateCompiledEntry is private\rerror: Other",
+            "error: ZordePrivateCompiledEntry is private\u{0085}",
+        ] { assert!(!assess(text.as_bytes(),E),"{text:?}"); }
+    }
+    #[test] fn exact_physical_total_and_multibyte_limits() {
+        let subject=b"error: ZordePrivateCompiledEntry is private";
+        let mut log=Vec::new();
+        while log.len()+MAX_LINE+1+subject.len()<=MAX_LOG {
+            log.extend(std::iter::repeat_n(b'x',MAX_LINE));
+            log.push(b'\n');
+        }
+        let remaining=MAX_LOG-log.len()-subject.len();
+        if remaining>0 {
+            log.extend(std::iter::repeat_n(b'x',remaining-1));
+            log.push(b'\n');
+        }
+        log.extend(subject);
+        assert_eq!(log.len(),MAX_LOG);
+        assert!(assess(&log,E));
+        log.push(b' ');
+        assert!(!assess(&log,E));
+        let note=format!("{}","é".repeat(2048));
+        assert_eq!(note.len(),MAX_LINE);
+        assert!(assess(format!("{note}\n{}",std::str::from_utf8(subject).unwrap()).as_bytes(),E));
+        assert!(!assess(format!("{note}x\n{}",std::str::from_utf8(subject).unwrap()).as_bytes(),E));
+        let mut crlf=subject.to_vec();
+        crlf.resize(MAX_LINE,b' ');
+        crlf.extend_from_slice(b"\r\n");
+        assert!(assess(&crlf,E));
+        assert!(!assess(b"error: ZordePrivateCompiledEntry is private\n\xff",E));
+    }
+
 }

@@ -12,3 +12,11 @@ approval gates remain in place. No policy exception is introduced. Migration
 requires equivalent or explicitly stricter tested outcomes for all remaining
 legacy cases, CLI and source-local refusal tests, then atomic call-site
 replacement and removal. Native compiler diagnostic evidence remains separate.
+
+The follow-up matrix explicitly distinguishes the old independent checker
+from the intended combined gate: unqualified `entries` and multiline-only
+private errors are not accepted. Physical log limits are 64 KiB and 4096
+bytes per line; unlike the old secondary checker, any overlong line fails
+closed. SGR decorations are allowed only around a whole line, not inside
+a subject or phrase. This is a curated regression migration, not a complete
+mechanical differential comparison or native compiler diagnostic receipt.
