@@ -7,7 +7,7 @@ import class DecodeOptions, DecodeMaterializationBudget from '../src/core/option
 import fnc default_decode_options, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes, max_decode_materialized_nodes, max_decode_materialized_bytes from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object, decode_and_validate_sealed_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, object_schema_checked, seal_object_schema, sealed_schema_field_count, max_schema_fields, max_schema_key_bytes, max_schema_total_key_bytes, max_key_lookup_candidates, max_key_lookup_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, object_schema_checked, seal_object_schema, sealed_schema_field_count, max_schema_fields, max_diagnostic_key_bytes, max_schema_key_bytes, max_schema_total_key_bytes, max_key_lookup_candidates, max_key_lookup_bytes, max_checked_value_nodes, max_checked_value_depth, max_checked_value_bytes from '../src/validation/validation';
 import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, validate_sealed_object, validate_sealed_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 // Distinct legal ASCII keys; the one-over case is only one byte over the
@@ -372,7 +372,48 @@ fnc sealed_schema_tests(): void {
   return;
 }
 
+fnc diagnostic_key(int size): Utf8Text {
+  val List<int> bytes = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= size then break; fi
+    bytes.add(97);
+    i = i + 1;
+  done
+  return new Utf8Text(bytes);
+}
+
+fnc missing_diagnostic(int size): ValidationReport {
+  val List<FieldRule> fields = new List<FieldRule>();
+  fields.add(field_rule(diagnostic_key(size), true, false, any_rule()));
+  return validate_object(value_object(new List<WireMember>()),
+    object_schema(fields, false), default_validation_options());
+}
+
+fnc diagnostic_budget_tests(): void {
+  require_int(max_diagnostic_key_bytes(), 256, "diagnostic key byte ceiling");
+  val ValidationReport exact = missing_diagnostic(256);
+  require_true(!report_is_valid(rt borrow exact), "missing key remains invalid");
+  require_int(exact.errors[0].path[0].kind, 1, "exact key preserved");
+  require_int(exact.errors[0].path[0].key.bytes.length, 256, "exact diagnostic byte bound");
+  val ValidationReport over = missing_diagnostic(257);
+  require_true(!report_is_valid(rt borrow over), "omission never admits missing field");
+  require_true(over.errors[0].code == "required", "omission preserves error code");
+  require_int(over.errors[0].path[0].kind, 3, "oversized key explicitly omitted");
+  require_int(over.errors[0].path[0].key.bytes.length, 0, "oversized key not retained");
+  val ValidationReport empty = missing_diagnostic(0);
+  require_int(empty.errors[0].path[0].kind, 1, "actual empty key distinct from omission");
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(diagnostic_key(257), value_int(1)));
+  val ValidationReport unknown = validate_object(value_object(members),
+    object_schema(new List<FieldRule>(), true), default_validation_options());
+  require_true(!report_is_valid(rt borrow unknown), "oversized unknown key still denied");
+  require_int(unknown.errors[0].path[0].kind, 3, "unknown field omission");
+  return;
+}
+
 pub fnc run_validation_tests(): void {
+  diagnostic_budget_tests();
   sealed_schema_tests();
   materialization_budget_tests();
   schema_snapshot_tests();

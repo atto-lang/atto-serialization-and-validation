@@ -9,7 +9,7 @@ import fnc object_find_index from '../core/value';
 import fnc utf8_is_valid, utf8_codepoint_count from '../core/utf8';
 
 pub define class PathSegment as
-  // kind: 0 root, 1 object key, 2 array index.
+  // kind: 0 root, 1 object key, 2 array index, 3 omitted oversized key.
   pub val int kind;
   pub val Utf8Text key;
   pub val int index;
@@ -490,8 +490,19 @@ fnc empty_key(): Utf8Text {
   return new Utf8Text(new List<int>());
 }
 
+// Diagnostic allocation is independent of permitted schema/input key size.
+// 4096 report entries * 256 copied key bytes = at most 1 MiB retained
+// logical key bytes for the current single-segment object validator.
+pub fnc max_diagnostic_key_bytes(): int { return 256; }
+
 fnc key_path(Utf8Text key): List<PathSegment> {
   val List<PathSegment> path = new List<PathSegment>();
+  // Never publish a partial UTF-8 sequence, nor disguise an omitted key as
+  // a genuine empty key. Keep the original validation error and its status.
+  if key.bytes.length > max_diagnostic_key_bytes() then
+    path.add(new PathSegment(3, empty_key(), -1));
+    return path;
+  fi
   // A report is a public mutable diagnostic, never a loan of schema storage.
   val List<int> detached_bytes = new List<int>();
   for const byte of key.bytes do detached_bytes.add(byte); done

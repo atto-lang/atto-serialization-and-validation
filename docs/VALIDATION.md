@@ -230,6 +230,18 @@ ownership and mutation tests remain required. This is an encapsulated,
 detached dynamic policy, not a frozen cross-actor capability or proof of
 compiler-issued schema identity.
 
+## Bounded diagnostic paths
+
+The dynamic object validator retains at most 256 bytes of each diagnostic
+key. Longer keys are omitted entirely, not truncated into invalid UTF-8.
+PathSegment kind 3 means omitted oversized object key; kind 1 with an empty
+key remains a genuine empty field name. Error codes and rejection semantics
+are unchanged. With at most 4096 errors and the current single-segment
+object paths, retained logical key payload is bounded by 1 MiB (not heap
+bytes). Keys are still checked at their full admitted length; this is only
+a diagnostic representation restriction. Consumers must handle kind 3.
+Native regression assertions remain unexecuted.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
