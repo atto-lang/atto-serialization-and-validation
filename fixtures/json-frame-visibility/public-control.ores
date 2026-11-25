@@ -1,0 +1,12 @@
+import class JsonIncrementalDecoder from '../../src/json/json';
+import fnc new_incremental_decoder from '../../src/json/json';
+import fnc default_decode_options from '../../src/core/options';
+import fnc require_int from '../../tests/assert';
+pub fnc main(): void {
+  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  require_int(decoder.feed(new List<int>(123,125)).status, 1, "public frame control");
+  require_int(decoder.received_bytes(), 2, "scalar received-byte control");
+  require_int(decoder.finish().status, 2, "terminal reuse denied");
+  stdio.stdout.println("json frame public control passed");
+  return;
+}

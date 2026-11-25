@@ -32,6 +32,7 @@ pub async fnc decode_one_from_channel(
     return Err(decode_error("framing_required", 0, "one-value channel decode cannot allow trailing data; use an explicit framed/sequence decoder"));
   fi
 
+  val int input_limit = options.max_input_bytes;
   let JsonIncrementalDecoder decoder = new_incremental_decoder(options);
 
   loop do
@@ -52,7 +53,7 @@ pub async fnc decode_one_from_channel(
       // A complete root is not proof of end-of-message. Without this drain,
       // {"ok":true} followed by a second channel frame would be accepted
       // and the second frame silently abandoned by this one-value API.
-      let int received = decoder.buffer.length;
+      let int received = decoder.received_bytes();
       loop do
         val Future<Option<List<int>>> pending_tail = nb readch input;
         val Option<List<int>> tail = await pending_tail;
@@ -61,7 +62,7 @@ pub async fnc decode_one_from_channel(
         fi
 
         val List<int> bytes = tail.unwrap();
-        if bytes.length > options.max_input_bytes - received then
+        if bytes.length > input_limit - received then
           return Err(decode_error(
             "input_limit",
             received,

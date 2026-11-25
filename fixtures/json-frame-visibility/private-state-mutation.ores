@@ -1,0 +1,8 @@
+import class JsonIncrementalDecoder from '../../src/json/json';
+import fnc new_incremental_decoder from '../../src/json/json';
+import fnc default_decode_options from '../../src/core/options';
+pub fnc main(): void {
+  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  decoder.state.complete = false;
+  return;
+}
