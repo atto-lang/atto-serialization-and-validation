@@ -28,7 +28,9 @@ impl<'de> Deserialize<'de> for Unique {
                 Ok(Unique(Value::Number(Number::from(v))))
             }
             fn visit_f64<E: de::Error>(self, _: f64) -> Result<Unique, E> {
-                Err(E::custom("JSON floating-point syntax is not supported by this contract"))
+                Err(E::custom(
+                    "JSON floating-point syntax is not supported by this contract",
+                ))
             }
             fn visit_str<E: de::Error>(self, v: &str) -> Result<Unique, E> {
                 Ok(Unique(Value::String(v.into())))
@@ -74,7 +76,9 @@ pub fn decode_and_validate(raw: &[u8], schema: &Value) -> Result<Value, String> 
         return Err("wire payload exceeds one MiB".into());
     }
     let mut decoder = serde_json::Deserializer::from_slice(raw);
-    let value = Unique::deserialize(&mut decoder).map_err(|e| e.to_string())?.0;
+    let value = Unique::deserialize(&mut decoder)
+        .map_err(|e| e.to_string())?
+        .0;
     decoder.end().map_err(|e| e.to_string())?;
     if !value.is_object() {
         return Err("expected top-level JSON object".into());
@@ -89,12 +93,20 @@ pub fn decode_and_validate(raw: &[u8], schema: &Value) -> Result<Value, String> 
 
 pub fn wit_fields(wit: &str, name: &str) -> BTreeMap<String, String> {
     let marker = format!("record {name} {{");
-    let body = wit.split_once(&marker).expect("WIT record missing")
-        .1.split_once('}').expect("unterminated WIT record").0;
-    body.lines().filter_map(|line| {
-        let line = line.trim().trim_end_matches(',');
-        line.split_once(':').map(|(name, ty)| (name.trim().into(), ty.trim().into()))
-    }).collect()
+    let body = wit
+        .split_once(&marker)
+        .expect("WIT record missing")
+        .1
+        .split_once('}')
+        .expect("unterminated WIT record")
+        .0;
+    body.lines()
+        .filter_map(|line| {
+            let line = line.trim().trim_end_matches(',');
+            line.split_once(':')
+                .map(|(name, ty)| (name.trim().into(), ty.trim().into()))
+        })
+        .collect()
 }
 
 pub fn typespec_fields(tsp: &str) -> BTreeMap<String, BTreeSet<String>> {
@@ -106,8 +118,14 @@ pub fn typespec_fields(tsp: &str) -> BTreeMap<String, BTreeSet<String>> {
         }
         if let Some((name, typ)) = line.trim_end_matches(';').split_once(':') {
             let name = name.trim();
-            if name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_') {
-                result.entry(name.into()).or_default().insert(typ.trim().into());
+            if name
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            {
+                result
+                    .entry(name.into())
+                    .or_default()
+                    .insert(typ.trim().into());
             }
         }
     }
