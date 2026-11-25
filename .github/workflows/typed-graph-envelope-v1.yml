@@ -1,0 +1,30 @@
+name: Typed graph envelope v1 (host only)
+on:
+  pull_request:
+    paths:
+      - 'tools/typed_graph_envelope_v1.rs'
+      - '.github/workflows/typed-graph-envelope-v1.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  graph-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head and run graph envelope host tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          git rev-parse 'HEAD^{tree}'
+          rustc --version
+          rustc --edition=2021 -D warnings --test tools/typed_graph_envelope_v1.rs -o "$RUNNER_TEMP/typed-graph"
+          "$RUNNER_TEMP/typed-graph"
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'
