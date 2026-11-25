@@ -1,18 +1,32 @@
-"""Strict Option/Result tagged JSON reference (host only, not wire standard)."""
+"""Strict Option/Result tagged JSON reference (host only; not a wire standard)."""
+
 import json
 import math
 import re
 
-MAX_BYTES = 65536
+MAX_BYTES = 65_536
 MAX_DEPTH = 32
-_CODE = re.compile("[a-z][a-z0-9_]{0,63}", re.ASCII)
+MAX_ITEMS = 4_096
+_CODE = re.compile(r"[a-z][a-z0-9_]{0,63}\Z", re.ASCII)
 
 
 class TaggedCodecError(ValueError):
     pass
 
 
+def _unicode(value):
+    try:
+        raw = value.encode("utf-8")
+    except UnicodeError as exc:
+        raise TaggedCodecError("invalid Unicode scalar") from exc
+    if len(raw) > MAX_BYTES:
+        raise TaggedCodecError("JSON string exceeds byte budget")
+    return len(raw)
+
+
 def _object(pairs):
+    if len(pairs) > MAX_ITEMS:
+        raise TaggedCodecError("object entry budget exceeded")
     obj = {}
     for key, value in pairs:
         if key in obj:
@@ -21,22 +35,47 @@ def _object(pairs):
     return obj
 
 
-def _check_value(value, depth=0):
+def _check_value(value, depth=0, budget=None, active=None):
+    if budget is None:
+        budget = [MAX_ITEMS]
+    if active is None:
+        active = set()
     if depth > MAX_DEPTH:
         raise TaggedCodecError("nested value exceeds depth limit")
-    if value is None or type(value) in (str, bool, int):
+    if value is None or type(value) is bool:
         return
-    if type(value) is float and math.isfinite(value):
+    if type(value) is str:
+        _unicode(value)
         return
-    if type(value) is list:
-        for element in value:
-            _check_value(element, depth + 1)
+    if type(value) is int:
+        if not -(1 << 63) <= value < (1 << 64):
+            raise TaggedCodecError("integer outside portable 64-bit range")
         return
-    if type(value) is dict and all(type(key) is str for key in value):
-        for element in value.values():
-            _check_value(element, depth + 1)
+    if type(value) is float:
+        if not math.isfinite(value):
+            raise TaggedCodecError("nonfinite JSON number")
         return
-    raise TaggedCodecError("unsupported or nonfinite JSON value")
+    if type(value) in (list, dict):
+        if id(value) in active:
+            raise TaggedCodecError("cyclic JSON value")
+        active.add(id(value))
+        try:
+            budget[0] -= len(value)
+            if budget[0] < 0:
+                raise TaggedCodecError("JSON entry budget exceeded")
+            if type(value) is dict:
+                for key, child in value.items():
+                    if type(key) is not str:
+                        raise TaggedCodecError("JSON object key must be text")
+                    _unicode(key)
+                    _check_value(child, depth + 1, budget, active)
+            else:
+                for child in value:
+                    _check_value(child, depth + 1, budget, active)
+        finally:
+            active.remove(id(value))
+        return
+    raise TaggedCodecError("unsupported JSON value")
 
 
 def validate_tagged(value):
@@ -63,7 +102,7 @@ def validate_tagged(value):
             raise TaggedCodecError("error requires code and message")
         if type(err["code"]) is not str or not _CODE.fullmatch(err["code"]):
             raise TaggedCodecError("invalid error code")
-        if type(err["message"]) is not str or len(err["message"]) > 512:
+        if type(err["message"]) is not str or _unicode(err["message"]) > 512:
             raise TaggedCodecError("invalid error message")
     return value
 
@@ -80,12 +119,19 @@ def encode_tagged(value):
     return raw
 
 
+def _parse_int(raw):
+    if len(raw) > 21:
+        raise TaggedCodecError("integer literal too large")
+    return int(raw)
+
+
 def decode_tagged(raw):
     if type(raw) is not bytes or len(raw) > MAX_BYTES:
         raise TaggedCodecError("input must be bounded bytes")
     try:
         obj = json.loads(raw.decode("utf-8"), object_pairs_hook=_object,
-                         parse_constant=lambda x: (_ for _ in ()).throw(TaggedCodecError("nonfinite JSON")))
+                         parse_int=_parse_int,
+                         parse_constant=lambda _: (_ for _ in ()).throw(TaggedCodecError("nonfinite JSON")))
     except (UnicodeError, json.JSONDecodeError, RecursionError, ValueError) as exc:
         raise TaggedCodecError("invalid tagged JSON") from exc
     return validate_tagged(obj)
