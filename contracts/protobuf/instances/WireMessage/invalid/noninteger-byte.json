@@ -1,0 +1,11 @@
+{
+  "fields": [
+    {
+      "fieldNumber": 1,
+      "wireType": 2,
+      "payload": [
+        1.5
+      ]
+    }
+  ]
+}
