@@ -1,0 +1,22 @@
+import fnc require_int from './assert';
+import fnc wire_floor_div from '../src/core/bytes';
+
+pub fnc main(): void {
+  val int minimum = -9223372036854775807 - 1;
+  val int maximum = 9223372036854775807;
+  require_int(wire_floor_div(0, 256), 0, "zero quotient");
+  require_int(wire_floor_div(255, 256), 0, "positive remainder");
+  require_int(wire_floor_div(256, 256), 1, "positive exact");
+  require_int(wire_floor_div(-1, 256), -1, "negative floor");
+  require_int(wire_floor_div(-257, 256), -2, "negative floor across byte boundary");
+  require_int(wire_floor_div(minimum, 256), -36028797018963968, "minimum signed byte quotient");
+  require_int(wire_floor_div(minimum + 1, 256), -36028797018963968, "minimum plus one floor");
+  require_int(wire_floor_div(maximum, 256), 36028797018963967, "maximum signed byte quotient");
+  require_int(wire_floor_div(9007199254740993, 128), 70368744177664, "beyond binary64 exactness");
+  require_int(wire_floor_div(maximum, 72057594037927936), 127, "most significant octet");
+  require_int(wire_floor_div(minimum, 1), minimum, "minimum divided by one");
+  require_int(wire_floor_div(minimum, maximum), -2, "large divisor and signed minimum");
+  require_int(Integer.mod(-1, 256), 255, "negative octet modulus");
+  stdio.stdout.println("wire integer arithmetic tests passed");
+  return;
+}

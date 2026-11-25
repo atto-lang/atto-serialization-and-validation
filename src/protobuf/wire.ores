@@ -1,4 +1,4 @@
-import fnc byte_list_valid, byte_range_fits from '../core/bytes';
+import fnc byte_list_valid, byte_range_fits, wire_floor_div from '../core/bytes';
 
 // Native Protocol Buffers wire codec.
 //
@@ -175,7 +175,7 @@ fnc read_varint(ProtoCursor mut cursor): VarintRead {
     fi
 
     bytes.add(byte);
-    let int payload = byte % 128;
+    let int payload = Integer.rem(byte, 128);
 
     if count < 9 && fits_int then
       value = value + (payload * multiplier);
@@ -320,8 +320,8 @@ pub fnc decode_message(
       return Err(new ProtoError("field_key_range", cursor.index, "Protobuf field key exceeds signed int range"));
     fi
 
-    let int field_number = key.value / 8;
-    let int wire_type = key.value % 8;
+    let int field_number = wire_floor_div(key.value, 8);
+    let int wire_type = Integer.rem(key.value, 8);
 
     if field_number <= 0 || field_number > 536870911 then
       return Err(new ProtoError("field_number", cursor.index, "invalid Protobuf field number"));
@@ -429,8 +429,8 @@ fnc append_varint(
       break;
     fi
 
-    append_byte(writer, (remaining % 128) + 128);
-    remaining = remaining / 128;
+    append_byte(writer, Integer.rem(remaining, 128) + 128);
+    remaining = wire_floor_div(remaining, 128);
   done
 
   return;
