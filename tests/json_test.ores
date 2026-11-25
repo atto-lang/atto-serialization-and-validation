@@ -22,7 +22,77 @@ fnc new_nested_json_root(): Value {
   return decoded.unwrap().value;
 }
 
+fnc json_work_object(int size): Value {
+  val List<int> key = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= size then break; fi
+    key.add(97);
+    i = i + 1;
+  done
+  val List<WireMember> members = new List<WireMember>();
+  members.add(new WireMember(new Utf8Text(key), value_int(1)));
+  return value_object(members);
+}
+
+fnc json_work_graph(int second_size): Value {
+  val List<Value> values = new List<Value>();
+  values.add(json_work_object(499999));
+  values.add(json_work_object(second_size));
+  return value_array(values);
+}
+
+// Two object chunks, neither can be treated as its own independent frame.
+fnc json_work_chunk(int size, bool first): List<int> {
+  val List<int> chunk = new List<int>();
+  if first then chunk.add(91); else chunk.add(44); fi
+  chunk.add(123);
+  chunk.add(34);
+  let int i = 0;
+  loop do
+    if i >= size then break; fi
+    chunk.add(97);
+    i = i + 1;
+  done
+  chunk.add(34);
+  chunk.add(58);
+  chunk.add(49);
+  chunk.add(125);
+  if !first then chunk.add(93); fi
+  return chunk;
+}
+
+fnc json_work_wire(int second_size): List<int> {
+  val List<int> wire = json_work_chunk(499999, true);
+  for const byte of json_work_chunk(second_size, false) do wire.add(byte); done
+  return wire;
+}
+
 pub fnc run_json_tests(): void {
+  require_true(!encode(json_work_graph(499999), default_encode_options()).is_err(),
+    "JSON writer exact shared key fuel");
+  require_true(encode(json_work_graph(500000), default_encode_options()).is_err(),
+    "JSON writer one over shared key fuel");
+  require_true(!decode_default(json_work_wire(499999)).is_err(),
+    "JSON reader exact shared key fuel");
+  require_true(decode_default(json_work_wire(500000)).is_err(),
+    "JSON reader one over shared key fuel");
+  let JsonIncrementalDecoder budget_decoder = new_incremental_decoder(default_decode_options());
+  require_int(budget_decoder.feed(json_work_chunk(499999, true)).status, 0,
+    "first chunk is incomplete");
+  val DecodeStep budget_error = budget_decoder.feed(json_work_chunk(500000, false));
+  require_int(budget_error.status, 2, "second chunk cannot reset shared fuel");
+  require_true(budget_error.error.code == "key_work_limit", "incremental error is budget refusal");
+  val DecodeStep retry_error = budget_decoder.feed(new List<int>());
+  require_true(retry_error.status == 2 && retry_error.error.code == "decoder_complete",
+    "budget refusal is terminal, even on empty retry");
+  require_int(budget_decoder.finish().status, 2, "finish cannot retry rejected frame");
+  let JsonIncrementalDecoder exact_decoder = new_incremental_decoder(default_decode_options());
+  require_int(exact_decoder.feed(json_work_chunk(499999, true)).status, 0,
+    "exact split control begins incomplete");
+  require_int(exact_decoder.feed(json_work_chunk(499999, false)).status, 1,
+    "exact split control admits complete frame");
+
   val List<Value> nested_graph = new List<Value>();
   nested_graph.add(value_int(7));
   require_true(encode(value_array(nested_graph), new EncodeOptions(0,64)).is_err(),

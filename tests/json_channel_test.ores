@@ -4,7 +4,45 @@ import class DecodeOptions, DecodeError, DecodedValue from '../src/core/options'
 import fnc default_decode_options from '../src/core/options';
 import fnc decode_one_from_channel from '../src/json/channel';
 
+fnc channel_work_chunk(int size, bool first): List<int> {
+  val List<int> chunk = new List<int>();
+  if first then chunk.add(91); else chunk.add(44); fi
+  chunk.add(123);
+  chunk.add(34);
+  let int i = 0;
+  loop do
+    if i >= size then break; fi
+    chunk.add(97);
+    i = i + 1;
+  done
+  chunk.add(34);
+  chunk.add(58);
+  chunk.add(49);
+  chunk.add(125);
+  if !first then chunk.add(93); fi
+  return chunk;
+}
+
 pub async fnc run_json_channel_tests(): void {
+  val Channel<Option<List<int>>> over_budget = Channel.new<Option<List<int>>>(3);
+  writech over_budget, Some(channel_work_chunk(499999, true));
+  writech over_budget, Some(channel_work_chunk(500000, false));
+  val Option<List<int>> budget_eof = None;
+  writech over_budget, budget_eof;
+  val Future<Result<DecodedValue, DecodeError>> budget_task =
+    decode_one_from_channel(rt take over_budget, default_decode_options());
+  val Result<DecodedValue, DecodeError> budget_result = await budget_task;
+  require_true(budget_result.is_err(), "channel chunks cannot reset JSON key fuel");
+  val Channel<Option<List<int>>> exact_budget = Channel.new<Option<List<int>>>(3);
+  writech exact_budget, Some(channel_work_chunk(499999, true));
+  writech exact_budget, Some(channel_work_chunk(499999, false));
+  val Option<List<int>> exact_eof = None;
+  writech exact_budget, exact_eof;
+  val Future<Result<DecodedValue, DecodeError>> exact_task =
+    decode_one_from_channel(rt take exact_budget, default_decode_options());
+  val Result<DecodedValue, DecodeError> exact_result = await exact_task;
+  require_true(!exact_result.is_err(), "channel exact key budget through EOF");
+
   val Channel<Option<List<int>>> input = Channel.new<Option<List<int>>>(3);
 
   // Split a UTF-8 code point across chunks: JSON string "é".
