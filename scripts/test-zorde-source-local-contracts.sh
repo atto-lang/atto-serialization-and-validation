@@ -201,7 +201,7 @@ case "$1" in
     echo 'ZordePrivateCompiledEntry is private' >&2; exit 42
     ;;
   */fixtures/zorde-compile-negative/private-storage-access.ores)
-    echo 'ZordeScalarRegistry entries is private' >&2; exit 42
+    echo 'ZordeScalarRegistry.entries is private' >&2; exit 42
     ;;
   *) echo 'unexpected synthetic fixture' >&2; exit 78 ;;
 esac
