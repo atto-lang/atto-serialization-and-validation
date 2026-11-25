@@ -1,0 +1,521 @@
+[
+  {
+    "name": "cbor-positional",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "protobuf-recursive",
+    "descriptor": {
+      "codec": "protobuf",
+      "version": 1,
+      "root": "Node",
+      "nodes": [
+        {
+          "id": "Node",
+          "kind": "message",
+          "fields": [
+            {
+              "slot": 2,
+              "name": "next",
+              "target": "Node"
+            },
+            {
+              "slot": 1,
+              "name": "values",
+              "target": "Packed"
+            }
+          ]
+        },
+        {
+          "id": "Packed",
+          "kind": "packed",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "element",
+              "target": "U64"
+            }
+          ]
+        },
+        {
+          "id": "U64",
+          "kind": "varint",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "cbor-shuffled",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            }
+          ]
+        }
+      ]
+    },
+    "valid": true,
+    "equal": "cbor-positional"
+  },
+  {
+    "name": "protobuf-version",
+    "descriptor": {
+      "codec": "protobuf",
+      "version": 2,
+      "root": "Node",
+      "nodes": [
+        {
+          "id": "Node",
+          "kind": "message",
+          "fields": [
+            {
+              "slot": 2,
+              "name": "next",
+              "target": "Node"
+            },
+            {
+              "slot": 1,
+              "name": "values",
+              "target": "Packed"
+            }
+          ]
+        },
+        {
+          "id": "Packed",
+          "kind": "packed",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "element",
+              "target": "U64"
+            }
+          ]
+        },
+        {
+          "id": "U64",
+          "kind": "varint",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true,
+    "different": "protobuf-recursive"
+  },
+  {
+    "name": "duplicate-slot",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 1,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown-ref",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "Missing"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "unreachable",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "Extra",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "bad-token",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order\\n",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "gap",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 1,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 3,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid-version",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 2147483648,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "reserved-protobuf-tag",
+    "descriptor": {
+      "codec": "protobuf",
+      "version": 1,
+      "root": "Node",
+      "nodes": [
+        {
+          "id": "Node",
+          "kind": "message",
+          "fields": [
+            {
+              "slot": 19000,
+              "name": "next",
+              "target": "Node"
+            },
+            {
+              "slot": 1,
+              "name": "values",
+              "target": "Packed"
+            }
+          ]
+        },
+        {
+          "id": "Packed",
+          "kind": "packed",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "element",
+              "target": "U64"
+            }
+          ]
+        },
+        {
+          "id": "U64",
+          "kind": "varint",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "packed-nonscalar",
+    "descriptor": {
+      "codec": "protobuf",
+      "version": 1,
+      "root": "Node",
+      "nodes": [
+        {
+          "id": "Node",
+          "kind": "message",
+          "fields": [
+            {
+              "slot": 2,
+              "name": "next",
+              "target": "Node"
+            },
+            {
+              "slot": 1,
+              "name": "values",
+              "target": "Packed"
+            }
+          ]
+        },
+        {
+          "id": "Packed",
+          "kind": "packed",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "element",
+              "target": "Node"
+            }
+          ]
+        },
+        {
+          "id": "U64",
+          "kind": "varint",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "field-rename",
+    "descriptor": {
+      "codec": "protobuf",
+      "version": 1,
+      "root": "Node",
+      "nodes": [
+        {
+          "id": "Node",
+          "kind": "message",
+          "fields": [
+            {
+              "slot": 2,
+              "name": "renamed",
+              "target": "Node"
+            },
+            {
+              "slot": 1,
+              "name": "values",
+              "target": "Packed"
+            }
+          ]
+        },
+        {
+          "id": "Packed",
+          "kind": "packed",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "element",
+              "target": "U64"
+            }
+          ]
+        },
+        {
+          "id": "U64",
+          "kind": "varint",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true,
+    "different": "protobuf-recursive"
+  }
+]
