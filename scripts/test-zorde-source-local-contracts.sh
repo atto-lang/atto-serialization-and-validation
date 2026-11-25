@@ -5,7 +5,6 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/zorde-source-local-contracts.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
-tmp="$(cd "$tmp" && pwd -P)"
 src="$tmp/source with spaces"
 out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
@@ -202,7 +201,7 @@ case "$1" in
     echo 'ZordePrivateCompiledEntry is private' >&2; exit 42
     ;;
   */fixtures/zorde-compile-negative/private-storage-access.ores)
-    echo 'ZordeScalarRegistry entries is private' >&2; exit 42
+    echo 'ZordeScalarRegistry.entries is private' >&2; exit 42
     ;;
   *) echo 'unexpected synthetic fixture' >&2; exit 78 ;;
 esac

@@ -1,0 +1,31 @@
+name: Actor DATA CBOR preflight v1 (host only)
+on:
+  pull_request:
+    paths:
+      - 'tools/actor_data_cbor_preflight_v1.rs'
+      - '.github/workflows/actor-data-cbor-preflight-v1.yml'
+  push:
+    branches: [draft/cbor-actor-data-preflight-v1-20261125]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact head and execute bounded CBOR tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain)"
+          git rev-parse 'HEAD^{tree}'
+          rustc --version
+          rustc --edition=2021 -D warnings --test tools/actor_data_cbor_preflight_v1.rs -o "$RUNNER_TEMP/cbor"
+          "$RUNNER_TEMP/cbor"
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'
