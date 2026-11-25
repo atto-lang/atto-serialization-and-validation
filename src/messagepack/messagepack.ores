@@ -8,8 +8,8 @@
 import class Value, Utf8Text, WireMember, MapEntry, IntParse, ValueWorkFuel, ValueHashAttempt from '../core/value';
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_hash_with_fuel, parse_int from '../core/value';
 import fnc bytes_equal, encode_graph_shape_status, max_codec_key_work, metered_map_entry_index, remember_metered_map_entry, metered_map_keys_status from '../core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeMaterializationBudget from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -20,6 +20,7 @@ define class MsgpackCursor as
   pub let bool failed;
   pub let DecodeError error;
   pub let ValueWorkFuel key_fuel;
+  pub let DecodeMaterializationBudget materialization;
 end
 
 define class MsgpackWriter as
@@ -184,6 +185,10 @@ fnc read_bytes(
     return output;
   fi
 
+  if !charge_decode_bytes(cursor.materialization, length) then
+    cursor_fail(cursor, "materialization_limit", "MessagePack cumulative decoded byte limit exhausted");
+    return output;
+  fi
   let int i = 0;
   loop do
     if i >= length then
@@ -232,6 +237,13 @@ fnc decode_array(
     return value_array(values);
   fi
 
+  // Reject impossible declared child counts before materializing children.
+  val int slots = cursor.materialization.nodes_remaining;
+  if count < 0 || count > slots then
+    cursor_fail(cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
+    return value_array(values);
+  fi
+
   let int i = 0;
   loop do
     if i >= count then
@@ -261,6 +273,17 @@ fnc decode_map(
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
+    return value_map(entries);
+  fi
+
+  // Reject impossible declared child counts before materializing children.
+  val int slots = cursor.materialization.nodes_remaining;
+  if count < 0 || count > slots then
+    cursor_fail(cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
+    return value_map(entries);
+  fi
+  if count > slots - count then
+    cursor_fail(cursor, "node_limit", "MessagePack cumulative key/value node limit exhausted");
     return value_map(entries);
   fi
 
@@ -351,6 +374,17 @@ fnc decode_extension(
   return value_extension(extension_type, payload);
 }
 
+// Binary integer conversion creates at most 20 decimal bytes. Reserve
+// the worst case before allocating its lexical representation.
+fnc decode_integer(MsgpackCursor mut cursor, int number): Value {
+  if cursor.failed then return value_null(); fi
+  if !charge_decode_bytes(cursor.materialization, 20) then
+    cursor_fail(cursor, "materialization_limit", "MessagePack cumulative integer storage budget exhausted");
+    return value_null();
+  fi
+  return value_int(number);
+}
+
 fnc decode_value(
   MsgpackCursor mut cursor,
   int depth
@@ -360,6 +394,10 @@ fnc decode_value(
     return value_null();
   fi
 
+  if !charge_decode_nodes(cursor.materialization, 1) then
+    cursor_fail(cursor, "node_limit", "MessagePack cumulative materialized node limit exhausted");
+    return value_null();
+  fi
   let int marker = read_u8(cursor);
   if cursor.failed then
     return value_null();
@@ -367,7 +405,7 @@ fnc decode_value(
 
   // Positive fixint.
   if marker <= 127 then
-    return value_int(marker);
+    return decode_integer(cursor, marker);
   fi
 
   // Fixmap.
@@ -387,7 +425,7 @@ fnc decode_value(
 
   // Negative fixint.
   if marker >= 224 then
-    return value_int(marker - 256);
+    return decode_integer(cursor, marker - 256);
   fi
 
   if marker == 192 then
@@ -437,30 +475,30 @@ fnc decode_value(
 
   // Unsigned integer widths supported by an Oreslang signed int.
   if marker == 204 then
-    return value_int(read_u8(cursor));
+    return decode_integer(cursor, read_u8(cursor));
   fi
   if marker == 205 then
-    return value_int(read_uint_be(cursor, 2));
+    return decode_integer(cursor, read_uint_be(cursor, 2));
   fi
   if marker == 206 then
-    return value_int(read_uint_be(cursor, 4));
+    return decode_integer(cursor, read_uint_be(cursor, 4));
   fi
   if marker == 207 then
-    return value_int(read_uint64_checked(cursor));
+    return decode_integer(cursor, read_uint64_checked(cursor));
   fi
 
   // Signed integer widths.
   if marker == 208 then
-    return value_int(read_signed(cursor, 1));
+    return decode_integer(cursor, read_signed(cursor, 1));
   fi
   if marker == 209 then
-    return value_int(read_signed(cursor, 2));
+    return decode_integer(cursor, read_signed(cursor, 2));
   fi
   if marker == 210 then
-    return value_int(read_signed(cursor, 4));
+    return decode_integer(cursor, read_signed(cursor, 4));
   fi
   if marker == 211 then
-    return value_int(read_signed(cursor, 8));
+    return decode_integer(cursor, read_signed(cursor, 8));
   fi
 
   // Fixed extension widths.
@@ -531,7 +569,8 @@ pub fnc decode(
     0,
     false,
     empty_decode_error(),
-    new ValueWorkFuel(max_codec_key_work())
+    new ValueWorkFuel(max_codec_key_work()),
+    new_decode_materialization_budget()
   );
 
   let Value value = decode_value(cursor, 0);

@@ -8,8 +8,8 @@ import class Value, Utf8Text, WireMember, ValueWorkFuel, ValueHashAttempt, Value
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
 import fnc text_hash_with_fuel, text_equal_with_fuel, max_codec_key_work, remember_metered_map_entry, encode_graph_shape_status from '../core/value';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
-import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep, DecodeMaterializationBudget from '../core/options';
+import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes from '../core/options';
 
 define class JsonCursor as
   pub val List<int> input;
@@ -19,6 +19,7 @@ define class JsonCursor as
   pub let bool incomplete;
   pub let DecodeError error;
   pub let ValueWorkFuel key_fuel;
+  pub let DecodeMaterializationBudget materialization;
 end
 
 define class JsonWriter as
@@ -468,6 +469,12 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       fi
 
       let int escaped = consume(cursor);
+      if escaped != 117 then
+        if !charge_decode_bytes(cursor.materialization, 1) then
+          fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+          return new Utf8Text(output);
+        fi
+      fi
 
       if escaped == 34 || escaped == 92 || escaped == 47 then
         output.add(escaped);
@@ -524,6 +531,10 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
           return new Utf8Text(output);
         fi
 
+        if !charge_decode_bytes(cursor.materialization, encoded_width) then
+          fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+          return new Utf8Text(output);
+        fi
         if !utf8_append_codepoint(output, codepoint) then
           fail(cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
           return new Utf8Text(output);
@@ -533,6 +544,10 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
     elseif byte < 128 then
+      if !charge_decode_bytes(cursor.materialization, 1) then
+        fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+        return new Utf8Text(output);
+      fi
       output.add(byte);
     else
       // consume() already advanced over the first byte; validate against the
@@ -568,6 +583,10 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
         return new Utf8Text(output);
       fi
 
+      if !charge_decode_bytes(cursor.materialization, width) then
+        fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+        return new Utf8Text(output);
+      fi
       output.add(byte);
       let int j = 1;
       loop do
@@ -627,6 +646,10 @@ fnc push_number_byte(
     return false;
   fi
 
+  if !charge_decode_bytes(cursor.materialization, 1) then
+    fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+    return false;
+  fi
   lexeme.push(byte);
   return true;
 }
@@ -863,8 +886,9 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     return value_object(members);
   fi
 
+  let int parsed_members = 0;
   loop do
-    if members.length >= cursor.options.max_map_entries then
+    if parsed_members >= cursor.options.max_map_entries then
       fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
       return value_object(members);
     fi
@@ -876,6 +900,11 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
+    if !charge_decode_nodes(cursor.materialization, 1) then
+      fail(cursor, "node_limit", "JSON cumulative key node limit exhausted");
+      return value_object(members);
+    fi
+    parsed_members = parsed_members + 1;
     let Utf8Text key = parse_string(cursor);
     if cursor.failed || cursor.incomplete then
       return value_object(members);
@@ -952,6 +981,11 @@ fnc parse_value(JsonCursor mut cursor, int depth): Value {
 
   let int byte = peek(cursor);
   if cursor.failed || cursor.incomplete then
+    return value_null();
+  fi
+
+  if !charge_decode_nodes(cursor.materialization, 1) then
+    fail(cursor, "node_limit", "JSON cumulative materialized node limit exhausted");
     return value_null();
   fi
 
@@ -1033,7 +1067,8 @@ pub fnc decode_attempt(
     false,
     false,
     empty_decode_error(),
-    new ValueWorkFuel(max_codec_key_work())
+    new ValueWorkFuel(max_codec_key_work()),
+    new_decode_materialization_budget()
   );
 
   let Value value = parse_value(cursor, 0);
@@ -1098,7 +1133,8 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     false,
     false,
     empty_decode_error(),
-    new ValueWorkFuel(max_codec_key_work())
+    new ValueWorkFuel(max_codec_key_work()),
+    new_decode_materialization_budget()
   );
 
   let Value value = parse_number(cursor);
