@@ -1,0 +1,26 @@
+name: Rust serde receipt structure candidate
+on:
+  pull_request:
+    paths: ['src/serde_receipts.rs','src/bin/verify-serde-receipts.rs','src/lib.rs','tests/serde_receipts.rs','fixtures/serde/adversarial-v1.json','.github/workflows/serde-receipts-rust.yml']
+permissions:
+  contents: read
+jobs:
+  synthetic-host-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Exact-head synthetic receipt tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          cargo +1.88.0 test --locked --test serde_receipts --verbose
+          cargo +1.88.0 build --locked --bin verify-serde-receipts
+          echo NATIVE_COMPILER_NOT_EXECUTED
