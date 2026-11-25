@@ -1,0 +1,26 @@
+name: Recursive Protobuf host preflight
+on:
+  pull_request:
+    paths: ['tools/actor_data_protobuf_recursive_v1.rs', '.github/workflows/actor-data-protobuf-recursive-v1.yml']
+  push:
+    branches: [main]
+    paths: ['tools/actor_data_protobuf_recursive_v1.rs', '.github/workflows/actor-data-protobuf-recursive-v1.yml']
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify exact source and execute host tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          rustc --edition=2021 -D warnings --test tools/actor_data_protobuf_recursive_v1.rs -o "$RUNNER_TEMP/proto"
+          "$RUNNER_TEMP/proto"
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'
