@@ -323,7 +323,7 @@ pub fnc object_get(Value object, Utf8Text key): Result<Value, String> {
 fnc hash_mix(int hash, int value): int {
   // Deliberate wrapping integer arithmetic: hashes are bucket selectors only;
   // collisions are always resolved with semantic equality.
-  return (hash * 1099511628211) ^ value;
+  return Integer.bitXor(hash * 1099511628211, value);
 }
 
 pub fnc bytes_hash(List<int> bytes): int {
@@ -389,7 +389,7 @@ fnc value_hash_bounded(
         text_hash(member.key),
         value_hash_bounded(member.value, depth + 1, max_depth)
       );
-      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_xor = Integer.bitXor(aggregate_xor, pair_hash);
       aggregate_sum = aggregate_sum + pair_hash;
     done
 
@@ -412,7 +412,7 @@ fnc value_hash_bounded(
         value_hash_bounded(entry.key, depth + 1, max_depth),
         value_hash_bounded(entry.value, depth + 1, max_depth)
       );
-      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_xor = Integer.bitXor(aggregate_xor, pair_hash);
       aggregate_sum = aggregate_sum + pair_hash;
     done
 
