@@ -1189,8 +1189,9 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
       append_output(writer, 48);
       append_output(writer, 48);
 
-      let int high = byte / 16;
-      let int low = byte % 16;
+      // This branch admits only control octets 0..31; split without float division.
+      let int high = byte >= 16 ? 1 : 0;
+      let int low = byte - high * 16;
       append_output(writer, high < 10 ? 48 + high : 87 + high);
       append_output(writer, low < 10 ? 48 + low : 87 + low);
       i = i + 1;
