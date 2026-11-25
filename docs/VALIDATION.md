@@ -409,3 +409,16 @@ checks. Numeric lexeme append takes a mutable loan; integer UTF-8 byte
 extraction uses shifts instead of floating division. Standalone cursor
 smoke programs are staged for the independently approved native compiler.
 This is a source repair candidate, not a verified ownership result.
+
+## Restricted actor MessagePack admission
+
+`decode_actor_bounded(input, options, max_logical_bytes, max_work)` ports
+legacy #27's restrictive actor profile. Strict duplicate and trailing-data
+policy, max depth 64, max wire 1 MiB, max logical budget 8 MiB and work
+4 Mi credits. Precharge 128 base + 16 per wire byte, and 3 work per wire
+byte; charge 128 logical bytes and 1 work credit per value visit. Declared
+array children must fit both remaining credits before traversal. Maps and
+extensions are refused at any depth. Generic decode remains unchanged and
+both paths retain the newer global materialization and key-work limits.
+These are logical units, not physical heap or CPU measurements; native
+execution, actor mailbox integration and ownership review remain required.

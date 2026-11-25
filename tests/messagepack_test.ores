@@ -4,7 +4,7 @@ import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
 import fnc value_bytes, value_int, value_bool, value_string, value_array, value_object, value_map, value_deep_equal, value_lookup_path from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
-import fnc encode, decode from '../src/messagepack/messagepack';
+import fnc encode, decode, decode_actor_bounded from '../src/messagepack/messagepack';
 
 fnc codec_work_map(int payload): Value {
   val List<int> bytes = new List<int>();
@@ -84,7 +84,55 @@ fnc nested_node_wire(bool over): List<int> {
   return wire;
 }
 
+fnc actor_profile_options(): DecodeOptions {
+  return new DecodeOptions(0, false, 64, 64, 64, 64, 64, 64, 64);
+}
+
+fnc actor_nested_wire(): List<int> {
+  return new List<int>(146,146,1,2,145,3);
+}
+
 pub fnc run_messagepack_tests(): void {
+  val Result<DecodedValue, DecodeError> actor_exact =
+    decode_actor_bounded(actor_nested_wire(), actor_profile_options(), 992, 24);
+  require_true(!actor_exact.is_err(), "actor exact nested cumulative budget");
+  require_int(actor_exact.unwrap().value.array_value.length, 2, "actor nested shape");
+  require_true(decode_actor_bounded(actor_nested_wire(), actor_profile_options(), 991, 24).is_err(),
+    "actor one logical byte under denied");
+  require_true(decode_actor_bounded(actor_nested_wire(), actor_profile_options(), 992, 23).is_err(),
+    "actor one work credit under denied");
+  require_true(decode_actor_bounded(new List<int>(145,129,1,2),
+    actor_profile_options(), 4096, 256).is_err(), "nested actor map denied");
+  require_true(decode_actor_bounded(new List<int>(212,1,0),
+    actor_profile_options(), 4096, 256).is_err(), "actor fixed extension denied");
+  require_true(decode_actor_bounded(new List<int>(199,1,1,0),
+    actor_profile_options(), 4096, 256).is_err(), "actor variable extension denied");
+  require_true(decode_actor_bounded(new List<int>(222,0,0),
+    actor_profile_options(), 4096, 256).is_err(), "actor map16 denied");
+  require_true(decode_actor_bounded(new List<int>(223,0,0,0,0),
+    actor_profile_options(), 4096, 256).is_err(), "actor map32 denied");
+  require_true(decode_actor_bounded(new List<int>(145,146,1),
+    actor_profile_options(), 4096, 256).is_err(), "actor truncated array denied");
+  require_true(decode_actor_bounded(new List<int>(1,2),
+    actor_profile_options(), 4096, 256).is_err(), "actor trailing data denied");
+  require_true(decode_actor_bounded(new List<int>(161,255),
+    actor_profile_options(), 4096, 256).is_err(), "actor malformed UTF8 denied");
+  require_true(decode_actor_bounded(new List<int>(220,0,64),
+    actor_profile_options(), 512, 256).is_err(), "actor declared array cannot exceed remaining budget");
+  require_true(!decode(new List<int>(129,1,2), actor_profile_options()).is_err(),
+    "generic dynamic map remains available");
+  require_true(!decode_actor_bounded(new List<int>(145,195), actor_profile_options(), 416, 8).is_err(),
+    "exact array and boolean control");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(1,false,64,64,64,64,64,64,64), 4096,256).is_err(),
+    "actor rejects permissive duplicate policy");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(0,true,64,64,64,64,64,64,64), 4096,256).is_err(),
+    "actor rejects trailing-data option");
+  require_true(decode_actor_bounded(new List<int>(1),
+    new DecodeOptions(0,false,65,64,64,64,64,64,64), 4096,256).is_err(),
+    "actor rejects depth policy above 64");
+
   require_true(!decode(nested_node_wire(false), default_decode_options()).is_err(),
     "messagepack exact cumulative node count across nested arrays");
   require_true(decode(nested_node_wire(true), default_decode_options()).is_err(),
