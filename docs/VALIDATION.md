@@ -99,10 +99,15 @@ key limits above. Map keys and values count separately. Repeated references
 are charged per occurrence; cycles cannot make the bounded walk infinite.
 Unknown kinds, malformed numeric lexemes, invalid UTF-8, and non-octet raw
 binary/extension payloads fail closed with a payload-free invalid_value_tree
-report. This does not validate inactive slots, add nested duplicate-key
-semantics, meter recursive hashing/equality, authenticate metadata or prove
-physical heap bounds. Those are separate release gates. Native tests remain
-required; exact cumulative-byte boundary tests are pending.
+report. Nested text-object and general-map duplicate keys are denied. General-map
+key hashing and equality run only after the entire active graph passes
+structural validation. A single 1,000,000-credit logical meter and 16,384
+candidate ceiling span all general maps; incomplete hashes or comparisons
+deny admission. The metered unique-array path uses a separate per-array
+budget. This does not validate inactive slots, meter every schema lookup
+or prove physical heap bounds, ownership or metadata authenticity. Native
+tests remain required; exact cumulative structural-byte boundary tests
+are pending.
 
 ## Schema-bound decoder policy
 

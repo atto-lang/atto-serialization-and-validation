@@ -1497,6 +1497,11 @@ pub fnc max_checked_value_nodes(): int { return 65536; }
 pub fnc max_checked_value_depth(): int { return 64; }
 pub fnc max_checked_value_bytes(): int { return 16777216; }
 
+// Shared logical budget for every general map in one graph admission.
+// A candidate probe costs one credit even if equality exits immediately.
+pub fnc max_checked_map_key_work(): int { return 1000000; }
+pub fnc max_checked_map_key_candidates(): int { return 16384; }
+
 fnc checked_value_tree_valid(Value root): bool {
   val List<Value> pending = new List<Value>();
   val List<int> depths = new List<int>();
@@ -1605,6 +1610,41 @@ fnc checked_value_tree_valid(Value root): bool {
         depths.add(depth + 1);
       done
     fi
+  done
+
+  // Do not hash or compare arbitrary map keys until the entire active graph
+  // passes structural admission. Reuse the bounded occurrence queue.
+  // Neither a partial hash nor incomplete equality may admit a key.
+  let ValueWorkFuel map_fuel = new ValueWorkFuel(max_checked_map_key_work());
+  let int remaining_map_candidates = max_checked_map_key_candidates();
+  for const map_value of pending do
+    if map_value.kind != 8 then continue; fi
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    let int entry_index = 0;
+    for const entry of map_value.map_value do
+      val ValueHashAttempt hash_attempt =
+        value_hash_with_fuel(rt borrow entry.key, map_fuel);
+      if !hash_attempt.completed then return false; fi
+      val int hash = hash_attempt.hash;
+      if buckets.contains(hash) then
+        val List<int> candidates = buckets.get(hash);
+        for const index of candidates do
+          if remaining_map_candidates <= 0 || map_fuel.remaining <= 0 then return false; fi
+          remaining_map_candidates = remaining_map_candidates - 1;
+          map_fuel.remaining = map_fuel.remaining - 1;
+          val ValueEqualAttempt equal_attempt = value_deep_equal_with_fuel(
+            rt borrow map_value.map_value[index].key,
+            rt borrow entry.key, map_fuel);
+          if !equal_attempt.completed || equal_attempt.equal then return false; fi
+        done
+        candidates.add(entry_index);
+      else
+        val List<int> candidates = new List<int>();
+        candidates.add(entry_index);
+        buckets.set(hash, candidates);
+      fi
+      entry_index = entry_index + 1;
+    done
   done
   return true;
 }
