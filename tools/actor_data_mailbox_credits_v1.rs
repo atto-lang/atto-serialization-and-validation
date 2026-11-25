@@ -8,31 +8,50 @@ use std::sync::{Arc, Mutex, MutexGuard};
 #[derive(Debug, PartialEq, Eq)]
 pub enum Reject { InvalidLimits, Stale, Full, Size, Closed, GenerationExhausted, Allocation }
 // Shared by all endpoints in one trusted tenant. Never chosen by wire data.
-struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize }
+struct TenantState { used_bytes: usize, used_slots: usize, max_bytes: usize, max_slots: usize, used_expansion: usize, max_expansion: usize }
 #[derive(Clone)]
 pub struct TenantBudget(Arc<Mutex<TenantState>>);
-struct TenantLease { tenant: TenantBudget, bytes: usize }
+struct TenantLease { tenant: TenantBudget, bytes: usize, expansion: usize }
 impl TenantBudget {
     pub fn new(max_bytes:usize,max_slots:usize)->Result<Self,Reject> {
-        if max_bytes==0 || max_bytes>256*1024*1024 || max_slots==0 || max_slots>65536 {
+        Self::new_with_expansion(max_bytes,max_slots,256*1024*1024)
+    }
+    /// Independent logical expansion credits, not physical allocation bytes.
+    pub fn new_with_expansion(max_bytes:usize,max_slots:usize,max_expansion:usize)->Result<Self,Reject> {
+        if max_bytes==0 || max_bytes>256*1024*1024 || max_slots==0 || max_slots>65536 ||
+           max_expansion==0 || max_expansion>256*1024*1024 {
             return Err(Reject::InvalidLimits);
         }
-        Ok(Self(Arc::new(Mutex::new(TenantState{used_bytes:0,used_slots:0,max_bytes,max_slots}))))
+        Ok(Self(Arc::new(Mutex::new(TenantState{used_bytes:0,used_slots:0,max_bytes,max_slots,used_expansion:0,max_expansion}))))
     }
     fn reserve(&self,bytes:usize)->Result<TenantLease,Reject> {
         let mut s=self.0.lock().map_err(|_|Reject::Closed)?;
         if bytes>s.max_bytes-s.used_bytes || s.used_slots==s.max_slots { return Err(Reject::Full); }
         s.used_bytes+=bytes; s.used_slots+=1;
-        Ok(TenantLease{tenant:self.clone(),bytes})
+        Ok(TenantLease{tenant:self.clone(),bytes,expansion:0})
     }
     pub fn usage(&self)->Result<(usize,usize),Reject> {
         let s=self.0.lock().map_err(|_|Reject::Closed)?;
         Ok((s.used_bytes,s.used_slots))
     }
+    pub fn expansion_usage(&self)->Result<usize,Reject> {
+        Ok(self.0.lock().map_err(|_|Reject::Closed)?.used_expansion)
+    }
+}
+impl TenantLease {
+    fn reserve_expansion(&mut self, amount:usize)->Result<(),Reject> {
+        // One positive charge per lease. No replacement/refund to evade admission.
+        if amount==0 || self.expansion!=0 { return Err(Reject::Size); }
+        let mut s=self.tenant.0.lock().map_err(|_|Reject::Closed)?;
+        if amount>s.max_expansion-s.used_expansion { return Err(Reject::Full); }
+        s.used_expansion+=amount;
+        self.expansion=amount;
+        Ok(())
+    }
 }
 impl Drop for TenantLease {
     fn drop(&mut self) {
-        if let Ok(mut s)=self.tenant.0.lock() { s.used_bytes-=self.bytes; s.used_slots-=1; }
+        if let Ok(mut s)=self.tenant.0.lock() { s.used_bytes-=self.bytes; s.used_slots-=1; s.used_expansion-=self.expansion; }
     }
 }
 // Tenant credit follows the owned frame through the queue and receiver delivery.
@@ -42,6 +61,8 @@ impl Delivery {
     pub fn bytes(&self)->&[u8] { &self.frame }
     pub fn len(&self)->usize { self.frame.len() }
     pub fn is_empty(&self)->bool { self.frame.is_empty() }
+    /// Admission-time logical estimate; no actual heap measurement.
+    pub fn expansion_credit(&self)->usize { self._tenant.expansion }
 }
 struct State {
     generation: u64, closed: bool, bytes: usize, slots: usize,
@@ -107,6 +128,14 @@ impl Mailbox {
     }
 }
 impl Reservation {
+    /// Reserve preflight's logical expansion charge before copying/publishing.
+    /// The lock order remains mailbox -> tenant; restart cannot mint credit.
+    pub fn reserve_expansion(&mut self, amount:usize)->Result<(),Reject> {
+        let s=self.mailbox.lock()?;
+        if s.closed { return Err(Reject::Closed); }
+        if s.generation!=self.generation { return Err(Reject::Stale); }
+        self.tenant.as_mut().ok_or(Reject::Closed)?.reserve_expansion(amount)
+    }
     // Consumes non-cloneable lease. Failure drops it after lock release.
     pub fn publish(mut self, frame:Box<[u8]>) -> Result<(),Reject> {
         if frame.len()!=self.bytes { return Err(Reject::Size); }
@@ -210,4 +239,66 @@ mod tests {
         assert!(std::thread::spawn(move|| matches!(other.reserve(1,1),Err(Reject::Full))).join().unwrap());
         drop(a); assert_eq!(m.usage().unwrap(),(0,0));
     }
+    #[test] fn expansion_credit_follows_delivery_and_blocks_sibling() {
+        let t=TenantBudget::new_with_expansion(16,4,10).unwrap();
+        let a=Mailbox::new_with_tenant(1,16,2,t.clone()).unwrap();
+        let b=Mailbox::new_with_tenant(1,16,2,t.clone()).unwrap();
+        let mut pending=a.reserve(1,1).unwrap();
+        pending.reserve_expansion(10).unwrap();
+        assert_eq!(pending.reserve_expansion(1),Err(Reject::Size));
+        pending.publish(frame(1)).unwrap();
+        let delivery=a.pop(1).unwrap().unwrap();
+        assert_eq!(delivery.expansion_credit(),10);
+        assert_eq!(a.usage().unwrap(),(0,0));
+        a.restart(1).unwrap();
+        let mut other=b.reserve(1,1).unwrap();
+        assert_eq!(other.reserve_expansion(1),Err(Reject::Full));
+        drop(delivery);
+        other.reserve_expansion(10).unwrap();
+        drop(other);
+        assert_eq!(t.expansion_usage().unwrap(),0);
+        assert_eq!(t.usage().unwrap(),(0,0));
+    }
+    #[test] fn expansion_stale_and_wrong_size_rollback() {
+        let t=TenantBudget::new_with_expansion(8,2,16).unwrap();
+        let a=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        let mut pending=a.reserve(1,4).unwrap();
+        pending.reserve_expansion(16).unwrap();
+        a.restart(1).unwrap();
+        assert_eq!(pending.publish(frame(4)),Err(Reject::Stale));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+        let mut pending=a.reserve(2,4).unwrap();
+        pending.reserve_expansion(16).unwrap();
+        assert_eq!(pending.publish(frame(3)),Err(Reject::Size));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+        assert_eq!(t.usage().unwrap(),(0,0));
+    }
+    #[test] fn expansion_close_clears_queued_credit_not_delivered_credit() {
+        let t=TenantBudget::new_with_expansion(8,2,16).unwrap();
+        let a=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        for _ in 0..2 {
+            let mut pending=a.reserve(1,1).unwrap();
+            pending.reserve_expansion(8).unwrap();
+            pending.publish(frame(1)).unwrap();
+        }
+        let delivery=a.pop(1).unwrap().unwrap();
+        a.close().unwrap();
+        assert_eq!(t.expansion_usage().unwrap(),8);
+        drop(delivery);
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn expansion_concurrent_admission() {
+        let t=TenantBudget::new_with_expansion(8,4,8).unwrap();
+        let a=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        let b=Mailbox::new_with_tenant(1,8,2,t.clone()).unwrap();
+        let mut first=a.reserve(1,1).unwrap();
+        first.reserve_expansion(8).unwrap();
+        assert_eq!(std::thread::spawn(move|| {
+            let mut other=b.reserve(1,1).unwrap();
+            other.reserve_expansion(1)
+        }).join().unwrap(),Err(Reject::Full));
+        drop(first);
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+
 }

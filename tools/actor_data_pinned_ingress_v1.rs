@@ -47,11 +47,12 @@ impl<'a> Endpoint<'a> {
     pub fn admit_after_authentication(&self, meta:&VerifiedMetadata<'_>, bytes:&[u8])->Result<(),Reject>{
         self.binding.matches(meta.codec,meta.version,meta.schema,meta.shape_digest).map_err(Reject::Binding)?;
         if meta.recipient_generation!=self.generation{return Err(Reject::Generation);}
-        let lease=self.mailbox.reserve(self.generation,bytes.len()).map_err(Reject::Mailbox)?;
-        match self.decoder {
-            Decoder::Cbor(shape,limits)=>{cbor::preflight_typed(bytes,limits,shape).map_err(Reject::Cbor)?;}
-            Decoder::Protobuf(shape,limits)=>{proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?;}
-        }
+        let mut lease=self.mailbox.reserve(self.generation,bytes.len()).map_err(Reject::Mailbox)?;
+        let expansion=match self.decoder {
+            Decoder::Cbor(shape,limits)=>cbor::preflight_typed(bytes,limits,shape).map_err(Reject::Cbor)?.expanded,
+            Decoder::Protobuf(shape,limits)=>proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?.logical,
+        };
+        lease.reserve_expansion(expansion).map_err(Reject::Mailbox)?;
         let mut copy=Vec::new();
         copy.try_reserve_exact(bytes.len()).map_err(|_|Reject::Allocation)?;
         copy.extend_from_slice(bytes);
@@ -107,4 +108,29 @@ mod tests {
         assert_eq!(e.admit_after_authentication(&meta("cbor"),&[0xf5]),Err(Reject::Mailbox(mailbox::Reject::Stale)));
         assert!(m.pop(2).unwrap().is_none());
     }
+    #[test] fn cross_codec_expansion_budget_follows_wire_delivery(){
+        let shape=cbor::Shape::Bool;
+        let schema=proto::Schema{fields:&[proto::Field{number:1,kind:proto::Kind::Varint}]};
+        let cb=[0xf5]; let pb=[8,1];
+        let c=cbor::preflight_typed(&cb,cl(),&shape).unwrap().expanded;
+        let p=proto::preflight(&pb,&schema,pl()).unwrap().logical;
+        let tenant=mailbox::TenantBudget::new_with_expansion(64,4,c+p-1).unwrap();
+        let a=mailbox::Mailbox::new_with_tenant(1,64,2,tenant.clone()).unwrap();
+        let b=mailbox::Mailbox::new_with_tenant(1,64,2,tenant.clone()).unwrap();
+        let ec=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),a.clone()).unwrap();
+        let ep=Endpoint::protobuf("order.v1",1,H,2,1,&schema,pl(),b.clone()).unwrap();
+        ec.admit_after_authentication(&meta("cbor"),&cb).unwrap();
+        let delivery=a.pop(1).unwrap().unwrap();
+        assert_eq!(delivery.expansion_credit(),c);
+        assert_eq!(ep.admit_after_authentication(&meta("protobuf"),&pb),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        assert_eq!(b.usage().unwrap(),(0,0));
+        assert_eq!(tenant.expansion_usage().unwrap(),c);
+        drop(delivery);
+        ep.admit_after_authentication(&meta("protobuf"),&pb).unwrap();
+        assert_eq!(tenant.expansion_usage().unwrap(),p);
+        b.close().unwrap();
+        assert_eq!(tenant.expansion_usage().unwrap(),0);
+        assert_eq!(tenant.usage().unwrap(),(0,0));
+    }
+
 }
