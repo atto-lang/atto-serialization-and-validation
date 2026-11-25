@@ -133,6 +133,7 @@ mod tests {
         let mut input=b;
         e.admit_after_authentication(&meta("flatbuffers"),&input).unwrap();
         input[16]=0;
+        assert_ne!(input,b);
         let d=m.pop(1).unwrap().unwrap();assert_eq!(d.bytes(),&b);
         assert_eq!(e.admit_after_authentication(&meta("flatbuffers"),&b),Err(Reject::Mailbox(mailbox::Reject::Full)));
         drop(d);assert_eq!(m.usage().unwrap(),(0,0));
