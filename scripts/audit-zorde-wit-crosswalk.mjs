@@ -183,6 +183,7 @@ export function selftest(wit,schema) {
   checkRejected(()=>auditZordeWitProjection(replace('missing-required,','missing-required-typo,'),schema));
   checkRejected(()=>auditZordeWitProjection(replace('schema-version: u32,','schema-version: string,'),schema));
   checkRejected(()=>auditZordeWitProjection(replace('payload: list<u8>','payload: string'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('schema-id: string','schema-id: u32'),schema));
   checkRejected(()=>auditZordeWitProjection(replace('export validation;','import validation;'),schema));
   const changed=structuredClone(schema);
   changed.$defs.ValidationReport.properties.valid.type='string';
