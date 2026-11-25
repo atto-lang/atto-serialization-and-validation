@@ -69,6 +69,14 @@ fnc json_work_wire(int second_size): List<int> {
 }
 
 pub fnc run_json_tests(): void {
+  let JsonIncrementalDecoder sealed_decoder = new_incremental_decoder(default_decode_options());
+  require_int(sealed_decoder.received_bytes(), 0, "fresh decoder has zero received bytes");
+  require_int(sealed_decoder.feed(new List<int>(123)).status, 0, "partial sealed frame");
+  require_int(sealed_decoder.received_bytes(), 1, "scalar received-byte observation");
+  require_int(sealed_decoder.feed(new List<int>(125,32)).status, 1, "sealed frame completes");
+  require_int(sealed_decoder.received_bytes(), 3, "received bytes include trailing whitespace");
+  require_int(sealed_decoder.feed(new List<int>(123,125)).status, 2, "sealed terminal decoder rejects reuse");
+
   require_true(!encode(json_work_graph(499999), default_encode_options()).is_err(),
     "JSON writer exact shared key fuel");
   require_true(encode(json_work_graph(500000), default_encode_options()).is_err(),

@@ -1,0 +1,2 @@
+import class JsonPrivateFrameState from '../../src/json/json';
+pub fnc main(): void { return; }

@@ -1,0 +1,9 @@
+import class JsonIncrementalDecoder from '../../src/json/json';
+import fnc new_incremental_decoder from '../../src/json/json';
+import fnc default_decode_options from '../../src/core/options';
+pub fnc main(): void {
+  val JsonIncrementalDecoder decoder = new JsonIncrementalDecoder(new List<int>(),
+    default_decode_options(), false, 0, 0, 0, false, false, 0, 0);
+  stdio.stdout.println(decoder.received_bytes());
+  return;
+}

@@ -183,6 +183,19 @@ input buffering, map bucket internals or backend-specific object sizes.
 Native compilation, allocator instrumentation and exact decoder integration
 boundary tests remain required.
 
+## Incremental decoder private storage
+
+Construct incremental decoders with new_incremental_decoder and interact
+through feed, finish and received_bytes (a scalar count including trailing
+whitespace). The mutable buffer, scan index, terminal flag and configuration
+reference are stored in a non-exported nominal JsonPrivateFrameState; the
+public decoder holds a non-public state field. Direct construction with
+caller-owned buffers and direct state mutation are not supported APIs.
+The channel adapter uses received_bytes instead of accessing the buffer.
+Isolated positive and negative compiler fixtures are staged; actual
+visibility and constructor enforcement remain native release gates.
+This is encapsulation, not a claim of thread-safe mutable sharing.
+
 ## Schema builder ownership and explicit refusal
 
 Use `object_schema_checked(fields, reject_unknown_fields)` when constructing
