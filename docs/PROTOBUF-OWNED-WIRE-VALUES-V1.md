@@ -1,0 +1,3 @@
+# Owned Protobuf descriptor-directed wire values
+
+Optional materialization uses the exact preflight parser and one cumulative meter per call. The parser charges messages, outer fields, packed scalars and retained/copied bytes before fallible vector growth. Returned owned values preserve field and segment ordering; unknown fields and malformed tails fail closed with no partial result. Logical charges are not allocator-specific physical accounting. This is a wire-kind typed tree, not nominal Atto ADTs: no signed/zigzag/boolean/enum semantic conversion, cardinality, defaulting, map normalization, schema auth or guest ABI. Preflight remains allocation-free with respect to payload. The packed-only profile remains restricted.
