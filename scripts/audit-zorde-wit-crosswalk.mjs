@@ -7,6 +7,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
+import {rejectDuplicateJsonKeys} from './zorde-static-contract-ir.mjs';
 
 function refuse(message) { throw new Error('ZORDE_WIT_STATIC_CROSSWALK_DENIED: '+message); }
 function matchesExactly(left,right) {
@@ -43,6 +44,21 @@ function exactSchemaFields(def,propertyNames,requiredNames) {
      !matchesExactly(Object.keys(def.properties||{}),propertyNames) ||
      !matchesExactly(def.required,requiredNames)) refuse('authored schema record shape changed');
 }
+// JSON.parse alone discards duplicate object members (including escaped
+// equivalents), allowing the last key to override independently authored
+// constraints. Admit raw bytes before normal JSON materialization.
+export function parseAuthoredZordeSchema(rawSource) {
+  if(typeof rawSource!=='string' ||
+     Buffer.byteLength(rawSource,'utf8')>2097152)
+    refuse('authored schema raw input exceeds bounded UTF-8 budget');
+  try {
+    rejectDuplicateJsonKeys(rawSource);
+    return JSON.parse(rawSource);
+  } catch {
+    refuse('authored schema contains duplicate, malformed or unbounded JSON');
+  }
+}
+
 export function auditZordeWitProjection(rawWit, jsonSchema) {
   if(typeof rawWit!=='string'||!jsonSchema||typeof jsonSchema!=='object')
     refuse('invalid source documents');
@@ -65,7 +81,40 @@ export function auditZordeWitProjection(rawWit, jsonSchema) {
   exactSchemaKeys(jsonSchema,['$schema','$id','$defs'],'root');
   exactSchemaMetadata(jsonSchema,'https://oreslang.dev/schemas/zorde-validation-v1.schema.json');
   const defs=jsonSchema.$defs;
-  if(!defs || typeof defs!=='object') refuse('missing authored JSON Schema definitions');
+  // The JSON Schema is wider than the exported WIT validation interface:
+  // comparison types are legitimate authored schema-only declarations. Do
+  // not mistake that for permission to add unreviewed $defs or silently
+  // narrow comparison evidence. Admit exactly the five reviewed definitions.
+  exactSchemaKeys(defs,
+    ['ErrorCode','ComparisonStatus','ValidationIssue','ValidationReport','SchemaComparison'],
+    'authored $defs inventory');
+  exactSchemaKeys(defs.ComparisonStatus,
+    ['$schema','$id','type','enum'], 'ComparisonStatus');
+  exactSchemaMetadata(defs.ComparisonStatus,'ComparisonStatus');
+  if(defs.ComparisonStatus.type!=='string' ||
+     !matchesExactly(defs.ComparisonStatus.enum,['equivalent','different','refused']))
+    refuse('authored comparison status values changed');
+  exactSchemaKeys(defs.SchemaComparison,
+    ['$schema','$id','type','properties','required','unevaluatedProperties'],
+    'SchemaComparison');
+  exactSchemaMetadata(defs.SchemaComparison,'SchemaComparison');
+  exactSchemaFields(defs.SchemaComparison,
+    ['schemaVersion','status','authoredDigest','generatedDigest','mismatchPaths'],
+    ['schemaVersion','status','authoredDigest','generatedDigest','mismatchPaths']);
+  const comparison=defs.SchemaComparison.properties;
+  exactSchemaKeys(comparison.schemaVersion,['const'],'SchemaComparison.schemaVersion');
+  exactSchemaKeys(comparison.status,['$ref'],'SchemaComparison.status');
+  exactSchemaKeys(comparison.authoredDigest,['type'],'SchemaComparison.authoredDigest');
+  exactSchemaKeys(comparison.generatedDigest,['type'],'SchemaComparison.generatedDigest');
+  exactSchemaKeys(comparison.mismatchPaths,['type','items'],'SchemaComparison.mismatchPaths');
+  exactSchemaKeys(comparison.mismatchPaths.items,['type'],'SchemaComparison.mismatchPaths.items');
+  if(comparison.schemaVersion.const!==1 ||
+     comparison.status.$ref!=='ComparisonStatus' ||
+     comparison.authoredDigest.type!=='string' ||
+     comparison.generatedDigest.type!=='string' ||
+     comparison.mismatchPaths.type!=='array' ||
+     comparison.mismatchPaths.items.type!=='string')
+    refuse('authored comparison record type drift');
   exactSchemaKeys(defs.ErrorCode,['$schema','$id','type','enum'],'ErrorCode');
   exactSchemaMetadata(defs.ErrorCode,'ErrorCode');
   exactSchemaKeys(defs.ValidationIssue,
@@ -118,37 +167,46 @@ function expectRejected(fn) {
 }
 export function selftest(wit,schema) {
   auditZordeWitProjection(wit,schema);
+  let checks=1; // canonical authored WIT and schema actually accepted
+  const checkRejected=fn=>{expectRejected(fn);checks++;};
+  // Test the byte-level schema-authority admission BEFORE JSON.parse can
+  // collapse duplicate members and hide contradictory definitions.
+  checkRejected(()=>parseAuthoredZordeSchema('{"$defs":{"x":1,"x":2}}'));
+  checkRejected(()=>parseAuthoredZordeSchema(String.raw`{"$defs":{"\u0061":1,"a":2}}`));
+  checkRejected(()=>parseAuthoredZordeSchema('{"x":1} {"x":2}'));
+  checkRejected(()=>parseAuthoredZordeSchema('['.repeat(70)+'0'+']'.repeat(70)));
   const replace=(a,b)=> {
     assert.ok(wit.includes(a),'fixture lacks expected anchor '+a);
     return wit.replace(a,b);
   };
-  expectRejected(()=>auditZordeWitProjection(replace('valid: bool,','valid: string,'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('missing-required,','missing-required-typo,'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('schema-version: u32,','schema-version: string,'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('payload: list<u8>','payload: string'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('export validation;','import validation;'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('valid: bool,','valid: string,'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('missing-required,','missing-required-typo,'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('schema-version: u32,','schema-version: string,'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('payload: list<u8>','payload: string'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('schema-id: string','schema-id: u32'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('export validation;','import validation;'),schema));
   const changed=structuredClone(schema);
   changed.$defs.ValidationReport.properties.valid.type='string';
-  expectRejected(()=>auditZordeWitProjection(wit,changed));
+  checkRejected(()=>auditZordeWitProjection(wit,changed));
   const changedEnum=structuredClone(schema);
   changedEnum.$defs.ErrorCode.enum[0]='secret-error';
-  expectRejected(()=>auditZordeWitProjection(wit,changedEnum));
+  checkRejected(()=>auditZordeWitProjection(wit,changedEnum));
   // The old permissive regexp admitted trailing world declarations, extra
   // exported methods and package substitutions while matching valid snippets.
-  expectRejected(()=>auditZordeWitProjection(replace('@0.1.0;','@0.2.0;'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('  validate-json: func',
+  checkRejected(()=>auditZordeWitProjection(replace('@0.1.0;','@0.2.0;'),schema));
+  checkRejected(()=>auditZordeWitProjection(replace('  validate-json: func',
     '  leak: func() -> bool;\n  validate-json: func'),schema));
-  expectRejected(()=>auditZordeWitProjection(wit+'\nworld injected {}',schema));
-  expectRejected(()=>auditZordeWitProjection(replace('  export validation;',
+  checkRejected(()=>auditZordeWitProjection(wit+'\nworld injected {}',schema));
+  checkRejected(()=>auditZordeWitProjection(replace('  export validation;',
     '  import secret;\n  export validation;'),schema));
-  expectRejected(()=>auditZordeWitProjection(replace('  record validation-report {',
+  checkRejected(()=>auditZordeWitProjection(replace('  record validation-report {',
     '  record unexpected { leak: string, }\n  record validation-report {'),schema));
-  expectRejected(()=>auditZordeWitProjection(wit+' '.repeat(17000),schema));
+  checkRejected(()=>auditZordeWitProjection(wit+' '.repeat(17000),schema));
   // Extra JSON Schema keywords can silently narrow or broaden accepted data.
   const mutateSchema=fn=>{
     const copy=structuredClone(schema);
     fn(copy);
-    expectRejected(()=>auditZordeWitProjection(wit,copy));
+    checkRejected(()=>auditZordeWitProjection(wit,copy));
   };
   mutateSchema(s=>{s.$defs.ValidationReport.properties.valid.const=false;});
   mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.pattern='^[a-z]+$';});
@@ -162,13 +220,28 @@ export function selftest(wit,schema) {
   mutateSchema(s=>{delete s.$schema;});
   mutateSchema(s=>{s.$defs.ValidationReport.properties.issues.items.$dynamicRef='#next';});
   mutateSchema(s=>{s.$defs.ValidationIssue.properties.path.format='uri';});
-  return 26; // one positive plus 25 adverse tests
+  // These two authored comparison definitions do not currently project into
+  // WIT, but they are not allowed to change without explicit review.
+  mutateSchema(s=>{s.$defs.UnreviewedSecret={type:'string'};});
+  mutateSchema(s=>{delete s.$defs.ComparisonStatus;});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.enum.push('trusted');});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.enum[0]='different';});
+  mutateSchema(s=>{s.$defs.ComparisonStatus.title='unreviewed';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.status.$ref='Injected';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.authoredDigest.maxLength=1;});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.generatedDigest.pattern='^x$';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.properties.mismatchPaths.items.format='email';});
+  mutateSchema(s=>{s.$defs.SchemaComparison.unevaluatedProperties=true;});
+  mutateSchema(s=>{s.$defs.SchemaComparison.required.pop();});
+  mutateSchema(s=>{delete s.$defs.SchemaComparison;});
+  return checks; // actual successful checks, not a guessed receipt count
 }
 
 if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
   try{
     const wit=readFileSync('wit/zorde-validation.wit','utf8');
-    const schema=JSON.parse(readFileSync('contracts/zorde/authored.schema.json','utf8'));
+    const schema=parseAuthoredZordeSchema(
+      readFileSync('contracts/zorde/authored.schema.json','utf8'));
     const checks=selftest(wit,schema);
     console.log(JSON.stringify({status:'STATIC_WIT_CROSSWALK_MATCH',checks,
       witSyntaxParsed:false,nativeGuestExecuted:false,

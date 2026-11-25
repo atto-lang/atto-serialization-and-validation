@@ -52,39 +52,10 @@ Portable structured serialization, typed validation and deterministic compatibil
 
 Before an authorized transfer, coordinate in [migration issue #26](https://github.com/ores-truffle-oreslang/.github/issues/26) and review the authorized runbook. Record source/target administrators, numeric ID, exact SHA/tree, history, visibility, access, rulesets, open PRs/issues, releases, packages, consumers, CI/billing/runners, secrets, deploy keys, apps, webhooks, Pages and rollback ownership. Verify unchanged ID/history/tree and restored controls afterward; execute exact-head tests before changing consumers. Zero-step jobs are NOT_EXECUTED; host-only and source-free checks do not certify compiled guest execution or production capabilities.
 
-## Tagged Option/Result JSON (host reference prototype)
+## Actor DATA host references
 
-`reference/tagged_json.py` now enforces an explicit `kind` (`option` or `result`) and `variant` (`none/some` or `ok/err`) with strict field sets. Errors require bounded snake_case codes and human messages. The reference limits UTF-8 JSON to 64 KiB, nesting to 32 levels, rejects duplicate keys and nonfinite numbers, and sorts keys when encoding. Run `python3 -m unittest discover -s tests -v` for host-only tests.
+See [bounded Rust reference models](docs/ACTOR_DATA_HOST_REFERENCES.md). These are host test artifacts, not production codecs or compiled AttoLang guest support.
 
-This is **not** the canonical Atto binary Result/Option wire format, not a general codec, and not proof that any Atto compiler emits these JSON tags. A future versioned wire contract needs cross-backend guest round trips and byte-for-byte evidence.
+## Tagged JSON and portable wire host reference
 
-
-## Host-only portable wire reference (candidate)
-
-The stacked draft PR `#5` adds `reference/portable_wire.py` and focused negative/positive tests. `encode_msgpack` / `decode_msgpack` implement a **limited, deterministic MessagePack subset**: null, bool, signed/unsigned 64-bit integer, finite float, strict UTF-8 text, binary, arrays and string-keyed maps. Unsupported ext/typed non-string-key maps fail closed; the reference does **not** implement all of MessagePack or a typed Atto schema engine. `validate_external_names` rejects Struct internal/external field-name collisions.
-
-`encode_atto_binary` / `decode_atto_binary` demonstrate a **proposed** `ATB1` 44-byte schema-bound frame around that MessagePack profile, with version, length and schema matching. This is a draft, not a ratified Atto Binary standard or the legacy `Result`/`Option` wire layout. See [atto-spec#73](https://github.com/atto-lang/atto-spec/pull/73).
-
-The stacked PR also hardens `reference/tagged_json.py` against escaped unpaired surrogates, out-of-range integers, nonfinite numbers, excessive aggregate entries and cycles. It remains a host-only tagged `Option`/`Result` example.
-
-Run from the repository root: `python3 -m unittest discover -s tests -v`. Local Python tests demonstrate host-reference behavior only. Required future proof: real Atto guest construction/decoding, schema registry, actor isolation, cross-backend golden vectors, fuzzing, exact source SHA and executed CI receipts. Do not count this prototype as guest support.
-
-### Atto source ownership and native codec admission
-
-A codec invoked as `encode(value)` must treat a nonprimitive `value`
-as an implicit scoped readonly `borrow!`, equivalent to
-`encode(borrow! value)`; serialization does not consume, share or mutate
-the source object. Decode must allocate independently owned storage for
-mutable nested values rather than rely on a shallow `copy!` of an
-exclusive graph. `copy!!` requires a proven graph copier with memoized
-cycles/aliases and failure rollback. Actor publication additionally needs
-explicit authenticated `take!` or frozen/guarded `share!`; source
-`pin!` and `drop!` rights cannot be reconstructed from wire bytes.
-
-**Implementation gate:** the current Python files are reference-only and do
-not count as an AttoLang library. Production codec implementation must be
-native `.atto` source, with Rust supporting tests and real compiled guest
-round trips. Do not promote host-only Python tests, speculative schema
-metadata or unsupported graph-copy cases as backend conformance. Keep the
-PR draft until the language implementation and independent ownership tests
-exist.
+See [the bounded Rust host reference](docs/PORTABLE_WIRE_HOST_REFERENCE.md) for the Option/Result JSON example, restricted MessagePack profile, and candidate ATB1 envelope. These are explicitly not native Atto codecs or a ratified binary ABI.

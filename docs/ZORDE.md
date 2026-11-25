@@ -379,3 +379,39 @@ The descriptor is **validation metadata, not authority**. SHA-256 schema
 fingerprints and compiler-qualified nominal identities must be authenticated by
 the compiler/linker before this adapter is invoked; runtime scalar acceptance
 alone cannot manufacture a nominal newtype or bypass ownership checks.
+
+
+## Authored schema/WIT inventory security gate (2026-11-11)
+
+The initial `validation` WIT interface exports only `ErrorCode`,
+`ValidationIssue` and `ValidationReport`. The independently authored
+JSON Schema also contains `ComparisonStatus` and `SchemaComparison`.
+These additional types are **schema-only evidence contracts** today: their
+presence does not mean the WIT ABI supports schema comparison at runtime.
+
+The crosswalk must therefore check **all five** existing authored definitions
+with a closed keyword and type allowlist, rather than validating only the
+three WIT-exported types and silently permitting additional or narrowed
+comparison definitions. The authored schema must be inspected as raw JSON
+**before** `JSON.parse` collapses duplicate object members, including
+escaped-equivalent names. The build-time checker refuses unknown definitions,
+added constraints, removed fields, incorrect status enums, changed references,
+trailing JSON and over-depth objects.
+
+The source-only WIT checker reports a **measured 43 assertions**: one accepted
+canonical WIT/schema pair, 14 direct WIT negative cases, 24 mutated authored
+schema cases, and four rejected raw JSON input cases. The workflow requires
+that count before generating a syntax-only receipt and runs a separate
+Node test suite against the actual checker. A count inferred from source text,
+or a hard-coded number returned without executing every assertion, is not a
+valid execution receipt. Independent `wasm-tools` syntax parsing is still
+required for WIT grammar and is not equivalent to canonical ABI implementation.
+
+**Scope limitation:** This is a conservative *build-time* source contract
+check. It is not an Oreslang guest execution, a working
+`Zorde.infer<Schema>` type checker, an authoritative compile-time nominal
+schema fingerprint, immutable `Valid<T, SchemaId>` proof, or five-backend
+Serde/Zod feature parity. Those capabilities require separately verified
+runtime and ownership gates. Draft PRs #40/#41 (scalar input budgets), #43
+(deep checked Value preflight) and #57 (collision-work budgets) remain
+independent hardening candidates pending real guest execution.
