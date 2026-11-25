@@ -1,0 +1,9 @@
+{
+  "name": "atto-actor-contract-conformance",
+  "private": true,
+  "version": "0.0.0",
+  "description": "TypeSpec v1 contract syntax checks (no runtime dependency)",
+  "devDependencies": {
+    "@typespec/compiler": "1.0.0"
+  }
+}
