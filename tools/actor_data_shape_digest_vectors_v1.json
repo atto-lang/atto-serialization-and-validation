@@ -355,7 +355,7 @@
     "name": "invalid-version",
     "descriptor": {
       "codec": "cbor",
-      "version": 2147483648,
+      "version": 4294967296,
       "root": "Order",
       "nodes": [
         {
@@ -654,6 +654,157 @@
             }
           ],
           "unknown": 1
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "u32-2147483647",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 2147483647,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true,
+    "different": "cbor-positional"
+  },
+  {
+    "name": "u32-2147483648",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 2147483648,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true,
+    "different": "cbor-positional"
+  },
+  {
+    "name": "u32-4294967295",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 4294967295,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true,
+    "different": "cbor-positional"
+  },
+  {
+    "name": "version-zero",
+    "descriptor": {
+      "codec": "cbor",
+      "version": 0,
+      "root": "Order",
+      "nodes": [
+        {
+          "id": "Order",
+          "kind": "record",
+          "fields": [
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            }
+          ]
         },
         {
           "id": "Bool",

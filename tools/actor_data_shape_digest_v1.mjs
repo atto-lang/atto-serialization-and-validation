@@ -15,7 +15,7 @@ const keys = (o,expected) => {
 const cmp = (a,b)=>a<b?-1:a>b?1:0;
 export function canonicalShape(d) {
   keys(d,"codec,version,root,nodes");
-  require(typeof d.codec==="string" && Object.hasOwn(kinds,d.codec) && uint(d.version,2147483647) && d.version>0 && ascii(d.root));
+  require(typeof d.codec==="string" && Object.hasOwn(kinds,d.codec) && uint(d.version,4294967295) && d.version>0 && ascii(d.root));
   require(Array.isArray(d.nodes) && d.nodes.length>0 && d.nodes.length<=256);
   const table=new Map();
   let fieldCount=0;

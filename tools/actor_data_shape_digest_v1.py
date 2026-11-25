@@ -15,7 +15,7 @@ def keys(o,names):
     require(type(o) is dict and set(o)==set(names.split(",")))
 def canonical_shape(d):
     keys(d,"codec,version,root,nodes")
-    require(isinstance(d["codec"],str) and d["codec"] in KINDS and uint(d["version"],2147483647)
+    require(isinstance(d["codec"],str) and d["codec"] in KINDS and uint(d["version"],4294967295)
             and d["version"]>0 and token(d["root"]))
     require(type(d["nodes"]) is list and 0<len(d["nodes"])<=256)
     table={}
