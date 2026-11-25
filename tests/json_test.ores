@@ -68,7 +68,51 @@ fnc json_work_wire(int second_size): List<int> {
   return wire;
 }
 
+fnc json_nested_node_wire(bool over): List<int> {
+  val List<int> wire = new List<int>();
+  wire.add(91);
+  let int group = 0;
+  loop do
+    if group >= 2 then break; fi
+    if group > 0 then wire.add(44); fi
+    wire.add(91);
+    let int count = 32766;
+    if group == 1 then count = 32767; fi
+    if group == 1 && over then count = count + 1; fi
+    let int i = 0;
+    loop do
+      if i >= count then break; fi
+      if i > 0 then wire.add(44); fi
+      wire.add(48);
+      i = i + 1;
+    done
+    wire.add(93);
+    group = group + 1;
+  done
+  wire.add(93);
+  return wire;
+}
+
+fnc duplicate_occurrence_options(int policy): DecodeOptions {
+  return new DecodeOptions(policy, false, 8, 256, 64, 64, 16, 16, 2);
+}
+
 pub fnc run_json_tests(): void {
+  require_true(!decode_default(json_nested_node_wire(false)).is_err(),
+    "JSON exact cumulative node count across nested arrays");
+  require_true(decode_default(json_nested_node_wire(true)).is_err(),
+    "JSON cumulative node count one over across nested arrays");
+  // Two retained or discarded wire occurrences fit; a third must not evade
+  // max_map_entries just because the repeated name has one retained slot.
+  require_true(!decode(new List<int>(123,34,97,34,58,49,44,34,97,34,58,50,125),
+    duplicate_occurrence_options(1)).is_err(), "first-wins exact occurrence limit");
+  require_true(decode(new List<int>(123,34,97,34,58,49,44,34,97,34,58,50,44,34,97,34,58,51,125),
+    duplicate_occurrence_options(1)).is_err(), "first-wins cannot evade occurrence limit");
+  require_true(!decode(new List<int>(123,34,97,34,58,49,44,34,97,34,58,50,125),
+    duplicate_occurrence_options(2)).is_err(), "last-wins exact occurrence limit");
+  require_true(decode(new List<int>(123,34,97,34,58,49,44,34,97,34,58,50,44,34,97,34,58,51,125),
+    duplicate_occurrence_options(2)).is_err(), "last-wins cannot evade occurrence limit");
+
   let JsonIncrementalDecoder sealed_decoder = new_incremental_decoder(default_decode_options());
   require_int(sealed_decoder.received_bytes(), 0, "fresh decoder has zero received bytes");
   require_int(sealed_decoder.feed(new List<int>(123)).status, 0, "partial sealed frame");
