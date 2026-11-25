@@ -1331,6 +1331,9 @@ fnc checked_value_tree_valid(Value root): bool {
   depths.add(0);
   let int cursor = 0;
   let int remaining_bytes = max_checked_value_bytes();
+  // Shared across all nested objects, not reset per occurrence.
+  let int remaining_key_candidates = 16384;
+  let int remaining_key_compare_bytes = 1048576;
   loop do
     if cursor >= pending.length then break; fi
     val Value value = pending[cursor];
@@ -1347,6 +1350,9 @@ fnc checked_value_tree_valid(Value root): bool {
       if value.string_value.bytes.length > remaining_bytes then return false; fi
       remaining_bytes = remaining_bytes - value.string_value.bytes.length;
       if !utf8_is_valid(rt borrow value.string_value.bytes) then return false; fi
+    fi
+    if value.kind == 7 then
+      if value.extension_type < -128 || value.extension_type > 127 then return false; fi
     fi
     if value.kind == 4 || value.kind == 7 then
       if value.bytes_value.length > remaining_bytes then return false; fi
@@ -1382,8 +1388,30 @@ fnc checked_value_tree_valid(Value root): bool {
         remaining_keys = remaining_keys - member.key.bytes.length;
         remaining_bytes = remaining_bytes - member.key.bytes.length;
       done
+      val Map<int, List<int>> seen_keys = new Map<int, List<int>>();
+      let int member_index = 0;
       for const member of value.object_value do
         if !utf8_is_valid(rt borrow member.key.bytes) then return false; fi
+        val int hash = text_hash(member.key);
+        if seen_keys.contains(hash) then
+          val List<int> candidates = seen_keys.get(hash);
+          for const index of candidates do
+            if remaining_key_candidates <= 0 then return false; fi
+            remaining_key_candidates = remaining_key_candidates - 1;
+            // Charge worst-case compared bytes before calling equality.
+            if value.object_value[index].key.bytes.length == member.key.bytes.length then
+              if member.key.bytes.length > remaining_key_compare_bytes then return false; fi
+              remaining_key_compare_bytes = remaining_key_compare_bytes - member.key.bytes.length;
+              if text_equal(value.object_value[index].key, member.key) then return false; fi
+            fi
+          done
+          candidates.add(member_index);
+        else
+          val List<int> candidates = new List<int>();
+          candidates.add(member_index);
+          seen_keys.set(hash, candidates);
+        fi
+        member_index = member_index + 1;
         pending.add(member.value);
         depths.add(depth + 1);
       done
