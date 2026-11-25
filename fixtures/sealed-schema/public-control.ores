@@ -1,0 +1,9 @@
+import class SealedObjectSchema, FieldRule from '../../src/validation/validation';
+import fnc seal_object_schema, sealed_schema_field_count from '../../src/validation/validation';
+import fnc require_int from '../../tests/assert';
+pub fnc main(): void {
+  val SealedObjectSchema sealed = seal_object_schema(new List<FieldRule>(), true).unwrap();
+  require_int(sealed_schema_field_count(sealed), 0, "sealed schema public control");
+  stdio.stdout.println("sealed schema public control passed");
+  return;
+}

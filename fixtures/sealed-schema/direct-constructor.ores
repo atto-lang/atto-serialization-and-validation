@@ -1,0 +1,8 @@
+import class SealedObjectSchema, FieldRule from '../../src/validation/validation';
+import fnc seal_object_schema, sealed_schema_field_count from '../../src/validation/validation';
+import class ObjectSchema from '../../src/validation/validation';
+pub fnc main(): void {
+  val SealedObjectSchema forged = new SealedObjectSchema(new ObjectSchema(new List<FieldRule>(), false));
+  stdio.stdout.println(sealed_schema_field_count(forged));
+  return;
+}

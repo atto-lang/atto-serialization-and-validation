@@ -215,6 +215,21 @@ Every validation rechecks schema validity. Callers must enforce actor-local
 ownership and must not treat dynamic success as a compiler-minted proof.
 Native execution and independent ownership review remain release gates.
 
+## Sealed object policy
+
+For an actor-local reusable policy use `seal_object_schema`, which returns
+`Result<SealedObjectSchema, ValidationReport>` after bounded snapshot and
+validation. Its nominal storage class and state field are non-public; the
+only introspection API returns a scalar field count. Validate through
+`validate_sealed_object`, `validate_sealed_object_checked` or strict
+`decode_and_validate_sealed_object`. Legacy ObjectSchema remains mutable.
+The report path builder copies key bytes so diagnostic mutation cannot
+rewrite a sealed rule through an indirect alias. No raw policy getter or
+unchecked sealing adapter exists. Native visibility, constructor denial,
+ownership and mutation tests remain required. This is an encapsulated,
+detached dynamic policy, not a frozen cross-actor capability or proof of
+compiler-issued schema identity.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
