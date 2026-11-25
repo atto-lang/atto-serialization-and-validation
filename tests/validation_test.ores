@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember, MapEntry, ValueWorkFuel, ValueHashAttempt, ValueEqualAttempt from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string, value_bytes, value_extension, value_array, value_object, value_map, value_hash, value_deep_equal, value_hash_with_fuel, value_deep_equal_with_fuel, int_to_decimal_bytes from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, value_bytes, value_extension, value_array, value_object, value_map, value_hash, value_deep_equal, value_hash_with_fuel, value_deep_equal_with_fuel, encode_graph_shape_status, max_encode_graph_nodes, int_to_decimal_bytes from '../src/core/value';
 import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
 import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
@@ -172,7 +172,28 @@ fnc graph_comparison_object(bool include_map, int second_bytes): Value {
   return value_object(members);
 }
 
+fnc graph_key_depth(int depth): Value {
+  val List<MapEntry> entries = new List<MapEntry>();
+  entries.add(new MapEntry(graph_depth(depth), value_int(1)));
+  return value_map(entries);
+}
+
 fnc run_checked_graph_tests(): void {
+  require_int(encode_graph_shape_status(graph_depth(64), 64, 100000), 0,
+    "encoding graph exact depth admitted");
+  require_int(encode_graph_shape_status(graph_depth(65), 64, 100000), 1,
+    "encoding graph one over depth denied");
+  require_int(encode_graph_shape_status(graph_key_depth(64), 64, 100000), 1,
+    "general map key depth denied before hashing");
+  require_int(encode_graph_shape_status(graph_nodes(max_encode_graph_nodes()), 128, 100000), 0,
+    "encoding graph exact occurrence count admitted");
+  require_int(encode_graph_shape_status(graph_nodes(max_encode_graph_nodes() + 1), 128, 100000), 3,
+    "encoding graph one over occurrence count denied");
+  require_int(encode_graph_shape_status(graph_wrap(value_bytes(new List<int>(0,255))), 128, 4), 0,
+    "binary payload exact minimum output bound");
+  require_int(encode_graph_shape_status(graph_wrap(value_bytes(new List<int>(0,255))), 128, 3), 2,
+    "binary payload one over minimum output bound denied");
+
   require_true(report_is_valid(validate_object(graph_comparison_object(false, 499999),
     graph_comparison_schema(false), default_validation_options())),
     "two unique fields accept exact shared comparison work");
