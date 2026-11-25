@@ -9,7 +9,7 @@ import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_deep_equal, value_hash, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, map_key_work_limit, map_key_hash_work_limit from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -18,6 +18,11 @@ define class MsgpackCursor as
   pub val DecodeOptions options;
   pub let int index;
   pub let bool failed;
+  pub let int map_key_work_remaining;
+  // Actor-only logical credits; shared by every recursive decode_value call.
+  pub val bool actor_bounded;
+  pub let int actor_bytes_remaining;
+  pub let int actor_work_remaining;
   pub let DecodeError error;
 end
 
@@ -25,6 +30,8 @@ define class MsgpackWriter as
   pub let List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
+  pub let int map_key_work_remaining;
+  pub let int map_key_hash_work_remaining;
   pub let EncodeError error;
 end
 
@@ -195,19 +202,111 @@ fnc read_bytes(
   return output;
 }
 
+// Bounded structural upper estimate for one dynamic map key. The helper
+// stops after the caller's remaining budget, so measuring a nested key is
+// itself bounded. The depth limit is supplied by the active codec operation.
+fnc value_key_work_cost(Value value, int remaining, int depth, int max_depth): int {
+  if remaining <= 0 then return -1; fi
+  // Do not call recursive hashing/equality on a key deeper than the caller's
+  // configured encoder/decoder depth admission.
+  if depth > max_depth || value.kind < 0 || value.kind > 8 then return -1; fi
+  let int work = 1;
+
+  if value.kind == 2 then
+    work = work + value.number_lexeme.length;
+  elseif value.kind == 3 then
+    work = work + value.string_value.bytes.length;
+  elseif value.kind == 4 || value.kind == 7 then
+    work = work + value.bytes_value.length;
+  elseif value.kind == 5 then
+    for const item of value.array_value do
+      let int nested = value_key_work_cost(item, remaining - work, depth + 1, max_depth);
+      if nested < 0 || nested > remaining - work then return -1; fi
+      work = work + nested;
+    done
+  elseif value.kind == 6 then
+    // value_deep_equal_bounded builds hash buckets for object members. In the
+    // worst case every candidate collides and each comparison walks nested
+    // member values, so first bound the aggregate child structure.
+    let int object_count = value.object_value.length;
+    if object_count > 2828 then return -1; fi
+    for const member of value.object_value do
+      let int key_bytes = member.key.bytes.length;
+      if key_bytes > remaining - work then return -1; fi
+      work = work + 1 + key_bytes;
+      let int nested = value_key_work_cost(member.value, remaining - work, depth + 1, max_depth);
+      if nested < 0 || nested > remaining - work then return -1; fi
+      work = work + nested;
+    done
+    let int object_collision_work = object_count * object_count;
+    let int object_child_work = work - 1;
+    if object_collision_work > remaining - work then return -1; fi
+    let int repeated_object_work = object_collision_work * object_child_work;
+    if repeated_object_work > remaining - work - object_collision_work then return -1; fi
+    work = work + object_collision_work + repeated_object_work;
+  elseif value.kind == 8 then
+    // General-map equality also resolves hash-bucket candidates. Bound the
+    // worst-case candidate scans multiplied by nested key/value comparison
+    // work before permitting recursive equality.
+    let int map_count = value.map_value.length;
+    if map_count > 2828 then return -1; fi
+    for const entry of value.map_value do
+      let int key_work = value_key_work_cost(entry.key, remaining - work, depth + 1, max_depth);
+      if key_work < 0 || key_work > remaining - work then return -1; fi
+      work = work + key_work;
+      let int value_work = value_key_work_cost(entry.value, remaining - work, depth + 1, max_depth);
+      if value_work < 0 || value_work > remaining - work then return -1; fi
+      work = work + value_work;
+    done
+    let int map_collision_work = map_count * map_count;
+    let int map_child_work = work - 1;
+    if map_collision_work > remaining - work then return -1; fi
+    let int repeated_map_work = map_collision_work * map_child_work;
+    if repeated_map_work > remaining - work - map_collision_work then return -1; fi
+    work = work + map_collision_work + repeated_map_work;
+  fi
+
+  if work > remaining then return -1; fi
+  return work;
+}
+
+// Return -1 when absent, -2 when the shared work budget is exhausted.
 fnc map_entry_index(
+  MsgpackCursor mut cursor,
   List<MapEntry> entries,
   Map<int, List<int>> buckets,
-  Value key
+  Value key,
+  int hash
 ): int {
-  let int hash = value_hash(key);
-
   if !buckets.contains(hash) then
     return -1;
   fi
 
+  let int key_work = value_key_work_cost(key, cursor.map_key_work_remaining, 0, cursor.options.max_depth);
+  if key_work < 0 then
+    cursor_fail(cursor, "map_complexity_limit",
+      "MessagePack map-key equality exceeds the configured work budget");
+    return -2;
+  fi
+
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
+    let int existing_work = value_key_work_cost(
+      entries[index].key, cursor.map_key_work_remaining, 0, cursor.options.max_depth
+    );
+    if existing_work < 0 then
+      cursor_fail(cursor, "map_complexity_limit",
+        "MessagePack map-key equality exceeds the configured work budget");
+      return -2;
+    fi
+    // Charge both bounded cost estimation and the subsequent deep equality.
+    let int pair_work = 1 + 2 * (existing_work + key_work);
+    if pair_work > cursor.map_key_work_remaining then
+      cursor_fail(cursor, "map_complexity_limit",
+        "MessagePack map-key collision work exceeds the configured admission budget");
+      return -2;
+    fi
+    cursor.map_key_work_remaining = cursor.map_key_work_remaining - pair_work;
     if value_deep_equal(entries[index].key, key) then
       return index;
     fi
@@ -218,11 +317,9 @@ fnc map_entry_index(
 
 fnc remember_map_entry(
   Map<int, List<int>> buckets,
-  Value key,
+  int hash,
   int index
 ): void {
-  let int hash = value_hash(key);
-
   if buckets.contains(hash) then
     val List<int> candidates = buckets.get(hash);
     candidates.add(index);
@@ -235,7 +332,8 @@ fnc remember_map_entry(
   return;
 }
 
-fnc map_keys_unique(List<MapEntry> entries): bool {
+// 1 = unique, 0 = duplicate, -1 = budget exhausted.
+fnc map_keys_unique(MsgpackWriter mut writer, List<MapEntry> entries): int {
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
 
@@ -243,71 +341,66 @@ fnc map_keys_unique(List<MapEntry> entries): bool {
     if i >= entries.length then
       break;
     fi
+    if i >= 1000000 then
+      writer_fail(writer, "map_complexity_limit",
+        "MessagePack encoder map entry count exceeds the bounded admission limit");
+      return -1;
+    fi
 
     let MapEntry entry = entries[i];
-    if map_entry_index(entries, buckets, entry.key) >= 0 then
-      return false;
+    let int hash_work = value_key_work_cost(
+      entry.key, writer.map_key_hash_work_remaining, 0, writer.options.max_depth
+    );
+    if hash_work < 0 then
+      writer_fail(writer, "map_complexity_limit",
+        "MessagePack encoder key hashing exceeds the configured output work budget");
+      return -1;
     fi
-
-    remember_map_entry(buckets, entry.key, i);
+    writer.map_key_hash_work_remaining = writer.map_key_hash_work_remaining - hash_work;
+    // Hash once; repeated collision comparisons use the separate shared budget.
+    let int hash = value_hash(entry.key);
+    if buckets.contains(hash) then
+      let int key_work = value_key_work_cost(
+        entry.key, writer.map_key_work_remaining, 0, writer.options.max_depth
+      );
+      if key_work < 0 then
+        writer_fail(writer, "map_complexity_limit",
+          "MessagePack encoder key equality exceeds the configured work budget");
+        return -1;
+      fi
+      val List<int> candidates = buckets.get(hash);
+      for const index of candidates do
+        let int existing_work = value_key_work_cost(
+          entries[index].key, writer.map_key_work_remaining, 0, writer.options.max_depth
+        );
+        if existing_work < 0 then
+          writer_fail(writer, "map_complexity_limit",
+            "MessagePack encoder key equality exceeds the configured work budget");
+          return -1;
+        fi
+        let int pair_work = 1 + 2 * (existing_work + key_work);
+        if pair_work > writer.map_key_work_remaining then
+          writer_fail(writer, "map_complexity_limit",
+            "MessagePack encoder key collision work exceeds the configured admission budget");
+          return -1;
+        fi
+        writer.map_key_work_remaining = writer.map_key_work_remaining - pair_work;
+        if value_deep_equal(entries[index].key, entry.key) then
+          return 0;
+        fi
+      done
+      candidates.add(i);
+    else
+      val List<int> candidates = new List<int>();
+      candidates.add(i);
+      buckets.set(hash, candidates);
+    fi
     i = i + 1;
   done
 
-  return true;
+  return 1;
 }
 
-fnc decode_string(
-  MsgpackCursor mut cursor,
-  int length
-): Value {
-  let List<int> bytes = read_bytes(
-    cursor,
-    length,
-    cursor.options.max_string_bytes,
-    "string_limit"
-  );
-
-  if cursor.failed then
-    return value_null();
-  fi
-
-  if !utf8_is_valid(bytes) then
-    cursor_fail(cursor, "invalid_utf8", "MessagePack string contains invalid UTF-8");
-    return value_null();
-  fi
-
-  return value_string(new Utf8Text(bytes));
-}
-
-fnc decode_array(
-  MsgpackCursor mut cursor,
-  int count,
-  int depth
-): Value {
-  val List<Value> values = new List<Value>();
-
-  if count > cursor.options.max_array_entries then
-    cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
-    return value_array(values);
-  fi
-
-  let int i = 0;
-  loop do
-    if i >= count then
-      break;
-    fi
-
-    let Value value = decode_value(cursor, depth + 1);
-    if cursor.failed then
-      return value_array(values);
-    fi
-
-    values.add(value);
-    i = i + 1;
-  done
-
-  return value_array(values);
-}
 
 fnc decode_map(
   MsgpackCursor mut cursor,
@@ -343,7 +436,11 @@ fnc decode_map(
       all_text_keys = false;
     fi
 
-    let int existing = map_entry_index(entries, buckets, key);
+    let int hash = value_hash(key);
+    let int existing = map_entry_index(cursor, entries, buckets, key, hash);
+    if cursor.failed then
+      return value_map(entries);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         cursor_fail(cursor, "duplicate_key", "duplicate MessagePack map key");
@@ -354,7 +451,7 @@ fnc decode_map(
     else
       let int index = entries.length;
       entries.add(new MapEntry(key, member_value));
-      remember_map_entry(buckets, key, index);
+      remember_map_entry(buckets, hash, index);
     fi
 
     i = i + 1;
@@ -409,8 +506,27 @@ fnc decode_value(
     return value_null();
   fi
 
+  if cursor.actor_bounded then
+    // Charge each node before reading its marker or constructing its value.
+    if cursor.actor_bytes_remaining < 128 || cursor.actor_work_remaining < 1 then
+      cursor_fail(cursor, "actor_budget", "cumulative actor decode budget exhausted");
+      return value_null();
+    fi
+    cursor.actor_bytes_remaining = cursor.actor_bytes_remaining - 128;
+    cursor.actor_work_remaining = cursor.actor_work_remaining - 1;
+  fi
+
   let int marker = read_u8(cursor);
   if cursor.failed then
+    return value_null();
+  fi
+
+  // The actor profile deliberately excludes maps and extension dispatch until
+  // trusted typed schemas and cumulative hash/equality metering are integrated.
+  if cursor.actor_bounded && ((marker >= 128 && marker <= 143) ||
+     marker == 222 || marker == 223 || (marker >= 199 && marker <= 201) ||
+     (marker >= 212 && marker <= 216)) then
+    cursor_fail(cursor, "actor_profile", "actor profile does not admit maps or extensions");
     return value_null();
   fi
 
@@ -562,6 +678,42 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
+  return decode_with_budget(input, options, false, 0, 0);
+}
+
+// Opt-in restricted actor DATA profile. Input must be owned or immutable.
+// Logical credits, not physical allocation or compiler-issued schema authority.
+// Every nested array/scalar shares one cursor. Maps and extensions fail closed.
+pub fnc decode_actor_bounded(
+  List<int> input,
+  DecodeOptions options,
+  int max_logical_bytes,
+  int max_work
+): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(options) || options.allow_trailing_data ||
+     options.duplicate_key_policy != 0 || options.max_depth > 64 ||
+     max_logical_bytes < 128 || max_logical_bytes > 8 * 1024 * 1024 ||
+     max_work < 1 || max_work > 4 * 1024 * 1024 ||
+     input.length > 1024 * 1024 then
+    return Err(decode_error("actor_budget", 0, "invalid actor decode profile or budget"));
+  fi
+  // Multiplication is safe after the explicit 1 MiB input limit.
+  val int wire_bytes = input.length * 16;
+  val int wire_work = input.length * 3;
+  if wire_bytes > max_logical_bytes - 128 || wire_work > max_work then
+    return Err(decode_error("actor_budget", 0, "actor input budget exhausted"));
+  fi
+  return decode_with_budget(input, options, true,
+    max_logical_bytes - 128 - wire_bytes, max_work - wire_work);
+}
+
+fnc decode_with_budget(
+  List<int> input,
+  DecodeOptions options,
+  bool actor_bounded,
+  int actor_bytes_remaining,
+  int actor_work_remaining
+): Result<DecodedValue, DecodeError> {
   if !decode_options_valid(options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
@@ -579,6 +731,10 @@ pub fnc decode(
     options,
     0,
     false,
+    map_key_work_limit(options.max_map_entries),
+    actor_bounded,
+    actor_bytes_remaining,
+    actor_work_remaining,
     empty_decode_error()
   );
 
@@ -924,8 +1080,11 @@ fnc encode_value(
     for const member of value.object_value do
       object_entries.add(new MapEntry(value_string(member.key), member.value));
     done
-    if !map_keys_unique(object_entries) then
-      writer_fail(writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
+    let int uniqueness = map_keys_unique(writer, object_entries);
+    if uniqueness != 1 then
+      if !writer.failed then
+        writer_fail(writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
+      fi
       return;
     fi
 
@@ -952,8 +1111,11 @@ fnc encode_value(
   fi
 
   if value.kind == 8 then
-    if !map_keys_unique(value.map_value) then
-      writer_fail(writer, "duplicate_key", "cannot encode MessagePack map with duplicate keys");
+    let int uniqueness = map_keys_unique(writer, value.map_value);
+    if uniqueness != 1 then
+      if !writer.failed then
+        writer_fail(writer, "duplicate_key", "cannot encode MessagePack map with duplicate keys");
+      fi
       return;
     fi
 
@@ -1001,6 +1163,8 @@ pub fnc encode(
     new List<int>(),
     options,
     false,
+    map_key_work_limit(1000000),
+    map_key_hash_work_limit(options.max_output_bytes),
     new EncodeError("", "")
   );
 
