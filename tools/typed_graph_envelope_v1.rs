@@ -46,6 +46,71 @@ impl Graph {
     pub fn len(&self) -> usize { self.nodes.len() }
     pub fn is_empty(&self) -> bool { self.nodes.is_empty() }
 
+    /// Canonical rooted ordered topology, independent of document-local IDs.
+    /// Opt-in: does not change the existing ID-preserving encode/decode API.
+    /// Graph is a private validated representation; no callbacks or recursive
+    /// traversal. Work counts three passes over each node and present edge.
+    pub fn canonicalize(&self, limits: Limits, cancelled: &AtomicBool)
+        -> Result<Graph, Reject> {
+        check_cancel(cancelled)?;
+        let n = self.nodes.len();
+        if n == 0 || n > limits.nodes || n > 65536 { return Err(Reject::Budget); }
+        let output = n.checked_mul(std::mem::size_of::<Record>()).ok_or(Reject::Budget)?;
+        let scratch = n.checked_mul(2 * std::mem::size_of::<u32>()).ok_or(Reject::Budget)?;
+        if output > limits.output_bytes || scratch > limits.scratch_bytes {
+            return Err(Reject::Budget);
+        }
+
+        let mut edges = 0usize;
+        let mut work = 0usize;
+        for record in &self.nodes {
+            check_cancel(cancelled)?;
+            charge(&mut work, 1, limits.work)?;
+            for _ in [record.next, record.alias].into_iter().flatten() {
+                charge(&mut edges, 1, limits.edges)?;
+                charge(&mut work, 1, limits.work)?;
+            }
+        }
+        let rest = work.checked_mul(2).ok_or(Reject::Budget)?;
+        charge(&mut work, rest, limits.work)?;
+
+        let mut ids = Vec::<u32>::new();
+        ids.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
+        ids.resize(n, u32::MAX);
+        let mut order = Vec::<u32>::new();
+        order.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
+        ids[self.root as usize] = 0;
+        order.push(self.root);
+        let mut cursor = 0;
+        while cursor < order.len() {
+            check_cancel(cancelled)?;
+            let record = &self.nodes[order[cursor] as usize];
+            cursor += 1;
+            // Field order is semantic; null does not discover a node.
+            for target in [record.next, record.alias].into_iter().flatten() {
+                if ids[target as usize] == u32::MAX {
+                    ids[target as usize] = order.len() as u32;
+                    order.push(target);
+                }
+            }
+        }
+        if order.len() != n { return Err(Reject::Unreachable); }
+        let mut nodes = Vec::new();
+        nodes.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
+        for (id, source) in order.into_iter().enumerate() {
+            check_cancel(cancelled)?;
+            let record = self.nodes[source as usize];
+            nodes.push(Record {
+                id: id as u32,
+                next: record.next.map(|target| ids[target as usize]),
+                alias: record.alias.map(|target| ids[target as usize]),
+                ..record
+            });
+        }
+        check_cancel(cancelled)?;
+        Ok(Graph { root: 0, nodes })
+    }
+
     // The output is an owned logical envelope table, not framing bytes.
     pub fn encode_table(&self, output_bytes: usize) -> Result<Vec<Record>, Reject> {
         let bytes = self.nodes.len().checked_mul(std::mem::size_of::<Record>())
@@ -349,6 +414,75 @@ mod tests {
     fn run(objects: &[Record], root: u32, limits: Limits) -> Result<Graph, Reject> {
         decode(Envelope { version: 1, root, objects }, 1, limits, &AtomicBool::new(false))
     }
+    #[test]
+    fn canonical_topology_ignores_ids_but_preserves_aliases_and_field_order() {
+        let cancel = AtomicBool::new(false);
+        let original = [
+            node(0, Some(1), Some(2)), node(1, Some(3), None),
+            node(2, Some(3), None), node(3, Some(0), Some(3)),
+        ];
+        // New IDs: old 0 -> 2, old 1 -> 3, old 2 -> 0, old 3 -> 1.
+        let permuted = [
+            Record { id: 0, value: 2, next: Some(1), ..original[2] },
+            Record { id: 1, value: 3, next: Some(2), alias: Some(1), ..original[3] },
+            Record { id: 2, value: 0, next: Some(3), alias: Some(0), ..original[0] },
+            Record { id: 3, value: 1, next: Some(1), ..original[1] },
+        ];
+        let a = run(&original, 0, LIMITS).unwrap();
+        let b = run(&permuted, 2, LIMITS).unwrap();
+        assert_ne!(a, b);
+        let ca = a.canonicalize(LIMITS, &cancel).unwrap();
+        let cb = b.canonicalize(LIMITS, &cancel).unwrap();
+        assert_eq!(ca, cb);
+        assert_eq!(ca, ca.canonicalize(LIMITS, &cancel).unwrap());
+        assert_eq!(ca.get(1).unwrap().next, ca.get(2).unwrap().next);
+        assert_eq!(ca.get(3).unwrap().next, Some(0));
+        assert_eq!(encode_cbor(&ca, 1024, &cancel).unwrap(),
+            encode_cbor(&cb, 1024, &cancel).unwrap());
+
+        let swapped = [Record { next: Some(2), alias: Some(1), ..original[0] },
+            original[1], original[2], original[3]];
+        let cc = run(&swapped, 0, LIMITS).unwrap().canonicalize(LIMITS, &cancel).unwrap();
+        assert_ne!(ca, cc);
+        assert_eq!(b.root(), 2); // no mutation or implicit ID normalization
+    }
+
+    #[test]
+    fn canonical_topology_budget_boundaries_and_cancellation() {
+        let graph = run(&[node(0, Some(0), Some(0))], 0, LIMITS).unwrap();
+        let cancel = AtomicBool::new(false);
+        let exact = Limits { nodes: 1, edges: 2, work: 9,
+            output_bytes: std::mem::size_of::<Record>(),
+            scratch_bytes: 2 * std::mem::size_of::<u32>() };
+        assert_eq!(graph, graph.canonicalize(exact, &cancel).unwrap());
+        for limit in [
+            Limits { nodes: 0, ..exact }, Limits { edges: 1, ..exact },
+            Limits { work: 8, ..exact },
+            Limits { output_bytes: exact.output_bytes - 1, ..exact },
+            Limits { scratch_bytes: exact.scratch_bytes - 1, ..exact },
+        ] {
+            assert_eq!(graph.canonicalize(limit, &cancel), Err(Reject::Budget));
+        }
+        cancel.store(true, Ordering::Release);
+        assert_eq!(graph.canonicalize(exact, &cancel), Err(Reject::Cancelled));
+    }
+
+    #[test]
+    fn canonical_topology_large_reversed_cycle() {
+        let n = 10000u32;
+        let input: Vec<_> = (0..n).map(|id| Record {
+            id, type_id: 1, value: (n - 1 - id) as i32,
+            next: Some((id + n - 1) % n), alias: None,
+        }).collect();
+        let graph = run(&input, n - 1, LIMITS).unwrap();
+        let cancel = AtomicBool::new(false);
+        let canonical = graph.canonicalize(LIMITS, &cancel).unwrap();
+        assert_eq!(canonical.root(), 0);
+        for id in 0..n {
+            assert_eq!(canonical.get(id).unwrap(), &node(id, Some((id + 1) % n), None));
+        }
+    }
+
     #[test]
     fn self_cycle_and_roundtrip() {
         let input = [node(0, Some(0), None)];
