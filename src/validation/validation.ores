@@ -77,6 +77,16 @@ pub define class ObjectSchema as
   pub val bool reject_unknown_fields;
 end
 
+// Private nominal storage; never export the underlying mutable collections.
+// This is an actor-local, detached policy, not a compiler-authenticated schema.
+define class PrivateObjectSchemaStorage as
+  val ObjectSchema schema;
+end
+
+pub define class SealedObjectSchema as
+  val PrivateObjectSchemaStorage storage;
+end
+
 pub fnc default_validation_options(): ValidationOptions {
   return new ValidationOptions(false, 64);
 }
@@ -238,6 +248,24 @@ pub fnc object_schema_checked(
     return Err(config_report("invalid_schema", "object schema contains duplicate, contradictory, or invalid field rules"));
   fi
   return Ok(schema);
+}
+
+// Only a successfully checked detached schema can be wrapped. The private
+// storage type is not imported by consumers and has no public getter.
+pub fnc seal_object_schema(
+  List<FieldRule> fields,
+  bool reject_unknown_fields
+): Result<SealedObjectSchema, ValidationReport> {
+  val Result<ObjectSchema, ValidationReport> built =
+    object_schema_checked(fields, reject_unknown_fields);
+  if built.is_err() then
+    return Err(config_report("invalid_schema", "object schema sealing refused"));
+  fi
+  return Ok(new SealedObjectSchema(new PrivateObjectSchemaStorage(built.unwrap())));
+}
+
+pub fnc sealed_schema_field_count(SealedObjectSchema schema): int {
+  return schema.storage.schema.fields.length;
 }
 
 // Compatibility adapter: preserve the original signature without ever
@@ -464,7 +492,10 @@ fnc empty_key(): Utf8Text {
 
 fnc key_path(Utf8Text key): List<PathSegment> {
   val List<PathSegment> path = new List<PathSegment>();
-  path.add(new PathSegment(1, key, -1));
+  // A report is a public mutable diagnostic, never a loan of schema storage.
+  val List<int> detached_bytes = new List<int>();
+  for const byte of key.bytes do detached_bytes.add(byte); done
+  path.add(new PathSegment(1, new Utf8Text(detached_bytes), -1));
   return path;
 }
 
@@ -1715,5 +1746,25 @@ pub fnc validate_object_checked(
   if report_is_valid(report) then
     return Ok(value);
   fi
+  return Err(report);
+}
+
+// Keep existing dynamic schema validation compatible. The sealed path uses
+// the same bounded checks, without handing any storage reference to callers.
+pub fnc validate_sealed_object(
+  Value value,
+  SealedObjectSchema schema,
+  ValidationOptions options
+): ValidationReport {
+  return validate_object(value, rt borrow schema.storage.schema, options);
+}
+
+pub fnc validate_sealed_object_checked(
+  Value value,
+  SealedObjectSchema schema,
+  ValidationOptions options
+): Result<Value, ValidationReport> {
+  val ValidationReport report = validate_sealed_object(rt borrow value, schema, options);
+  if report_is_valid(rt borrow report) then return Ok(value); fi
   return Err(report);
 }

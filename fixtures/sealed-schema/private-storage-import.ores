@@ -1,0 +1,2 @@
+import class PrivateObjectSchemaStorage from '../../src/validation/validation';
+pub fnc main(): void { return; }
