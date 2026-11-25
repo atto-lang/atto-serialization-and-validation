@@ -88,7 +88,72 @@ fnc graph_duplicate_object(): Value {
   return value_object(members);
 }
 
+fnc graph_object_key(bool reverse): Value {
+  val List<WireMember> members = new List<WireMember>();
+  if reverse then
+    members.add(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
+    members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+  else
+    members.add(new WireMember(new Utf8Text(new List<int>(97)), value_int(1)));
+    members.add(new WireMember(new Utf8Text(new List<int>(98)), value_int(2)));
+  fi
+  return value_object(members);
+}
+
+fnc graph_map_pair(int first, int second): Value {
+  val List<MapEntry> entries = new List<MapEntry>();
+  entries.add(new MapEntry(value_int(first), value_int(1)));
+  entries.add(new MapEntry(value_int(second), value_int(2)));
+  return value_map(entries);
+}
+
+// Each map has one unique key, so no collision or duplicate is needed to
+// consume the shared hash budget. 999,999 key bytes + one node = 1M.
+fnc graph_map_large_key(int bytes_count): Value {
+  val List<int> bytes = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= bytes_count then break; fi
+    bytes.add(97);
+    i = i + 1;
+  done
+  val List<MapEntry> entries = new List<MapEntry>();
+  entries.add(new MapEntry(value_bytes(bytes), value_int(1)));
+  return value_map(entries);
+}
+
+fnc graph_map_shared_work(int last_key_bytes): Value {
+  val List<Value> children = new List<Value>();
+  // 15 maps with 65,535 bytes plus one visit each = 983,040 credits.
+  let int i = 0;
+  loop do
+    if i >= 15 then break; fi
+    children.add(graph_map_large_key(65535));
+    i = i + 1;
+  done
+  children.add(graph_map_large_key(last_key_bytes));
+  return value_array(children);
+}
+
 fnc run_checked_graph_tests(): void {
+  require_true(validate_value_checked(graph_map_pair(7,7), any_rule(),
+    default_validation_options()).is_err(), "duplicate scalar map key denied");
+  require_true(!validate_value_checked(graph_map_pair(7,8), any_rule(),
+    default_validation_options()).is_err(), "distinct scalar map keys accepted");
+  require_true(validate_value_checked(graph_wrap(graph_map_pair(7,7)), any_rule(),
+    default_validation_options()).is_err(), "nested duplicate map key denied");
+  require_true(!report_is_valid(validate_value(graph_wrap(graph_map_pair(7,7)), any_rule(),
+    default_validation_options())), "report-only graph rejects nested duplicate map key");
+  val List<MapEntry> structural_keys = new List<MapEntry>();
+  structural_keys.add(new MapEntry(graph_object_key(false), value_int(1)));
+  structural_keys.add(new MapEntry(graph_object_key(true), value_int(2)));
+  require_true(validate_value_checked(value_map(structural_keys), any_rule(),
+    default_validation_options()).is_err(), "reordered equal object keys denied");
+  require_true(!validate_value_checked(graph_map_shared_work(16959), any_rule(),
+    default_validation_options()).is_err(), "exact shared map hash fuel accepted");
+  require_true(validate_value_checked(graph_map_shared_work(16960), any_rule(),
+    default_validation_options()).is_err(), "one over shared map hash fuel denied");
+
   require_true(!report_is_valid(validate_value(graph_wrap(graph_duplicate_object()), any_rule(),
     default_validation_options())), "report-only any_rule denies nested duplicate object");
   require_true(!report_is_valid(validate_object(
