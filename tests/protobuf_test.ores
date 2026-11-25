@@ -4,7 +4,32 @@ import class ProtoField, ProtoMessage, ProtoError, ProtoDecodeOptions, ProtoEnco
 import fnc proto_varint, proto_bytes, proto_raw_varint, proto_fixed32, proto_descriptor_field_number_valid, proto_wire_field_valid, proto_field_reencoded_wire_bytes, default_proto_decode_options, default_proto_encode_options from '../src/protobuf/wire';
 import fnc encode_message, encode_message_bounded, decode_message, fields_with_number, fields_with_number_bounded, proto_message_copy_bounded from '../src/protobuf/wire';
 
+import fnc decode_actor_message_bounded from '../src/protobuf/wire';
+
 pub fnc run_protobuf_tests(): void {
+  // Two empty length-delimited fields: 4 wire bytes, 2 field credits.
+  // Exact logical charge = 128 + 4*16 + 2*128 = 448.
+  val List<int> actor_wire = new List<int>(10, 0, 18, 0);
+  val ProtoDecodeOptions actor_options = new ProtoDecodeOptions(4, 2, 0);
+  require_true(!decode_actor_message_bounded(actor_wire, actor_options, 448, 14).is_err(),
+    "actor decode accepts exact logical/work caps");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 447, 14).is_err(),
+    "empty fields consume cumulative logical allocation credit");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 448, 13).is_err(),
+    "empty fields consume cumulative work credit");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 127, 14).is_err(),
+    "base charge cannot underflow");
+  require_true(decode_actor_message_bounded(actor_wire, actor_options, 448, 0).is_err(),
+    "zero work ceiling rejected");
+  require_true(decode_actor_message_bounded(actor_wire,
+    new ProtoDecodeOptions(4, 1, 0), 448, 14).is_err(),
+    "actor profile never widens existing field ceiling");
+  require_true(decode_actor_message_bounded(actor_wire,
+    new ProtoDecodeOptions(3, 2, 0), 448, 14).is_err(),
+    "actor profile never widens existing wire ceiling");
+  require_true(!decode_message(actor_wire, actor_options).is_err(),
+    "legacy flat wire reader remains unchanged");
+
   val List<ProtoField> fields = new List<ProtoField>();
   fields.add(proto_varint(1, 150));
   fields.add(proto_bytes(2, new List<int>(104, 105)));
