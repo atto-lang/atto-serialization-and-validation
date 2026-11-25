@@ -96,5 +96,27 @@ class CheckAccessDenial(unittest.TestCase):
     def test_import_denial(self):
         self.assert_accepted("error: cannot import ZordePrivateCompiledEntry", "private-entry-import")
 
+
+class DenialDiagnosticBoundaryRegressions(unittest.TestCase):
+    """Host-only evidence filter tests; do not certify compiler diagnostics."""
+
+    def test_crlf_and_quoted_exact_subjects_admitted(self):
+        self.assertTrue(module.valid_log(b"error: private class 'ZordePrivateCompiledEntry'\r\n", "private-entry-import"))
+        self.assertTrue(module.valid_log(b"error: cannot access \x60entries\x60\r\n", "private-storage-access"))
+
+    def test_unicode_line_separator_does_not_join_subject_and_denial(self):
+        self.assertFalse(module.valid_log("error: entries\u2028is private".encode("utf-8"), "private-storage-access"))
+
+    def test_lookalike_subjects_are_not_access_control_evidence(self):
+        for line in ("error: entr\u0456es is private", "error: ZordePrivateCompiledEntry2 is private"):
+            self.assertFalse(module.valid_log(line.encode("utf-8"), "private-storage-access" if "entr" in line else "private-entry-import"))
+
+    def test_nonbreaking_space_cannot_replace_diagnostic_token_separator(self):
+        self.assertFalse(module.valid_log("error: entries\u00a0is private".encode("utf-8"), "private-storage-access"))
+
+    def test_empty_and_unknown_fixture_names_fail_closed(self):
+        self.assertFalse(module.valid_log(b"error: entries is private", "PRIVATE-STORAGE-ACCESS"))
+        self.assertFalse(module.valid_log(b"error: entries is private", ""))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

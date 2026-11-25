@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int from '../src/core/value';
+import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
@@ -23,6 +23,30 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  // Regression for three-way merge corruption in decimal integer emission.
+  require_true(
+    bytes_equal(int_to_decimal_bytes(0), new List<int>(48)),
+    "decimal 0 emits exactly one zero"
+  );
+  require_true(
+    bytes_equal(int_to_decimal_bytes(-17), new List<int>(45, 49, 55)),
+    "negative decimal preserves sign and digit order"
+  );
+  require_true(
+    bytes_equal(
+      int_to_decimal_bytes(9223372036854775807),
+      new List<int>(57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 55)
+    ),
+    "signed int64 maximum emits every digit"
+  );
+  require_true(
+    bytes_equal(
+      int_to_decimal_bytes(-9223372036854775807 - 1),
+      new List<int>(45, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 56, 48, 56)
+    ),
+    "signed int64 minimum does not overflow on absolute value"
+  );
+
   val List<int> input = new List<int>(
     123,
     34, 120, 34,
@@ -196,5 +220,11 @@ pub fnc run_json_tests(): void {
   );
   require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
 
+  // Native UTF-8 boundary cases independent of the JSON decoder.
+  require_true(!utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
+  require_int(utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
+  require_int(utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
+  require_true(!utf8_is_valid(new List<int>(255)), "0xFF is not a valid Unicode lead byte");
+  require_int(utf8_codepoint_count(new List<int>(65, 66, 67)), 3, "three ASCII code points");
   return;
 }
