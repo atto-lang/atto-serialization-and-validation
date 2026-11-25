@@ -146,6 +146,23 @@ configured wire nesting depth (up to 128). Separate structural, allocation,
 and JSON text-key work remain outside this meter. These are logical work
 units, not a wall-clock or heap guarantee.
 
+## JSON key work and terminal frame semantics
+
+JSON readers and writers share the same 1,000,000-credit logical key meter
+across all nested objects. Charge one credit per key hash, every hashed byte,
+each candidate probe, and each compared byte. Reuse completed hashes; a
+comparison refusal yields key_work_limit under every duplicate policy.
+
+The incremental scanner does not semantically parse each chunk. It performs
+one terminal semantic parse at a candidate boundary or EOF. Any parse
+failure, including a candidate that turns out incomplete, invalid options,
+invalid bytes or input-limit failure, terminates the decoder. Subsequent
+feed/finish requests cannot reset fuel or retry the same frame. The
+existing channel adapter inherits this behavior and still drains a
+successful root through EOF to reject trailing data. This is a change
+from retryable failed feed calls; create a new decoder for a new frame.
+Native execution and compiler ownership checks remain required.
+
 ## Schema builder ownership and explicit refusal
 
 Use `object_schema_checked(fields, reject_unknown_fields)` when constructing

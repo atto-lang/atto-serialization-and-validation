@@ -685,6 +685,16 @@ fnc fuel_equal_bytes(
   return new ValueEqualAttempt(true, true);
 }
 
+pub fnc text_hash_with_fuel(Utf8Text key, ValueWorkFuel mut fuel): ValueHashAttempt {
+  // Charge a key visit even for empty text.
+  if !value_fuel_charge(fuel, 1) then return new ValueHashAttempt(false, 0); fi
+  return fuel_hash_bytes(key.bytes, fuel);
+}
+
+pub fnc text_equal_with_fuel(Utf8Text left, Utf8Text right, ValueWorkFuel mut fuel): ValueEqualAttempt {
+  return fuel_equal_bytes(left.bytes, right.bytes, fuel);
+}
+
 fnc value_hash_fuel_depth(
   Value value,
   int depth,

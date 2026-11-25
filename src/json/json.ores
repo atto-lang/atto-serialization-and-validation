@@ -4,9 +4,9 @@
 // validated UTF-8 bytes in Utf8Text, avoiding host/JVM string parsing.
 // The parser is bounded by DecodeOptions and has a resumable feed surface.
 
-import class Value, Utf8Text, WireMember from '../core/value';
+import class Value, Utf8Text, WireMember, ValueWorkFuel, ValueHashAttempt, ValueEqualAttempt from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
-import fnc bytes_equal, text_hash, encode_graph_shape_status from '../core/value';
+import fnc text_hash_with_fuel, text_equal_with_fuel, max_codec_key_work, remember_metered_map_entry, encode_graph_shape_status from '../core/value';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
 import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
@@ -18,6 +18,7 @@ define class JsonCursor as
   pub let bool failed;
   pub let bool incomplete;
   pub let DecodeError error;
+  pub let ValueWorkFuel key_fuel;
 end
 
 define class JsonWriter as
@@ -25,6 +26,7 @@ define class JsonWriter as
   pub val EncodeOptions options;
   pub let bool failed;
   pub let EncodeError error;
+  pub let ValueWorkFuel key_fuel;
 end
 
 pub define class JsonIncrementalDecoder as
@@ -190,6 +192,7 @@ pub define class JsonIncrementalDecoder as
     fi
   
     if !decode_options_valid(self.options) then
+      self.complete = true;
       return new DecodeStep(
         2,
         value_null(),
@@ -199,6 +202,7 @@ pub define class JsonIncrementalDecoder as
     fi
   
     if chunk.length > self.options.max_input_bytes - self.buffer.length then
+      self.complete = true;
       return new DecodeStep(
         2,
         value_null(),
@@ -210,6 +214,7 @@ pub define class JsonIncrementalDecoder as
     let int chunk_index = 0;
     for const byte of chunk do
       if byte < 0 || byte > 255 then
+        self.complete = true;
         return new DecodeStep(
           2,
           value_null(),
@@ -239,10 +244,12 @@ pub define class JsonIncrementalDecoder as
       );
     fi
   
-    let DecodeAttempt attempt = decode_attempt(self.buffer, self.options);
+    // A complete/invalid scanner boundary is terminal. No semantic parse
+    // may be repeated with fresh key fuel on the same frame.
+    self.complete = true;
+    let DecodeAttempt attempt = decode_attempt(rt borrow self.buffer, rt borrow self.options);
   
     if attempt.status == 0 then
-      self.complete = true;
       return new DecodeStep(
         1,
         attempt.value,
@@ -251,16 +258,9 @@ pub define class JsonIncrementalDecoder as
       );
     fi
   
-    if attempt.status == 2 then
-      return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
-    fi
-  
-    return new DecodeStep(
-      0,
-      value_null(),
-      attempt.consumed,
-      attempt.error
-    );
+    // A scanner candidate that is semantically incomplete is malformed at
+    // its observed boundary, not permission to retry the parser.
+    return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
   }
   
   pub finish(mut self)(): DecodeStep {
@@ -273,13 +273,13 @@ pub define class JsonIncrementalDecoder as
       );
     fi
   
-    let DecodeAttempt attempt = decode_attempt(self.buffer, self.options);
+    self.complete = true;
+    let DecodeAttempt attempt = decode_attempt(rt borrow self.buffer, rt borrow self.options);
   
     if attempt.status != 0 then
       return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
     fi
   
-    self.complete = true;
     return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
   }
 end
@@ -759,67 +759,42 @@ fnc parse_number(JsonCursor mut cursor): Value {
   return value_number_lexeme(lexeme);
 }
 
+// -1 absent; -2 incomplete comparison. Never interpret -2 as absent.
 fnc member_index(
   List<WireMember> members,
   Map<int, List<int>> buckets,
-  Utf8Text key
+  Utf8Text key,
+  int hash,
+  ValueWorkFuel mut fuel
 ): int {
-  let int hash = text_hash(key);
-
-  if !buckets.contains(hash) then
-    return -1;
-  fi
-
+  if !buckets.contains(hash) then return -1; fi
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if bytes_equal(members[index].key.bytes, key.bytes) then
-      return index;
-    fi
+    if fuel.remaining <= 0 then return -2; fi
+    fuel.remaining = fuel.remaining - 1;
+    val ValueEqualAttempt equal = text_equal_with_fuel(
+      rt borrow members[index].key, rt borrow key, fuel);
+    if !equal.completed then return -2; fi
+    if equal.equal then return index; fi
   done
-
   return -1;
 }
 
-fnc remember_member(
-  Map<int, List<int>> buckets,
-  Utf8Text key,
-  int index
-): void {
-  let int hash = text_hash(key);
-
-  if buckets.contains(hash) then
-    val List<int> candidates = buckets.get(hash);
-    candidates.add(index);
-    return;
-  fi
-
-  val List<int> candidates = new List<int>();
-  candidates.add(index);
-  buckets.set(hash, candidates);
-  return;
-}
-
-fnc object_keys_unique(List<WireMember> members): bool {
+// 0 unique; 1 duplicate; 2 budget refusal.
+fnc object_keys_status(List<WireMember> members, ValueWorkFuel mut fuel): int {
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
-
-  loop do
-    if i >= members.length then
-      break;
-    fi
-
-    let WireMember member = members[i];
-    if member_index(members, buckets, member.key) >= 0 then
-      return false;
-    fi
-
-    remember_member(buckets, member.key, i);
+  for const member of members do
+    val ValueHashAttempt hash = text_hash_with_fuel(rt borrow member.key, fuel);
+    if !hash.completed then return 2; fi
+    val int existing = member_index(rt borrow members, buckets, rt borrow member.key, hash.hash, fuel);
+    if existing == -2 then return 2; fi
+    if existing >= 0 then return 1; fi
+    remember_metered_map_entry(buckets, hash.hash, i);
     i = i + 1;
   done
-
-  return true;
+  return 0;
 }
-
 
 fnc parse_array(JsonCursor mut cursor, int depth): Value {
   val List<Value> values = new List<Value>();
@@ -918,7 +893,17 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int existing = member_index(members, buckets, key);
+    val ValueHashAttempt key_hash = text_hash_with_fuel(rt borrow key, cursor.key_fuel);
+    if !key_hash.completed then
+      fail(cursor, "key_work_limit", "JSON object key hashing budget exhausted");
+      return value_object(members);
+    fi
+    let int existing = member_index(rt borrow members, buckets, rt borrow key,
+      key_hash.hash, cursor.key_fuel);
+    if existing == -2 then
+      fail(cursor, "key_work_limit", "JSON object key comparison budget exhausted");
+      return value_object(members);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(cursor, "duplicate_key", "duplicate JSON object key");
@@ -930,7 +915,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     else
       let int index = members.length;
       members.add(new WireMember(key, field_value));
-      remember_member(buckets, key, index);
+      remember_metered_map_entry(buckets, key_hash.hash, index);
     fi
 
     skip_whitespace(cursor);
@@ -1047,7 +1032,8 @@ pub fnc decode_attempt(
     0,
     false,
     false,
-    empty_decode_error()
+    empty_decode_error(),
+    new ValueWorkFuel(max_codec_key_work())
   );
 
   let Value value = parse_value(cursor, 0);
@@ -1104,20 +1090,22 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     1
   );
 
+  val int byte_length = bytes.length;
   let JsonCursor cursor = new JsonCursor(
     bytes,
     options,
     0,
     false,
     false,
-    empty_decode_error()
+    empty_decode_error(),
+    new ValueWorkFuel(max_codec_key_work())
   );
 
   let Value value = parse_number(cursor);
   if cursor.failed || cursor.incomplete then
     return false;
   fi
-  if cursor.index != bytes.length then
+  if cursor.index != byte_length then
     return false;
   fi
   return value.kind == 2;
@@ -1297,7 +1285,12 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
   fi
 
   if value.kind == 6 then
-    if !object_keys_unique(value.object_value) then
+    val int key_status = object_keys_status(rt borrow value.object_value, writer.key_fuel);
+    if key_status == 2 then
+      writer_fail(writer, "key_work_limit", "JSON object key work exhausted");
+      return;
+    fi
+    if key_status == 1 then
       writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
       return;
     fi
@@ -1360,7 +1353,8 @@ pub fnc encode(
     new List<int>(),
     options,
     false,
-    new EncodeError("", "")
+    new EncodeError("", ""),
+    new ValueWorkFuel(max_codec_key_work())
   );
 
   encode_value(writer, value, 0);
