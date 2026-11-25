@@ -21,6 +21,9 @@ define class MsgpackCursor as
   pub let DecodeError error;
   pub let ValueWorkFuel key_fuel;
   pub let DecodeMaterializationBudget materialization;
+  pub val bool actor_bounded;
+  pub let int actor_bytes_remaining;
+  pub let int actor_work_remaining;
 end
 
 define class MsgpackWriter as
@@ -238,6 +241,12 @@ fnc decode_array(
   fi
 
   // Reject impossible declared child counts before materializing children.
+  if cursor.actor_bounded then
+    if count > cursor.actor_work_remaining || count > (cursor.actor_bytes_remaining >> 7) then
+      cursor_fail(cursor, "actor_budget", "declared array children exceed remaining actor budget");
+      return value_array(values);
+    fi
+  fi
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
     cursor_fail(cursor, "node_limit", "MessagePack cumulative child node limit exhausted");
@@ -394,12 +403,28 @@ fnc decode_value(
     return value_null();
   fi
 
+  if cursor.actor_bounded then
+    if cursor.actor_bytes_remaining < 128 || cursor.actor_work_remaining < 1 then
+      cursor_fail(cursor, "actor_budget", "cumulative actor decode budget exhausted");
+      return value_null();
+    fi
+    cursor.actor_bytes_remaining = cursor.actor_bytes_remaining - 128;
+    cursor.actor_work_remaining = cursor.actor_work_remaining - 1;
+  fi
   if !charge_decode_nodes(cursor.materialization, 1) then
     cursor_fail(cursor, "node_limit", "MessagePack cumulative materialized node limit exhausted");
     return value_null();
   fi
   let int marker = read_u8(cursor);
   if cursor.failed then
+    return value_null();
+  fi
+
+  // Restricted profile: no maps or extension dispatch at any depth.
+  if cursor.actor_bounded && ((marker >= 128 && marker <= 143) ||
+     marker == 222 || marker == 223 || (marker >= 199 && marker <= 201) ||
+     (marker >= 212 && marker <= 216)) then
+    cursor_fail(cursor, "actor_profile", "actor profile does not admit maps or extensions");
     return value_null();
   fi
 
@@ -551,7 +576,43 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
+  return decode_with_budget(input, options, false, 0, 0);
+}
+
+// Logical credits, not actual allocator bytes or CPU instructions.
+// Preserve the restricted actor profile from legacy PR #27.
+pub fnc decode_actor_bounded(
+  List<int> input,
+  DecodeOptions options,
+  int max_logical_bytes,
+  int max_work
+): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(rt borrow options) || options.allow_trailing_data ||
+     options.duplicate_key_policy != 0 || options.max_depth > 64 ||
+     max_logical_bytes < 128 || max_logical_bytes > 8 * 1024 * 1024 ||
+     max_work < 1 || max_work > 4 * 1024 * 1024 ||
+     input.length > 1024 * 1024 then
+    return Err(decode_error("actor_budget", 0, "invalid actor decode profile or budget"));
+  fi
+  // Bound length before multiplication. Reserve wire costs once, before
+  // the generic decoder validates/copies any bytes.
+  val int wire_bytes = input.length * 16;
+  val int wire_work = input.length * 3;
+  if wire_bytes > max_logical_bytes - 128 || wire_work > max_work then
+    return Err(decode_error("actor_budget", 0, "actor input budget exhausted"));
+  fi
+  return decode_with_budget(input, options, true,
+    max_logical_bytes - 128 - wire_bytes, max_work - wire_work);
+}
+
+fnc decode_with_budget(
+  List<int> input,
+  DecodeOptions options,
+  bool actor_bounded,
+  int actor_bytes_remaining,
+  int actor_work_remaining
+): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(rt borrow options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
@@ -563,6 +624,8 @@ pub fnc decode(
     return Err(decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
   fi
 
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
   let MsgpackCursor cursor = new MsgpackCursor(
     input,
     options,
@@ -570,7 +633,10 @@ pub fnc decode(
     false,
     empty_decode_error(),
     new ValueWorkFuel(max_codec_key_work()),
-    new_decode_materialization_budget()
+    new_decode_materialization_budget(),
+    actor_bounded,
+    actor_bytes_remaining,
+    actor_work_remaining
   );
 
   let Value value = decode_value(cursor, 0);
@@ -579,7 +645,7 @@ pub fnc decode(
     return Err(cursor.error);
   fi
 
-  if !options.allow_trailing_data && cursor.index != input.length then
+  if !allow_trailing_data && cursor.index != input_length then
     return Err(decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
   fi
 
