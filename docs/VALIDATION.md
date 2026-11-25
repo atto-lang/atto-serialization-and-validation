@@ -432,3 +432,12 @@ before taking the next loan. This avoids overlapping mutable loans and keeps
 post-parse cursor state available. Existing actor, graph, key and
 materialization limits remain in place. This is a source repair candidate;
 compiler execution and field-projection loan review remain release gates.
+
+## Restricted CBOR actor admission
+
+CBOR exposes the same decode_actor_bounded signature and shares the profile
+predicate with MessagePack. The same cumulative logical credit formula and
+array child precheck apply; maps and tags are refused before argument reads
+at every depth. Indefinite containers and floats remain unsupported. Generic
+CBOR maps are unchanged. These are not physical heap or CPU quotas. Native
+assertions and mailbox integration remain release gates.

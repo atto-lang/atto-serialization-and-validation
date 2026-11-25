@@ -9,7 +9,7 @@ import class Value, Utf8Text, WireMember, MapEntry, IntParse, ValueWorkFuel, Val
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_hash_with_fuel, parse_int from '../core/value';
 import fnc bytes_equal, encode_graph_shape_status, max_codec_key_work, metered_map_entry_index, remember_metered_map_entry, metered_map_keys_status from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeMaterializationBudget from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes, actor_decode_profile_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -21,6 +21,9 @@ define class CborCursor as
   pub let DecodeError error;
   pub let ValueWorkFuel key_fuel;
   pub let DecodeMaterializationBudget materialization;
+  pub val bool actor_bounded;
+  pub let int actor_bytes_remaining;
+  pub let int actor_work_remaining;
 end
 
 define class CborWriter as
@@ -227,6 +230,12 @@ fnc decode_array(
   fi
 
   // Reject impossible declared child counts before materializing children.
+  if cursor.actor_bounded then
+    if count > cursor.actor_work_remaining || count > (cursor.actor_bytes_remaining >> 7) then
+      cursor_fail(rt mut borrow cursor, "actor_budget", "declared array children exceed remaining actor budget");
+      return value_array(values);
+    fi
+  fi
   val int slots = cursor.materialization.nodes_remaining;
   if count < 0 || count > slots then
     cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative child node limit exhausted");
@@ -354,6 +363,14 @@ fnc decode_value(
     return value_null();
   fi
 
+  if cursor.actor_bounded then
+    if cursor.actor_bytes_remaining < 128 || cursor.actor_work_remaining < 1 then
+      cursor_fail(rt mut borrow cursor, "actor_budget", "cumulative actor decode budget exhausted");
+      return value_null();
+    fi
+    cursor.actor_bytes_remaining = cursor.actor_bytes_remaining - 128;
+    cursor.actor_work_remaining = cursor.actor_work_remaining - 1;
+  fi
   if !charge_decode_nodes(cursor.materialization, 1) then
     cursor_fail(rt mut borrow cursor, "node_limit", "CBOR cumulative materialized node limit exhausted");
     return value_null();
@@ -363,8 +380,13 @@ fnc decode_value(
     return value_null();
   fi
 
-  let int major = initial / 32;
-  let int additional = initial % 32;
+  let int major = initial >> 5;
+  let int additional = initial & 31;
+  // Reject maps and tags at every depth before reading their arguments.
+  if cursor.actor_bounded && (major == 5 || major == 6) then
+    cursor_fail(rt mut borrow cursor, "actor_profile", "actor profile does not admit maps or tags");
+    return value_null();
+  fi
 
   if major == 0 then
     val int argument = read_argument(rt mut borrow cursor, additional);
@@ -452,7 +474,39 @@ pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
+  return decode_with_budget(input, options, false, 0, 0);
+}
+
+// Logical credits, not actual allocator bytes or CPU instructions.
+// Share the restrictive MessagePack actor profile.
+pub fnc decode_actor_bounded(
+  List<int> input,
+  DecodeOptions options,
+  int max_logical_bytes,
+  int max_work
+): Result<DecodedValue, DecodeError> {
+  if !actor_decode_profile_valid(rt borrow options, input.length, max_logical_bytes, max_work) then
+    return Err(decode_error("actor_budget", 0, "invalid actor decode profile or budget"));
+  fi
+  // Bound length before multiplication. Reserve wire costs once, before
+  // the generic decoder validates/copies any bytes.
+  val int wire_bytes = input.length * 16;
+  val int wire_work = input.length * 3;
+  if wire_bytes > max_logical_bytes - 128 || wire_work > max_work then
+    return Err(decode_error("actor_budget", 0, "actor input budget exhausted"));
+  fi
+  return decode_with_budget(input, options, true,
+    max_logical_bytes - 128 - wire_bytes, max_work - wire_work);
+}
+
+fnc decode_with_budget(
+  List<int> input,
+  DecodeOptions options,
+  bool actor_bounded,
+  int actor_bytes_remaining,
+  int actor_work_remaining
+): Result<DecodedValue, DecodeError> {
+  if !decode_options_valid(rt borrow options) then
     return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
@@ -473,7 +527,10 @@ pub fnc decode(
     false,
     empty_decode_error(),
     new ValueWorkFuel(max_codec_key_work()),
-    new_decode_materialization_budget()
+    new_decode_materialization_budget(),
+    actor_bounded,
+    actor_bytes_remaining,
+    actor_work_remaining
   );
 
   let Value value = decode_value(rt mut borrow cursor, 0);

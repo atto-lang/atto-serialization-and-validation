@@ -9,7 +9,7 @@ import class Value, Utf8Text, WireMember, MapEntry, IntParse, ValueWorkFuel, Val
 import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_hash_with_fuel, parse_int from '../core/value';
 import fnc bytes_equal, encode_graph_shape_status, max_codec_key_work, metered_map_entry_index, remember_metered_map_entry, metered_map_keys_status from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeMaterializationBudget from '../core/options';
-import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes from '../core/options';
+import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid, new_decode_materialization_budget, charge_decode_nodes, charge_decode_bytes, actor_decode_profile_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
 import fnc byte_list_valid, byte_range_fits from '../core/bytes';
 
@@ -623,11 +623,7 @@ pub fnc decode_actor_bounded(
   int max_logical_bytes,
   int max_work
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(rt borrow options) || options.allow_trailing_data ||
-     options.duplicate_key_policy != 0 || options.max_depth > 64 ||
-     max_logical_bytes < 128 || max_logical_bytes > 8 * 1024 * 1024 ||
-     max_work < 1 || max_work > 4 * 1024 * 1024 ||
-     input.length > 1024 * 1024 then
+  if !actor_decode_profile_valid(rt borrow options, input.length, max_logical_bytes, max_work) then
     return Err(decode_error("actor_budget", 0, "invalid actor decode profile or budget"));
   fi
   // Bound length before multiplication. Reserve wire costs once, before
