@@ -89,8 +89,9 @@ impl Reader<'_> {
                 charge(&mut self.usage.expanded, expanded, self.limits.expanded)?;
                 charge(&mut self.usage.work, n, self.limits.work)?;
                 if self.materialize { charge(&mut self.usage.work, n, self.limits.work)?; }
+                let materialize = self.materialize;
                 let text = std::str::from_utf8(self.take(n)?).map_err(|_| Reject::Utf8)?;
-                if self.materialize {
+                if materialize {
                     let mut owned = String::new();
                     owned.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
                     owned.push_str(text);
