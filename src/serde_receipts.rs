@@ -37,7 +37,11 @@ fn digest(v:&Value,key:&str)->Result<()>{
 }
 /// Linux host-only trusted system SHA-256, no shell and no network.
 pub fn sha256(raw:&[u8])->Result<String>{
-    require(raw.len()<=MAX_JSON,"digest input exceeds bound")?;
+    sha256_bounded(raw,MAX_JSON)
+}
+
+pub(crate) fn sha256_bounded(raw:&[u8],limit:usize)->Result<String>{
+    require(raw.len()<=limit,"digest input exceeds bound")?;
     let mut c=io(Command::new("/usr/bin/sha256sum").env_clear().env("LC_ALL","C")
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn())?;
     let r=c.stdin.take().ok_or("missing digest stdin")
