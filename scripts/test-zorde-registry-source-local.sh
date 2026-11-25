@@ -83,10 +83,13 @@ case "$ORESLANG_BIN" in
 esac
 [[ ! -L "$ORESLANG_BIN" ]] ||
   die "compiler executable must not be a symlink"
-no_symlink_components "$ORESLANG_BIN" ||
-  die "compiler executable path must have no symlink components or traversal"
+# Check existence before walking components: lstat on a missing leaf
+# cannot distinguish an absent compiler from a symlink component. Both
+# checks remain mandatory before hashing or executing any existing file.
 [[ -f "$ORESLANG_BIN" && -x "$ORESLANG_BIN" ]] ||
   die "approved compiler executable missing or not executable"
+no_symlink_components "$ORESLANG_BIN" ||
+  die "compiler executable path must have no symlink components or traversal"
 compiler_sha="$(sha256sum "$ORESLANG_BIN" | cut -d ' ' -f 1)"
 [[ "$compiler_sha" == "$EXPECTED_COMPILER_SHA256" ]] ||
   die "compiler executable digest differs from approved input"
