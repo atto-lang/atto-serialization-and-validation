@@ -1,0 +1,12 @@
+// Expected compiler denial: an external function cannot inspect the
+// registry's non-public mutable entries collection.
+// NOT part of the normal executable native test suite.
+import class ZordeScalarRegistry from '../../src/zorde/compiled_registry';
+
+pub fnc leak_registry_size(ZordeScalarRegistry registry): int {
+  return registry.entries.length;
+}
+
+pub fnc main(): void {
+  return;
+}

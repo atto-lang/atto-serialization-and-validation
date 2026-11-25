@@ -1,14 +1,14 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string, value_array, value_object, value_map, value_deep_equal from '../src/core/value';
+import fnc value_int, value_number_lexeme, value_string, value_array, value_object, value_map, value_deep_equal, int_to_decimal_bytes from '../src/core/value';
 import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
 import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
 import fnc decode_and_validate_object from '../src/json/validated';
-import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields from '../src/validation/validation';
-import fnc validate_value, validate_object, report_is_valid, is_uuid, is_email from '../src/validation/validation';
+import fnc default_validation_options, any_rule, string_rule, number_rule, array_rule, field_rule, object_schema, max_schema_fields, max_schema_key_bytes from '../src/validation/validation';
+import fnc validate_value, validate_object, validate_value_checked, validate_object_checked, report_is_valid, is_uuid, is_email from '../src/validation/validation';
 
 pub fnc run_validation_tests(): void {
   val Utf8Text username_key = new Utf8Text(new List<int>(117, 115, 101, 114, 110, 97, 109, 101));
@@ -36,6 +36,36 @@ pub fnc run_validation_tests(): void {
     default_validation_options()
   );
   require_true(checked_json.is_err() == false, "valid JSON payload must cross decode+validation boundary");
+
+  // Schema-bound entry points cannot silently normalize duplicate wire keys.
+  // Ordinary JSON decode may offer these policies for non-security callers.
+  val DecodeOptions first_wins_options = new DecodeOptions(
+    1, false, 128, 64, 64, 64, 64, 16, 16);
+  val DecodeOptions last_wins_options = new DecodeOptions(
+    2, false, 128, 64, 64, 64, 64, 16, 16);
+  val DecodeOptions trailing_options = new DecodeOptions(
+    0, true, 128, 64, 64, 64, 64, 16, 16);
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow first_wins_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse first-wins admission");
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow last_wins_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse last-wins admission");
+  require_true(decode_and_validate_object(
+    rt borrow valid_json, rt borrow trailing_options,
+    rt borrow schema, default_validation_options()
+  ).is_err(), "schema-bound JSON must refuse trailing-data policy");
+
+  val List<int> duplicate_wire = new List<int>(
+    123, 34, 97, 34, 58, 49, 44, 34, 97, 34, 58, 50, 125
+  );
+  val ObjectSchema open_schema_for_wire = object_schema(new List<FieldRule>(), false);
+  require_true(decode_and_validate_object(
+    rt borrow duplicate_wire, default_decode_options(),
+    rt borrow open_schema_for_wire, default_validation_options()
+  ).is_err(), "strict schema-bound JSON must reject duplicate keys on the wire");
 
   val ValidationReport invalid = validate_object(
     value_object(members),
@@ -135,5 +165,252 @@ pub fnc run_validation_tests(): void {
     !report_is_valid(rt borrow non_finite_conversion),
     "numeric range validation must reject NaN-producing decimal conversion"
   );
+
+  // Direct Value construction must not bypass JSON-number lexical rules.
+  val ValidationReport leading_zero = validate_value(
+    value_number_lexeme(new List<int>(48, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow leading_zero), "01 must fail numeric range validation");
+
+  val ValidationReport negative_leading_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48, 49)),
+    number_rule(false, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow negative_leading_zero), "-01 must fail numeric range validation");
+
+  // 9e308 and -9e308 convert to infinities on IEEE double. Infinity must
+  // not bypass a one-sided minimum or maximum numeric constraint.
+  val ValidationReport positive_infinity = validate_value(
+    value_number_lexeme(new List<int>(57, 101, 51, 48, 56)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow positive_infinity), "overflowed +Infinity must not pass a minimum-only bound");
+
+  val ValidationReport negative_infinity = validate_value(
+    value_number_lexeme(new List<int>(45, 57, 101, 51, 48, 56)),
+    number_rule(false, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow negative_infinity), "overflowed -Infinity must not pass a maximum-only bound");
+
+  // Nonzero decimal underflow to zero would otherwise satisfy an inclusive
+  // minimum of zero. Preserve exact nonzero/zero distinction at admission.
+  let List<int> underflow_lexeme = new List<int>(48, 46);
+  let int tiny_index = 0;
+  loop do
+    if tiny_index >= 400 then break; fi
+    underflow_lexeme.push(48);
+    tiny_index = tiny_index + 1;
+  done
+  underflow_lexeme.push(49);
+  val ValidationReport positive_underflow = validate_value(
+    value_number_lexeme(underflow_lexeme),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow positive_underflow), "nonzero decimal rounded to zero must fail numeric range admission");
+
+  // The validation boundary must bound work even when bypassing the decoder.
+  let List<int> oversized_number = new List<int>();
+  let int lexeme_index = 0;
+  loop do
+    if lexeme_index >= 1025 then break; fi
+    oversized_number.push(49);
+    lexeme_index = lexeme_index + 1;
+  done
+  val ValidationReport oversized_lexeme = validate_value(
+    value_number_lexeme(oversized_number),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow oversized_lexeme), "number lexeme size ceiling must fail closed");
+
+  // Valid canonical zeros and finite exponents must continue to work.
+  val ValidationReport zero_lexeme = validate_value(
+    value_number_lexeme(new List<int>(48, 46, 48)),
+    number_rule(true, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow zero_lexeme), "canonical decimal zero must remain accepted");
+
+  val ValidationReport finite_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 51)),
+    number_rule(true, 999.0, false, true, 1001.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow finite_exponent), "finite canonical exponent must remain accepted");
+
+
+  // Direct lexeme constructors must obey the same strict JSON number grammar
+  // even if only one numeric bound is configured.
+  val ValidationReport no_integer_part = validate_value(
+    value_number_lexeme(new List<int>(46, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow no_integer_part), ".1 must fail closed");
+
+  val ValidationReport missing_fraction = validate_value(
+    value_number_lexeme(new List<int>(49, 46)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow missing_fraction), "1. must fail closed");
+
+  val ValidationReport missing_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow missing_exponent), "1e+ must fail closed");
+
+  val ValidationReport leading_plus = validate_value(
+    value_number_lexeme(new List<int>(43, 49)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow leading_plus), "+1 must fail closed");
+
+  val ValidationReport non_ascii_lexeme = validate_value(
+    value_number_lexeme(new List<int>(49, 194, 160)),
+    number_rule(true, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow non_ascii_lexeme), "numeric lexemes are ASCII-only");
+
+  val ValidationReport signed_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48)),
+    number_rule(true, 0.0, false, true, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow signed_zero), "canonical negative zero remains valid");
+
+  val ValidationReport finite_exponent_with_plus = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43, 51)),
+    number_rule(true, 999.0, false, true, 1001.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow finite_exponent_with_plus), "1e+3 remains valid");
+
+
+  // An unconstrained numeric type must still enforce JSON lexeme grammar.
+  // Previously these invalid Value objects passed without range bounds.
+  val ValidationReport unbounded_leading_zero = validate_value(
+    value_number_lexeme(new List<int>(48, 49)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_leading_zero),
+    "unbounded number must reject leading zero");
+
+  val ValidationReport unbounded_fraction = validate_value(
+    value_number_lexeme(new List<int>(49, 46)),
+    any_rule(),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_fraction),
+    "any_rule cannot admit malformed direct numeric Value");
+
+  val ValidationReport unbounded_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 101, 43)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow unbounded_exponent),
+    "unbounded numeric rule must reject missing exponent digits");
+
+  // Correct JSON numbers need not fit a float when there is NO float range.
+  val ValidationReport unbounded_large = validate_value(
+    value_number_lexeme(new List<int>(57, 101, 51, 48, 56)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_large),
+    "valid large JSON number accepted by type-only validator");
+
+  val ValidationReport unbounded_negative_zero = validate_value(
+    value_number_lexeme(new List<int>(45, 48)),
+    any_rule(),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_negative_zero),
+    "negative zero remains canonical for unconstrained numbers");
+
+  val ValidationReport unbounded_full_exponent = validate_value(
+    value_number_lexeme(new List<int>(49, 69, 45, 48, 48, 51)),
+    number_rule(false, 0.0, false, false, 0.0, false),
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow unbounded_full_exponent),
+    "exponent leading zeroes and E-003 remain lexical JSON numbers");
+
+  // Direct Value construction bypasses the JSON decoder. Object admission
+  // must reject malformed keys even if unknown field names are allowed.
+  val ObjectSchema open_schema = object_schema(new List<FieldRule>(), false);
+  val List<WireMember> bad_utf8_members = new List<WireMember>();
+  bad_utf8_members.add(new WireMember(
+    new Utf8Text(new List<int>(255)), value_int(1)
+  ));
+  val ValidationReport bad_key_report = validate_object(
+    value_object(bad_utf8_members), rt borrow open_schema,
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow bad_key_report),
+    "direct object rejects invalid UTF-8 keys");
+
+  val List<int> oversized_key_bytes = new List<int>();
+  let int key_index = 0;
+  loop do
+    if key_index > max_schema_key_bytes() then break; fi
+    oversized_key_bytes.add(97);
+    key_index = key_index + 1;
+  done
+  val List<WireMember> oversized_key_members = new List<WireMember>();
+  oversized_key_members.add(new WireMember(
+    new Utf8Text(oversized_key_bytes), value_int(1)
+  ));
+  val ValidationReport too_long_key_report = validate_object(
+    value_object(oversized_key_members), rt borrow open_schema,
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow too_long_key_report),
+    "direct object rejects oversized key before UTF-8 scan");
+
+  val List<WireMember> oversized_value_members = new List<WireMember>();
+  let int member_index = 0;
+  loop do
+    if member_index > max_schema_fields() then break; fi
+    oversized_value_members.add(new WireMember(
+      new Utf8Text(int_to_decimal_bytes(member_index)), value_int(member_index)
+    ));
+    member_index = member_index + 1;
+  done
+  val ValidationReport too_many_members_report = validate_object(
+    value_object(oversized_value_members), rt borrow open_schema,
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow too_many_members_report),
+    "direct object rejects excessive distinct member count");
+  // Checked dynamic APIs return plain Value, never authoritative proof.
+  val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(2, 2, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(!accepted_dynamic.is_err(), "dynamic checked string accepts valid input");
+  val Result<Value, ValidationReport> denied_dynamic = validate_value_checked(
+    value_string(new Utf8Text(new List<int>(111, 107))),
+    string_rule(3, 3, false, false, false, false),
+    default_validation_options()
+  );
+  require_true(denied_dynamic.is_err(), "dynamic checked string rejects invalid input");
+  val Result<Value, ValidationReport> denied_duplicate = validate_object_checked(
+    value_object(duplicate_members), rt borrow schema, default_validation_options()
+  );
+  require_true(denied_duplicate.is_err(), "dynamic checked object rejects duplicate keys");
   return;
 }

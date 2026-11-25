@@ -22,7 +22,7 @@ jobs:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          test "$SOURCE_REPOSITORY" = "ores-truffle-oreslang/oreslang-serialization-and-validation"
+          test "$SOURCE_REPOSITORY" = "atto-lang/atto-serialization-and-validation"
           test -n "$RUNNER_OS"
           test -n "$SOURCE_HEAD"
           echo "RUNNER_ALLOCATED_WITHOUT_CHECKOUT=true"
@@ -43,7 +43,7 @@ jobs:
           SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          test "$SOURCE_REPOSITORY" = "ores-truffle-oreslang/oreslang-serialization-and-validation"
+          test "$SOURCE_REPOSITORY" = "atto-lang/atto-serialization-and-validation"
           test -n "$RUNNER_OS"
           test -n "$SOURCE_HEAD"
           echo "RUNNER_ALLOCATED_ON_UBUNTU_LATEST_WITHOUT_CHECKOUT=true"

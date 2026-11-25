@@ -1,0 +1,89 @@
+// Canonical runtime adapter for compiler-emitted scalar refinement metadata.
+//
+// This is validation metadata, never construction authority. Nominal identity
+// and the SHA-256 ABI fingerprint are compiler/linker concerns; the runtime
+// acceptance kernel consumes only the normalized version/base/property/
+// interval/exclusion semantics after those artifacts have been authenticated
+// by the embedding compiler or loader.
+
+import class Value from '../core/value';
+import class ZordeScalarRule from './scalar';
+import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_accepts from './scalar';
+import class ZordeCoreInterval from './scalar_core';
+import fnc zorde_core_interval, zorde_core_interval_valid, zorde_core_max_exclusions from './scalar_core';
+
+pub define class ZordeScalarDescriptor as
+  pub val int version;
+  // 2 = exact signed int64; 3 = valid UTF-8 string measured in Unicode scalars.
+  pub val int kind;
+  // 1 = value; 2 = length. Keep property explicit so malformed metadata
+  // cannot reinterpret an integer interval as string length or vice versa.
+  pub val int property;
+  pub val int minimum;
+  pub val int maximum;
+  pub val List<int> excluded;
+end
+
+pub fnc zorde_scalar_descriptor(
+  int version,
+  int kind,
+  int property,
+  int minimum,
+  int maximum,
+  List<int> excluded
+): ZordeScalarDescriptor {
+  // Construct an invalid descriptor instead of cloning attacker-sized lists.
+  if excluded.length > zorde_core_max_exclusions() then
+    return new ZordeScalarDescriptor(0, kind, property, minimum, maximum,
+      new List<int>());
+  fi
+  val List<int> snapshot = new List<int>();
+  for const hole of excluded do snapshot.add(hole); done
+  return new ZordeScalarDescriptor(
+    version, kind, property, minimum, maximum, snapshot);
+}
+
+pub fnc zorde_scalar_descriptor_valid(
+  ZordeScalarDescriptor descriptor
+): bool {
+  if descriptor.version != 1 then return false; fi
+  // Public class constructors can bypass the bounded helper above.
+  if descriptor.excluded.length > zorde_core_max_exclusions() then return false; fi
+  if descriptor.kind == 2 then
+    if descriptor.property != 1 then return false; fi
+  elif descriptor.kind == 3 then
+    if descriptor.property != 2 then return false; fi
+  else
+    return false;
+  fi
+  val ZordeCoreInterval interval = zorde_core_interval(
+    descriptor.minimum, descriptor.maximum, descriptor.excluded);
+  return zorde_core_interval_valid(
+    rt borrow interval, descriptor.kind == 3);
+}
+
+pub fnc zorde_scalar_rule_from_descriptor(
+  ZordeScalarDescriptor descriptor
+): ZordeScalarRule {
+  if !zorde_scalar_descriptor_valid(rt borrow descriptor) then
+    // Deliberately invalid interval sentinel. Callers must re-check validity
+    // before use; this cannot accidentally become an unbounded rule.
+    return zorde_scalar_int(1, 0, new List<int>());
+  fi
+  if descriptor.kind == 2 then
+    return zorde_scalar_int(
+      descriptor.minimum, descriptor.maximum, descriptor.excluded);
+  fi
+  return zorde_scalar_string(
+    descriptor.minimum, descriptor.maximum, descriptor.excluded);
+}
+
+pub fnc zorde_scalar_descriptor_accepts(
+  Value value,
+  ZordeScalarDescriptor descriptor
+): bool {
+  if !zorde_scalar_descriptor_valid(rt borrow descriptor) then return false; fi
+  val ZordeScalarRule rule = zorde_scalar_rule_from_descriptor(
+    rt borrow descriptor);
+  return zorde_scalar_accepts(rt borrow value, rt borrow rule);
+}

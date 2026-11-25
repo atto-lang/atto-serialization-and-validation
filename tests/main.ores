@@ -1,13 +1,20 @@
+import fnc run_int64_decimal_codec_tests from './int64_decimal_codec_test';
 import fnc run_json_tests from './json_test';
 import fnc run_messagepack_tests from './messagepack_test';
 import fnc run_cbor_tests from './cbor_test';
 import fnc run_protobuf_tests from './protobuf_test';
 import fnc run_validation_tests from './validation_test';
+import fnc run_refined_int_zorde_tests from './refined_int_zorde_test';
+import fnc run_refined_string_zorde_tests from './refined_string_zorde_test';
 import fnc run_metadata_tests from './metadata_test';
 import fnc run_object_codec_tests from './object_codec_test';
+import fnc run_contract_ir_tests from './contract_ir_test';
 import fnc run_generated_typed_codec_tests from './generated_typed_codec_test';
 import fnc run_json_channel_tests from './json_channel_test';
 import fnc run_channel_codec_tests from './channel_codec_test';
+import fnc run_zorde_tests from './zorde_test';
+import fnc run_zorde_compiled_registry_tests from './zorde_compiled_registry_test';
+import fnc run_zorde_compiler_constraint_v1_tests from './zorde_compiler_constraint_v1_test';
 
 pub async fnc main(): void {
   run_json_tests();
@@ -15,9 +22,16 @@ pub async fnc main(): void {
   run_cbor_tests();
   run_protobuf_tests();
   run_validation_tests();
+  run_refined_int_zorde_tests();
+  run_refined_string_zorde_tests();
+  run_int64_decimal_codec_tests();
   run_metadata_tests();
   run_object_codec_tests();
+  run_contract_ir_tests();
   run_generated_typed_codec_tests();
+  run_zorde_tests();
+  run_zorde_compiled_registry_tests();
+  run_zorde_compiler_constraint_v1_tests();
 
   val Future<void> json_channel_tests = run_json_channel_tests();
   await json_channel_tests;
