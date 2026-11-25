@@ -79,7 +79,7 @@ world protobuf-wire-guest {
   exactKeys(f.properties,['fieldNumber','wireType','payload']);
   assert.deepEqual(f.required,['fieldNumber','wireType','payload']);
   assert.deepEqual(f.properties.fieldNumber,{type:'integer',minimum:1,maximum:536870911});
-  assert.deepEqual(f.properties.wireType,{type:'integer',enum:[0,1,2,5]});
+  assert.deepEqual(f.properties.wireType,{anyOf:[0,1,2,5].map(n=>({type:'number',const:n}))});
   assert.deepEqual(f.properties.payload,{
     type:'array',items:{type:'integer',minimum:0,maximum:255}
   });
@@ -97,7 +97,7 @@ const mutant=(mutate)=>{
 };
 reject(mutant(j=>{j.$defs.WireField.properties.fieldNumber.minimum=0;}));
 reject(mutant(j=>{j.$defs.WireField.properties.fieldNumber.maximum=536870912;}));
-reject(mutant(j=>{j.$defs.WireField.properties.wireType.enum.push(3);}));
+reject(mutant(j=>{j.$defs.WireField.properties.wireType.anyOf.push({type:'number',const:3});}));
 reject(mutant(j=>{j.$defs.WireField.properties.payload.items.maximum=256;}));
 reject(mutant(j=>{j.$defs.WireField.properties.payload.uniqueItems=true;}));
 reject(mutant(j=>{delete j.$defs.WireField.unevaluatedProperties;}));

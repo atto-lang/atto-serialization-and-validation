@@ -340,6 +340,49 @@ fnc read_payload(
   return output;
 }
 
+// Actor DATA opt-in: conservative logical allocation/work preflight for
+// this flat wire reader, not physical heap accounting or a nested schema codec.
+// Input is an exclusively owned or immutable byte list. Nested typed decoders
+// must use a shared meter and charge further materialization separately.
+// Legacy decode_message and wire semantics are unchanged.
+pub fnc decode_actor_message_bounded(
+  List<int> input,
+  ProtoDecodeOptions options,
+  int max_logical_bytes,
+  int max_work
+): Result<ProtoMessage, ProtoError> {
+  if !proto_decode_options_valid(options) ||
+     max_logical_bytes < 128 || max_logical_bytes > 8 * 1024 * 1024 ||
+     max_work < 1 || max_work > 4 * 1024 * 1024 ||
+     input.length > 1024 * 1024 then
+    return Err(new ProtoError("actor_budget", 0, "invalid or oversized actor decode budget"));
+  fi
+
+  // Account for the complete input before the validation scan and copies.
+  // 16 logical bytes per wire byte + base 128 + 128 per field. The
+  // preflight uses division before multiplication to avoid overflow.
+  if input.length > (max_logical_bytes - 128) / 16 ||
+     input.length > max_work / 3 then
+    return Err(new ProtoError("actor_budget", 0, "actor input allocation or work budget exceeded"));
+  fi
+
+  let int remaining = max_logical_bytes - 128 - input.length * 16;
+  let int field_cap = remaining / 128;
+  let int work_cap = max_work - input.length * 3;
+  if field_cap > work_cap then
+    field_cap = work_cap;
+  fi
+  if field_cap > options.max_fields then
+    field_cap = options.max_fields;
+  fi
+
+  // The actual decoder enforces the derived cumulative field cap BEFORE
+  // reading another key or allocating a field. Empty fields consume credit.
+  return decode_message(input, new ProtoDecodeOptions(
+    options.max_input_bytes, field_cap, options.max_length_delimited_bytes
+  ));
+}
+
 pub fnc decode_message(
   List<int> input,
   ProtoDecodeOptions options

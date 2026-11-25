@@ -5,6 +5,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/zorde-source-local-contracts.XXXXXXXX")"
 trap 'rm -rf "$tmp"' EXIT
+tmp="$(cd "$tmp" && pwd -P)"
 src="$tmp/source with spaces"
 out="$tmp/evidence"
 mkdir -p "$src/scripts" "$out"
@@ -16,6 +17,7 @@ cp "$root/scripts/verify-zorde-checkout.py" "$src/scripts/"
 # Copy it into the disposable fixture as well; otherwise the intended
 # HEAD-change denial is masked by a missing helper script.
 cp "$root/scripts/zorde_visibility_diagnostic.py" "$src/scripts/"
+cp "$root/scripts/check-zorde-denial.py" "$src/scripts/"
 # Synthetic-only script: no production source, compiler, or backend is copied.
 # It is used solely to prove tampering cannot lead to a receipt.
 mkdir -p "$src/tests" "$src/fixtures/zorde-compile-positive"
@@ -26,6 +28,7 @@ set -eu
 exec "$ORESLANG_BIN" "$PWD/tests/main.ores"
 TEST
 printf 'not an Oreslang guest program\n' > "$src/tests/main.ores"
+printf 'synthetic focused fixture only\n' > "$src/tests/protobuf_main.ores"
 printf 'source-free test fixture\n' > "$src/fixture.txt"
 # This ignore rule exists solely to prove that Git's 'clean' status is not
 # adequate for source-byte evidence qualification.
@@ -174,7 +177,9 @@ if (cd "$src" && python3 scripts/verify-zorde-checkout.py "$head" "$tree") >"$tm
   echo 'redirected tracked parent directory was accepted' >&2
   exit 1
 fi
-grep -Fq 'tracked parent directory is not a real directory' "$tmp/check-output" ||
+# Git may classify the substituted directory symlink as untracked before
+# the physical-parent check. Both are independently fail-closed diagnostics.
+grep -Eq 'tracked parent directory is not a real directory|untracked files exist in source checkout' "$tmp/check-output" ||
   { cat "$tmp/check-output" >&2; exit 1; }
 [[ ! -e "$out/zorde-registry-native-receipt.json" ]] ||
   { echo 'redirected parent test emitted a native receipt' >&2; exit 1; }
@@ -212,9 +217,12 @@ expect_refusal git-status-error 'unable to inspect source working tree' \
 cat > "$tmp/synthetic-public-failure" <<'FAKE'
 #!/bin/sh
 case "$1" in
+  */tests/protobuf_main.ores)
+    printf '%s\n' 'protobuf-wire-zorde-native-tests-passed'; exit 0 ;;
   */tests/main.ores)
     printf '%s\n' 'native Zorde compiled scalar registry tests passed' \
-      'serialization/validation native tests passed'
+      'serialization/validation native tests passed' \
+      'protobuf-wire-zorde-native-tests-passed'
     exit 0 ;;
   */fixtures/zorde-compile-positive/public-registry-import.ores)
     echo 'synthetic public import failure' >&2; exit 47 ;;
@@ -227,7 +235,7 @@ expect_refusal public-import-control 'public registry import positive control fa
   ORESLANG_BIN="$tmp/synthetic-public-failure" EXPECTED_COMPILER_SHA256="$public_failure_sha"
 [[ -f "$out/zorde-public-import-positive.log" ]] ||
   { echo 'public-import failure log absent' >&2; exit 1; }
-rm "$out/zorde-registry-native.log" "$out/zorde-public-import-positive.log"
+rm "$out/protobuf-native-focused.log" "$out/zorde-registry-native.log" "$out/zorde-public-import-positive.log"
 
 # Regression: a different HEAD with EXACTLY THE SAME Git tree is not the
 # reviewed commit. An intentionally fake compiler makes the workflow reach
@@ -239,10 +247,13 @@ cat > "$tmp/synthetic-head-switcher" <<'FAKE'
 #!/bin/sh
 set -eu
 case "$1" in
+  */tests/protobuf_main.ores)
+    printf '%s\n' 'protobuf-wire-zorde-native-tests-passed'; exit 0 ;;
   */tests/main.ores)
     git -C "$FAKE_SOURCE" update-ref HEAD "$FAKE_ALT_HEAD"
     printf '%s\n' 'native Zorde compiled scalar registry tests passed' \
-      'serialization/validation native tests passed'
+      'serialization/validation native tests passed' \
+      'protobuf-wire-zorde-native-tests-passed'
     ;;
   */fixtures/zorde-compile-positive/public-registry-import.ores)
     exit 0 ;;
@@ -253,7 +264,7 @@ case "$1" in
     echo 'ZordePrivateCompiledEntry is private' >&2; exit 42
     ;;
   */fixtures/zorde-compile-negative/private-storage-access.ores)
-    echo 'ZordeScalarRegistry entries is private' >&2; exit 42
+    echo 'ZordeScalarRegistry.entries is private' >&2; exit 42
     ;;
   *) echo 'unexpected synthetic fixture' >&2; exit 78 ;;
 esac
