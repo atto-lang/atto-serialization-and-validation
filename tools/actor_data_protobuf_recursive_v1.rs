@@ -10,7 +10,10 @@ pub struct Limits {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Usage { pub logical: usize, pub work: usize, pub fields: usize, pub messages: usize }
 #[derive(Clone, Copy)]
-pub enum Kind<'a> { Varint, Fixed64, Bytes, Fixed32, Message(&'a Schema<'a>) }
+pub enum Kind<'a> { Varint, Fixed64, Bytes, Fixed32, Message(&'a Schema<'a>), Packed(PackedKind) }
+/// Registered packed-only profile. Unpacked forms are not inferred or accepted.
+#[derive(Clone, Copy)]
+pub enum PackedKind { Varint, Fixed32, Fixed64 }
 #[derive(Clone, Copy)]
 pub struct Field<'a> { pub number: u32, pub kind: Kind<'a> }
 pub struct Schema<'a> { pub fields: &'a [Field<'a>] }
@@ -50,7 +53,7 @@ impl<'a> Cursor<'a> {
     }
 }
 fn expected_wire(k:Kind<'_>)->u64 {
-    match k {Kind::Varint=>0,Kind::Fixed64=>1,Kind::Bytes|Kind::Message(_)=>2,Kind::Fixed32=>5}
+    match k {Kind::Varint=>0,Kind::Fixed64=>1,Kind::Bytes|Kind::Message(_)|Kind::Packed(_)=>2,Kind::Fixed32=>5}
 }
 fn lookup<'a>(schema:&Schema<'a>,tag:u32,m:&mut Meter)->Result<Kind<'a>,Reject>{
     let mut lo=0;let mut hi=schema.fields.len();
@@ -65,6 +68,20 @@ fn lookup<'a>(schema:&Schema<'a>,tag:u32,m:&mut Meter)->Result<Kind<'a>,Reject>{
         }
     }
     Err(Reject::Unknown)
+}
+// Charge the same cumulative field credit for each packed scalar, in addition
+// to its outer wire field. Empty segments still consume the outer credit.
+fn packed(input:&[u8],kind:PackedKind,m:&mut Meter)->Result<(),Reject>{
+    let width=match kind {PackedKind::Varint=>0,PackedKind::Fixed32=>4,PackedKind::Fixed64=>8};
+    if width!=0 && input.len()%width!=0{return Err(Reject::Truncated);}
+    let mut c=Cursor{input,pos:0};
+    while c.pos<input.len(){
+        charge(&mut m.used.fields,1,m.limits.fields)?;
+        m.logical(128)?;m.work(1)?;
+        if width==0 {let (_,n)=c.varint(m)?;m.payload(n)?;}
+        else {m.payload(width)?;m.work(width)?;c.sub(width)?;}
+    }
+    Ok(())
 }
 fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),Reject>{
     if depth>m.limits.depth{return Err(Reject::Budget);}
@@ -97,7 +114,7 @@ fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),R
                 let n=if wire==1{8}else{4};
                 m.payload(n)?;m.work(n)?;c.sub(n)?;
             }
-            Kind::Bytes|Kind::Message(_)=>{
+            Kind::Bytes|Kind::Message(_)|Kind::Packed(_)=>{
                 let (n,_)=c.varint(m)?;
                 let n=usize::try_from(n).map_err(|_|Reject::Budget)?;
                 // Charge any copied length-delimited bytes, even when the
@@ -107,6 +124,7 @@ fn message(input:&[u8],schema:&Schema<'_>,depth:usize,m:&mut Meter)->Result<(),R
                 match kind {
                     Kind::Message(child)=>message(body,child,depth+1,m)?,
                     Kind::Bytes=>m.work(n)?,
+                    Kind::Packed(scalar)=>packed(body,scalar,m)?,
                     _=>unreachable!(),
                 }
             }
@@ -178,4 +196,41 @@ mod tests {
         assert_eq!(preflight(&[0x0d,1],&schema,limits()),Err(Reject::Truncated));
         assert_eq!(preflight(&[0x1a,0x80,0x80,0x80,0x80,0x10],&schema,limits()),Err(Reject::Budget));
     }
+    #[test] fn packed_varints_exact_and_one_under_all_shared_credits(){
+        let schema=Schema{fields:&[Field{number:1,kind:Kind::Packed(PackedKind::Varint)}]};
+        let b=[0x0a,3,1,0x80,1];
+        let exact=Limits{wire:5,logical:688,work:11,fields:3,messages:1,depth:0};
+        assert_eq!(preflight(&b,&schema,exact),Ok(Usage{logical:688,work:11,fields:3,messages:1}));
+        for l in [Limits{wire:4,..exact},Limits{logical:687,..exact},
+                  Limits{work:10,..exact},Limits{fields:2,..exact}]{
+            assert_eq!(preflight(&b,&schema,l),Err(Reject::Budget));
+        }
+        assert_eq!(preflight(&[8,1],&schema,limits()),Err(Reject::Wire));
+        assert_eq!(preflight(&[0x0a,1,0x80],&schema,limits()),Err(Reject::Truncated));
+        let mut over=[0xff;12];over[0]=0x0a;over[1]=10;
+        assert_eq!(preflight(&over,&schema,limits()),Err(Reject::Varint));
+    }
+    #[test] fn packed_fixed_alignment_and_opaque_differentiation(){
+        let f32s=Schema{fields:&[Field{number:1,kind:Kind::Packed(PackedKind::Fixed32)}]};
+        let f64s=Schema{fields:&[Field{number:1,kind:Kind::Packed(PackedKind::Fixed64)}]};
+        let opaque=Schema{fields:&[Field{number:1,kind:Kind::Bytes}]};
+        let b=[0x0a,8,1,2,3,4,5,6,7,8];
+        assert_eq!(preflight(&b,&f32s,limits()).unwrap().fields,3);
+        assert_eq!(preflight(&b,&f64s,limits()).unwrap().fields,2);
+        assert_eq!(preflight(&b,&opaque,limits()).unwrap().fields,1);
+        assert_eq!(preflight(&[0x0a,3,1,2,3],&f32s,limits()),Err(Reject::Truncated));
+        assert_eq!(preflight(&[0x0a,4,1,2,3,4],&f64s,limits()),Err(Reject::Truncated));
+        assert_eq!(preflight(&[0x0a,0],&f32s,limits()).unwrap().fields,1);
+    }
+    #[test] fn repeated_packed_segments_nested_share_one_meter(){
+        let child=Schema{fields:&[Field{number:1,kind:Kind::Packed(PackedKind::Varint)}]};
+        let root=Schema{fields:&[Field{number:1,kind:Kind::Message(&child)}]};
+        let b=[0x0a,6,0x0a,1,1,0x0a,1,2,0x0a,3,0x0a,1,3];
+        let u=preflight(&b,&root,limits()).unwrap();
+        assert_eq!((u.fields,u.messages),(8,3));
+        assert_eq!(preflight(&b,&root,Limits{fields:7,..limits()}),Err(Reject::Budget));
+        assert_eq!(preflight(&b,&root,Limits{logical:u.logical-1,..limits()}),Err(Reject::Budget));
+        assert_eq!(preflight(&b,&root,Limits{work:u.work-1,..limits()}),Err(Reject::Budget));
+    }
+
 }
