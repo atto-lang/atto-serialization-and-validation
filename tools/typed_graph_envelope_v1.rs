@@ -385,6 +385,75 @@ mod tests {
         assert_eq!(decode(Envelope { version: 1, root: 0, objects: &input }, 1,
             LIMITS, &AtomicBool::new(true)), Err(Reject::Cancelled));
     }
+    const CBOR_LIMITS: CborLimits = CborLimits {
+        graph: LIMITS, wire_bytes: 1024 * 1024, staging_bytes: 8 * 1024 * 1024,
+    };
+
+    #[test]
+    fn cbor_exact_cyclic_wire_and_roundtrip() {
+        let graph = run(&[node(0, Some(0), None)], 0, LIMITS).unwrap();
+        let cancelled = AtomicBool::new(false);
+        let bytes = encode_cbor(&graph, 10, &cancelled).unwrap();
+        assert_eq!(bytes, [0x83, 1, 0, 0x81, 0x85, 0, 1, 0, 0, 0xf6]);
+        assert_eq!(decode_cbor(&bytes, 1, CBOR_LIMITS, &cancelled).unwrap(), graph);
+        assert_eq!(encode_cbor(&graph, 9, &cancelled), Err(Reject::Budget.into()));
+        let exact = CborLimits { wire_bytes: bytes.len(),
+            staging_bytes: std::mem::size_of::<Record>(), ..CBOR_LIMITS };
+        assert!(decode_cbor(&bytes, 1, exact, &cancelled).is_ok());
+        assert_eq!(decode_cbor(&bytes, 1, CborLimits { wire_bytes: 9, ..exact }, &cancelled),
+            Err(Reject::Budget.into()));
+        assert_eq!(decode_cbor(&bytes, 1, CborLimits { staging_bytes: exact.staging_bytes - 1,
+            ..exact }, &cancelled), Err(Reject::Budget.into()));
+    }
+
+    #[test]
+    fn cbor_rejects_truncation_nonminimal_indefinite_and_trailing() {
+        let bytes = [0x83, 1, 0, 0x81, 0x85, 0, 1, 0, 0, 0xf6];
+        let cancelled = AtomicBool::new(false);
+        for length in 0..bytes.len() {
+            assert!(decode_cbor(&bytes[..length], 1, CBOR_LIMITS, &cancelled).is_err());
+        }
+        let mut extra = bytes.to_vec(); extra.push(0);
+        assert_eq!(decode_cbor(&extra, 1, CBOR_LIMITS, &cancelled), Err(WireReject::Trailing));
+        let nonminimal = [0x83, 0x18, 1, 0, 0x81, 0x85, 0, 1, 0, 0, 0xf6];
+        assert_eq!(decode_cbor(&nonminimal, 1, CBOR_LIMITS, &cancelled), Err(WireReject::NonCanonical));
+        let indefinite = [0x83, 1, 0, 0x9f, 0x85, 0, 1, 0, 0, 0xf6, 0xff];
+        assert_eq!(decode_cbor(&indefinite, 1, CBOR_LIMITS, &cancelled), Err(WireReject::Shape));
+        let mut bad_field = bytes; bad_field[9] = 0xf5;
+        assert_eq!(decode_cbor(&bad_field, 1, CBOR_LIMITS, &cancelled), Err(WireReject::Shape));
+    }
+
+    #[test]
+    fn cbor_signed_i32_boundaries_and_graph_type_denial() {
+        let cancelled = AtomicBool::new(false);
+        for value in [i32::MIN, -25, -24, -1, 0, 23, 24, 255, 256, i32::MAX] {
+            let graph = run(&[Record { value, ..node(0, Some(0), None) }], 0, LIMITS).unwrap();
+            let bytes = encode_cbor(&graph, CBOR_LIMITS.wire_bytes, &cancelled).unwrap();
+            assert_eq!(decode_cbor(&bytes, 1, CBOR_LIMITS, &cancelled).unwrap(), graph);
+        }
+        let out_of_range = [0x83, 1, 0, 0x81, 0x85, 0, 1, 0x1a, 0x80, 0, 0, 0, 0, 0xf6];
+        assert_eq!(decode_cbor(&out_of_range, 1, CBOR_LIMITS, &cancelled), Err(WireReject::Range));
+        let dangling = [0x83, 1, 0, 0x81, 0x85, 0, 1, 0, 1, 0xf6];
+        assert_eq!(decode_cbor(&dangling, 1, CBOR_LIMITS, &cancelled), Err(Reject::Dangling.into()));
+        let wrong_type = [0x83, 1, 0, 0x81, 0x85, 0, 2, 0, 0xf6, 0xf6];
+        assert_eq!(decode_cbor(&wrong_type, 1, CBOR_LIMITS, &cancelled), Err(Reject::Type.into()));
+        let graph = run(&[node(0, None, None)], 0, LIMITS).unwrap();
+        cancelled.store(true, Ordering::Release);
+        assert_eq!(encode_cbor(&graph, 100, &cancelled), Err(Reject::Cancelled.into()));
+        assert_eq!(decode_cbor(&dangling, 1, CBOR_LIMITS, &cancelled), Err(Reject::Cancelled.into()));
+    }
+
+    #[test]
+    fn cbor_large_cycle_has_byte_identical_reencoding() {
+        let input: Vec<_> = (0..10000).map(|i| node(i, Some((i+1)%10000), None)).collect();
+        let graph = run(&input, 0, LIMITS).unwrap();
+        let cancelled = AtomicBool::new(false);
+        let bytes = encode_cbor(&graph, CBOR_LIMITS.wire_bytes, &cancelled).unwrap();
+        let decoded = decode_cbor(&bytes, 1, CBOR_LIMITS, &cancelled).unwrap();
+        assert_eq!(decoded, graph);
+        assert_eq!(encode_cbor(&decoded, bytes.len(), &cancelled).unwrap(), bytes);
+    }
+
     #[test]
     fn ten_thousand_node_cycle_is_iterative() {
         let input: Vec<_> = (0..10000).map(|i| node(i, Some((i+1)%10000), None)).collect();
