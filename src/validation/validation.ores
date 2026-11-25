@@ -214,11 +214,49 @@ pub fnc field_rule(
   return new FieldRule(key, required, forbidden, value_rule);
 }
 
+// Explicit refusal is preferred over the legacy mutable sentinel.
+pub fnc object_schema_checked(
+  List<FieldRule> fields,
+  bool reject_unknown_fields
+): Result<ObjectSchema, ValidationReport> {
+  // Inspect all lengths before allocating or copying any key payload.
+  if !schema_fields_fit(rt borrow fields) then
+    return Err(config_report("invalid_schema", "schema key or field budget exceeded"));
+  fi
+  val List<FieldRule> snapshot = new List<FieldRule>();
+  for const field of fields do
+    val List<int> key_bytes = new List<int>();
+    for const byte of field.key.bytes do
+      key_bytes.add(byte);
+    done
+    // ValueRule has only immutable scalar fields; no nested mutable storage.
+    snapshot.add(new FieldRule(new Utf8Text(key_bytes), field.required,
+      field.forbidden, rt borrow field.value_rule));
+  done
+  val ObjectSchema schema = new ObjectSchema(snapshot, reject_unknown_fields);
+  if !object_schema_valid(rt borrow schema) then
+    return Err(config_report("invalid_schema", "object schema contains duplicate, contradictory, or invalid field rules"));
+  fi
+  return Ok(schema);
+}
+
+// Compatibility adapter: preserve the original signature without ever
+// replacing a rejected builder with an empty permissive schema.
+// The sentinel is mutable like any ObjectSchema; it is not an authority.
 pub fnc object_schema(
   List<FieldRule> fields,
   bool reject_unknown_fields
 ): ObjectSchema {
-  return new ObjectSchema(fields, reject_unknown_fields);
+  val Result<ObjectSchema, ValidationReport> result =
+    object_schema_checked(fields, reject_unknown_fields);
+  if result.is_err() then
+    val List<int> bad_key = new List<int>();
+    bad_key.add(255);
+    val List<FieldRule> invalid = new List<FieldRule>();
+    invalid.add(new FieldRule(new Utf8Text(bad_key), false, false, any_rule()));
+    return new ObjectSchema(invalid, reject_unknown_fields);
+  fi
+  return result.unwrap();
 }
 
 
@@ -357,20 +395,22 @@ fnc charge_key_lookup(Utf8Text left, Utf8Text right, KeyLookupWork mut work): bo
   return true;
 }
 
-fnc object_schema_valid(ObjectSchema schema): bool {
-  if schema.fields.length > max_schema_fields() then
-    return false;
-  fi
-
-  // Length-only pass before UTF-8 scanning or constructing hash buckets.
+fnc schema_fields_fit(List<FieldRule> fields): bool {
+  if fields.length > max_schema_fields() then return false; fi
   let int remaining_key_bytes = max_schema_total_key_bytes();
-  for const field of schema.fields do
+  for const field of fields do
     if field.key.bytes.length > max_schema_key_bytes() ||
        field.key.bytes.length > remaining_key_bytes then
       return false;
     fi
     remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
   done
+  return true;
+}
+
+fnc object_schema_valid(ObjectSchema schema): bool {
+  // Same length-only admission for direct public construction and builders.
+  if !schema_fields_fit(rt borrow schema.fields) then return false; fi
 
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
