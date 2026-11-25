@@ -1,0 +1,18 @@
+name: Serde receipt structure host tests
+on:
+  pull_request:
+    paths: ['fixtures/serde/adversarial-v1.json','scripts/verify-serde-receipts.py','tests/source_free/test_serde_receipt_gate.py','.github/workflows/serde-receipt-structure.yml']
+  push:
+    branches: [main]
+    paths: ['fixtures/serde/adversarial-v1.json','scripts/verify-serde-receipts.py','tests/source_free/test_serde_receipt_gate.py','.github/workflows/serde-receipt-structure.yml']
+permissions:
+  contents: read
+jobs:
+  synthetic-host-only:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - run: python3 -B tests/source_free/test_serde_receipt_gate.py -v
