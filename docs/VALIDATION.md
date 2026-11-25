@@ -441,3 +441,14 @@ array child precheck apply; maps and tags are refused before argument reads
 at every depth. Indefinite containers and floats remain unsupported. Generic
 CBOR maps are unchanged. These are not physical heap or CPU quotas. Native
 assertions and mailbox integration remain release gates.
+
+## Expanded native visibility gates
+
+The protected source-local workflow now runs four standalone positive native
+controls and six targeted negative visibility/constructor probes after the
+existing approved native suite. Exact source, tree and compiler digest are
+checked before and after; logs stay in private evidence storage. A separate
+receipt binds the base receipt and all probe logs. Unknown compiler diagnostic
+wording is a refusal, not permission to relax the classifier. Source-free
+classifier tests are not native evidence. No compiler or administrator
+approval gates have been removed.
