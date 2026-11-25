@@ -1,0 +1,193 @@
+{
+  "schema": "attolang.serde.adversarial-v1",
+  "note": "Authored shared vectors only. The manifest is not executed-native-guest evidence. Expected codes are normative expectations requiring guest verification.",
+  "guest_entrypoint": "tests/main.ores",
+  "source_suites": {
+    "json": "tests/json_test.ores",
+    "messagepack": "tests/messagepack_test.ores"
+  },
+  "cases": [
+    {
+      "id": "json.trailing_comma",
+      "format": "json",
+      "guest_symbol": "trailing_comma",
+      "bytes_hex": "5b312c5d",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_token"
+    },
+    {
+      "id": "json.leading_zero",
+      "format": "json",
+      "guest_symbol": "leading_zero",
+      "bytes_hex": "3031",
+      "expected_result": "Err",
+      "expected_error_code": "invalid_number"
+    },
+    {
+      "id": "json.truncated_exponent",
+      "format": "json",
+      "guest_symbol": "truncated_exponent",
+      "bytes_hex": "31652b",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "json.invalid_literal_case",
+      "format": "json",
+      "guest_symbol": "invalid_literal_case",
+      "bytes_hex": "4e756c6c",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_token"
+    },
+    {
+      "id": "json.lone_high_surrogate",
+      "format": "json",
+      "guest_symbol": "lone_high_surrogate",
+      "bytes_hex": "225c754438303022",
+      "expected_result": "Err",
+      "expected_error_code": "invalid_surrogate_pair"
+    },
+    {
+      "id": "json.invalid_escape",
+      "format": "json",
+      "guest_symbol": "invalid_escape",
+      "bytes_hex": "225c7822",
+      "expected_result": "Err",
+      "expected_error_code": "invalid_escape"
+    },
+    {
+      "id": "json.trailing_second_value",
+      "format": "json",
+      "guest_symbol": "trailing_second_value",
+      "bytes_hex": "7472756566616c7365",
+      "expected_result": "Err",
+      "expected_error_code": "trailing_data"
+    },
+    {
+      "id": "messagepack.truncated_fixarray",
+      "format": "messagepack",
+      "guest_symbol": "truncated_fixarray",
+      "bytes_hex": "9201",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.truncated_fixmap",
+      "format": "messagepack",
+      "guest_symbol": "truncated_fixmap",
+      "bytes_hex": "81a161",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.truncated_ext8",
+      "format": "messagepack",
+      "guest_symbol": "truncated_ext8",
+      "bytes_hex": "c703010908",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.overlong_utf8",
+      "format": "messagepack",
+      "guest_symbol": "overlong_utf8",
+      "bytes_hex": "d902c0af",
+      "expected_result": "Err",
+      "expected_error_code": "invalid_utf8"
+    },
+    {
+      "id": "messagepack.reserved_marker",
+      "format": "messagepack",
+      "guest_symbol": "reserved_marker",
+      "bytes_hex": "c1",
+      "expected_result": "Err",
+      "expected_error_code": "reserved_marker"
+    },
+    {
+      "id": "messagepack.array32_bomb",
+      "format": "messagepack",
+      "guest_symbol": "array32_bomb",
+      "bytes_hex": "ddffffffff",
+      "expected_result": "Err",
+      "expected_error_code": "array_limit"
+    },
+    {
+      "id": "messagepack.map32_bomb",
+      "format": "messagepack",
+      "guest_symbol": "map32_bomb",
+      "bytes_hex": "dfffffffff",
+      "expected_result": "Err",
+      "expected_error_code": "map_limit"
+    },
+    {
+      "id": "messagepack.truncated_str32_header",
+      "format": "messagepack",
+      "guest_symbol": "truncated_str32_header",
+      "bytes_hex": "db0000",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.array32_under_limit_but_truncated",
+      "format": "messagepack",
+      "guest_symbol": "array32_under_limit_but_truncated",
+      "bytes_hex": "dd0000ffff",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.map32_under_limit_but_truncated",
+      "format": "messagepack",
+      "guest_symbol": "map32_under_limit_but_truncated",
+      "bytes_hex": "df0000ffff",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.array16_one_short",
+      "format": "messagepack",
+      "guest_symbol": "array16_one_short",
+      "bytes_hex": "dc000201",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.map16_one_short",
+      "format": "messagepack",
+      "guest_symbol": "map16_one_short",
+      "bytes_hex": "de00020102",
+      "expected_result": "Err",
+      "expected_error_code": "unexpected_eof"
+    },
+    {
+      "id": "messagepack.array16_exact",
+      "format": "messagepack",
+      "guest_symbol": "array16_exact",
+      "bytes_hex": "dc00020102",
+      "expected_result": "Ok",
+      "expected_decoded": {
+        "kind": "array",
+        "integer_elements": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "id": "messagepack.map16_exact",
+      "format": "messagepack",
+      "guest_symbol": "map16_exact",
+      "bytes_hex": "de00010102",
+      "expected_result": "Ok",
+      "expected_decoded": {
+        "kind": "map",
+        "integer_pairs": [
+          [
+            1,
+            2
+          ]
+        ]
+      }
+    }
+  ]
+}
