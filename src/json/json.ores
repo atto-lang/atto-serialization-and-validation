@@ -295,7 +295,7 @@ pub define class JsonIncrementalDecoder as
   }
 end
 
-fnc fail(JsonCursor mut cursor, String code, String message): void {
+fnc fail(borrow mut JsonCursor cursor, String code, String message): void {
   if cursor.failed || cursor.incomplete then
     return;
   fi
@@ -304,7 +304,7 @@ fnc fail(JsonCursor mut cursor, String code, String message): void {
   return;
 }
 
-fnc need_more(JsonCursor mut cursor): void {
+fnc need_more(borrow mut JsonCursor cursor): void {
   if cursor.failed then
     return;
   fi
@@ -313,7 +313,7 @@ fnc need_more(JsonCursor mut cursor): void {
   return;
 }
 
-fnc writer_fail(JsonWriter mut writer, String code, String message): void {
+fnc writer_fail(borrow mut JsonWriter writer, String code, String message): void {
   if writer.failed then
     return;
   fi
@@ -357,7 +357,7 @@ fnc hex_value(int byte): int {
   return -1;
 }
 
-fnc skip_whitespace(JsonCursor mut cursor): void {
+fnc skip_whitespace(borrow mut JsonCursor cursor): void {
   loop do
     if cursor.index >= cursor.input.length then
       break;
@@ -370,16 +370,16 @@ fnc skip_whitespace(JsonCursor mut cursor): void {
   return;
 }
 
-fnc peek(JsonCursor mut cursor): int {
+fnc peek(borrow mut JsonCursor cursor): int {
   if cursor.index >= cursor.input.length then
-    need_more(cursor);
+    need_more(rt mut borrow cursor);
     return -1;
   fi
   return cursor.input[cursor.index];
 }
 
-fnc consume(JsonCursor mut cursor): int {
-  let int byte = peek(cursor);
+fnc consume(borrow mut JsonCursor cursor): int {
+  let int byte = peek(rt mut borrow cursor);
   if cursor.failed || cursor.incomplete then
     return -1;
   fi
@@ -387,30 +387,30 @@ fnc consume(JsonCursor mut cursor): int {
   return byte;
 }
 
-fnc expect_byte(JsonCursor mut cursor, int expected, String message): void {
-  let int actual = consume(cursor);
+fnc expect_byte(borrow mut JsonCursor cursor, int expected, String message): void {
+  let int actual = consume(rt mut borrow cursor);
   if cursor.failed || cursor.incomplete then
     return;
   fi
   if actual != expected then
-    fail(cursor, "unexpected_byte", message);
+    fail(rt mut borrow cursor, "unexpected_byte", message);
   fi
   return;
 }
 
-fnc append_output(JsonWriter mut writer, int byte): void {
+fnc append_output(borrow mut JsonWriter writer, int byte): void {
   if writer.failed then
     return;
   fi
   if writer.output.length >= writer.options.max_output_bytes then
-    writer_fail(writer, "output_limit", "encoded output exceeds max_output_bytes");
+    writer_fail(rt mut borrow writer, "output_limit", "encoded output exceeds max_output_bytes");
     return;
   fi
   writer.output.add(byte);
   return;
 }
 
-fnc read_hex4(JsonCursor mut cursor): int {
+fnc read_hex4(borrow mut JsonCursor cursor): int {
   let int value = 0;
   let int i = 0;
 
@@ -419,14 +419,14 @@ fnc read_hex4(JsonCursor mut cursor): int {
       break;
     fi
 
-    let int byte = consume(cursor);
+    let int byte = consume(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
       return 0;
     fi
 
     let int digit = hex_value(byte);
     if digit < 0 then
-      fail(cursor, "invalid_unicode_escape", "JSON unicode escape must contain four hex digits");
+      fail(rt mut borrow cursor, "invalid_unicode_escape", "JSON unicode escape must contain four hex digits");
       return 0;
     fi
 
@@ -437,21 +437,21 @@ fnc read_hex4(JsonCursor mut cursor): int {
   return value;
 }
 
-fnc parse_string(JsonCursor mut cursor): Utf8Text {
+fnc parse_string(borrow mut JsonCursor cursor): Utf8Text {
   val List<int> output = new List<int>();
 
-  expect_byte(cursor, 34, "expected opening quote");
+  expect_byte(rt mut borrow cursor, 34, "expected opening quote");
   if cursor.failed || cursor.incomplete then
     return new Utf8Text(output);
   fi
 
   loop do
     if cursor.index >= cursor.input.length then
-      need_more(cursor);
+      need_more(rt mut borrow cursor);
       return new Utf8Text(output);
     fi
 
-    let int byte = consume(cursor);
+    let int byte = consume(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
       return new Utf8Text(output);
     fi
@@ -461,27 +461,27 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
     fi
 
     if byte < 32 then
-      fail(cursor, "control_in_string", "unescaped control byte in JSON string");
+      fail(rt mut borrow cursor, "control_in_string", "unescaped control byte in JSON string");
       return new Utf8Text(output);
     fi
 
     // Every non-quote JSON string token emits at least one UTF-8 byte.
     // Enforce the configured limit before allocation rather than after copying.
     if output.length >= cursor.options.max_string_bytes then
-      fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+      fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
       return new Utf8Text(output);
     fi
 
     if byte == 92 then
       if cursor.index >= cursor.input.length then
-        need_more(cursor);
+        need_more(rt mut borrow cursor);
         return new Utf8Text(output);
       fi
 
-      let int escaped = consume(cursor);
+      let int escaped = consume(rt mut borrow cursor);
       if escaped != 117 then
         if !charge_decode_bytes(cursor.materialization, 1) then
-          fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+          fail(rt mut borrow cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
           return new Utf8Text(output);
         fi
       fi
@@ -499,7 +499,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       elseif escaped == 116 then
         output.add(9);
       elseif escaped == 117 then
-        let int first = read_hex4(cursor);
+        let int first = read_hex4(rt mut borrow cursor);
         if cursor.failed || cursor.incomplete then
           return new Utf8Text(output);
         fi
@@ -508,28 +508,28 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
 
         if first >= 55296 && first <= 56319 then
           if cursor.index + 1 >= cursor.input.length then
-            need_more(cursor);
+            need_more(rt mut borrow cursor);
             return new Utf8Text(output);
           fi
 
           if cursor.input[cursor.index] != 92 || cursor.input[cursor.index + 1] != 117 then
-            fail(cursor, "invalid_surrogate_pair", "high surrogate must be followed by a low surrogate");
+            fail(rt mut borrow cursor, "invalid_surrogate_pair", "high surrogate must be followed by a low surrogate");
             return new Utf8Text(output);
           fi
 
           cursor.index = cursor.index + 2;
-          let int second = read_hex4(cursor);
+          let int second = read_hex4(rt mut borrow cursor);
           if cursor.failed || cursor.incomplete then
             return new Utf8Text(output);
           fi
           if second < 56320 || second > 57343 then
-            fail(cursor, "invalid_surrogate_pair", "invalid low surrogate");
+            fail(rt mut borrow cursor, "invalid_surrogate_pair", "invalid low surrogate");
             return new Utf8Text(output);
           fi
 
           codepoint = 65536 + ((first - 55296) * 1024) + (second - 56320);
         elseif first >= 56320 && first <= 57343 then
-          fail(cursor, "invalid_surrogate_pair", "unexpected low surrogate");
+          fail(rt mut borrow cursor, "invalid_surrogate_pair", "unexpected low surrogate");
           return new Utf8Text(output);
         fi
 
@@ -537,25 +537,25 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
                                 codepoint <= 2047 ? 2 :
                                 codepoint <= 65535 ? 3 : 4;
         if encoded_width > cursor.options.max_string_bytes - output.length then
-          fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+          fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
           return new Utf8Text(output);
         fi
 
         if !charge_decode_bytes(cursor.materialization, encoded_width) then
-          fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+          fail(rt mut borrow cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
           return new Utf8Text(output);
         fi
         if !utf8_append_codepoint(output, codepoint) then
-          fail(cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
+          fail(rt mut borrow cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
           return new Utf8Text(output);
         fi
       else
-        fail(cursor, "invalid_escape", "invalid JSON string escape");
+        fail(rt mut borrow cursor, "invalid_escape", "invalid JSON string escape");
         return new Utf8Text(output);
       fi
     elseif byte < 128 then
       if !charge_decode_bytes(cursor.materialization, 1) then
-        fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+        fail(rt mut borrow cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
         return new Utf8Text(output);
       fi
       output.add(byte);
@@ -566,7 +566,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       let int expected_width = utf8_expected_width(byte);
 
       if expected_width < 2 then
-        fail(cursor, "invalid_utf8", "invalid UTF-8 lead byte in JSON string");
+        fail(rt mut borrow cursor, "invalid_utf8", "invalid UTF-8 lead byte in JSON string");
         return new Utf8Text(output);
       fi
 
@@ -577,24 +577,24 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       );
 
       if prefix_status == 0 then
-        fail(cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
+        fail(rt mut borrow cursor, "invalid_utf8", "invalid UTF-8 in JSON string");
         return new Utf8Text(output);
       fi
 
       if prefix_status == 1 then
-        need_more(cursor);
+        need_more(rt mut borrow cursor);
         return new Utf8Text(output);
       fi
 
       let int width = expected_width;
 
       if width > cursor.options.max_string_bytes - output.length then
-        fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+        fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
         return new Utf8Text(output);
       fi
 
       if !charge_decode_bytes(cursor.materialization, width) then
-        fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+        fail(rt mut borrow cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
         return new Utf8Text(output);
       fi
       output.add(byte);
@@ -610,7 +610,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
     fi
 
     if output.length > cursor.options.max_string_bytes then
-      fail(cursor, "string_limit", "JSON string exceeds max_string_bytes");
+      fail(rt mut borrow cursor, "string_limit", "JSON string exceeds max_string_bytes");
       return new Utf8Text(output);
     fi
   done
@@ -619,7 +619,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
 }
 
 fnc parse_literal(
-  JsonCursor mut cursor,
+  borrow mut JsonCursor cursor,
   List<int> expected,
   Value value
 ): Value {
@@ -630,12 +630,12 @@ fnc parse_literal(
     fi
 
     if cursor.index >= cursor.input.length then
-      need_more(cursor);
+      need_more(rt mut borrow cursor);
       return value_null();
     fi
 
     if cursor.input[cursor.index] != expected[i] then
-      fail(cursor, "invalid_literal", "invalid JSON literal");
+      fail(rt mut borrow cursor, "invalid_literal", "invalid JSON literal");
       return value_null();
     fi
 
@@ -647,47 +647,47 @@ fnc parse_literal(
 }
 
 fnc push_number_byte(
-  JsonCursor mut cursor,
-  List<int> mut lexeme,
+  borrow mut JsonCursor cursor,
+  borrow mut List<int> lexeme,
   int byte
 ): bool {
   if lexeme.length >= cursor.options.max_number_bytes then
-    fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
+    fail(rt mut borrow cursor, "number_limit", "JSON number exceeds max_number_bytes");
     return false;
   fi
 
   if !charge_decode_bytes(cursor.materialization, 1) then
-    fail(cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
+    fail(rt mut borrow cursor, "materialization_limit", "JSON cumulative decoded byte limit exhausted");
     return false;
   fi
   lexeme.push(byte);
   return true;
 }
 
-fnc parse_number(JsonCursor mut cursor): Value {
-  val List<int> lexeme = new List<int>();
+fnc parse_number(borrow mut JsonCursor cursor): Value {
+  let mut List<int> lexeme = new List<int>();
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
-    if !push_number_byte(cursor, lexeme, 45) then
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, 45) then
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
   fi
 
   if cursor.index >= cursor.input.length then
-    need_more(cursor);
+    need_more(rt mut borrow cursor);
     return value_number_lexeme(lexeme);
   fi
 
   let int first = cursor.input[cursor.index];
 
   if first == 48 then
-    if !push_number_byte(cursor, lexeme, first) then
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, first) then
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
     if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
-      fail(cursor, "invalid_number", "JSON number cannot contain a leading zero");
+      fail(rt mut borrow cursor, "invalid_number", "JSON number cannot contain a leading zero");
       return value_number_lexeme(lexeme);
     fi
   elseif is_nonzero_digit(first) then
@@ -699,28 +699,28 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      if !push_number_byte(cursor, lexeme, byte) then
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
         return value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
     done
   else
-    fail(cursor, "invalid_number", "invalid JSON integer component");
+    fail(rt mut borrow cursor, "invalid_number", "invalid JSON integer component");
     return value_number_lexeme(lexeme);
   fi
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
-    if !push_number_byte(cursor, lexeme, 46) then
+    if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, 46) then
       return value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
 
     if cursor.index >= cursor.input.length then
-      need_more(cursor);
+      need_more(rt mut borrow cursor);
       return value_number_lexeme(lexeme);
     fi
     if !is_digit(cursor.input[cursor.index]) then
-      fail(cursor, "invalid_number", "fraction requires at least one digit");
+      fail(rt mut borrow cursor, "invalid_number", "fraction requires at least one digit");
       return value_number_lexeme(lexeme);
     fi
 
@@ -732,7 +732,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
       if !is_digit(byte) then
         break;
       fi
-      if !push_number_byte(cursor, lexeme, byte) then
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
         return value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
@@ -742,30 +742,30 @@ fnc parse_number(JsonCursor mut cursor): Value {
   if cursor.index < cursor.input.length then
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
-      if !push_number_byte(cursor, lexeme, byte) then
+      if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, byte) then
         return value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
 
       if cursor.index >= cursor.input.length then
-        need_more(cursor);
+        need_more(rt mut borrow cursor);
         return value_number_lexeme(lexeme);
       fi
 
       let int sign = cursor.input[cursor.index];
       if sign == 43 || sign == 45 then
-        if !push_number_byte(cursor, lexeme, sign) then
+        if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, sign) then
           return value_number_lexeme(lexeme);
         fi
         cursor.index = cursor.index + 1;
       fi
 
       if cursor.index >= cursor.input.length then
-        need_more(cursor);
+        need_more(rt mut borrow cursor);
         return value_number_lexeme(lexeme);
       fi
       if !is_digit(cursor.input[cursor.index]) then
-        fail(cursor, "invalid_number", "exponent requires at least one digit");
+        fail(rt mut borrow cursor, "invalid_number", "exponent requires at least one digit");
         return value_number_lexeme(lexeme);
       fi
 
@@ -777,7 +777,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
         if !is_digit(exp_byte) then
           break;
         fi
-        if !push_number_byte(cursor, lexeme, exp_byte) then
+        if !push_number_byte(rt mut borrow cursor, rt mut borrow lexeme, exp_byte) then
           return value_number_lexeme(lexeme);
         fi
         cursor.index = cursor.index + 1;
@@ -786,7 +786,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
   fi
 
   if lexeme.length > cursor.options.max_number_bytes then
-    fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
+    fail(rt mut borrow cursor, "number_limit", "JSON number exceeds max_number_bytes");
   fi
 
   return value_number_lexeme(lexeme);
@@ -829,15 +829,15 @@ fnc object_keys_status(List<WireMember> members, ValueWorkFuel mut fuel): int {
   return 0;
 }
 
-fnc parse_array(JsonCursor mut cursor, int depth): Value {
+fnc parse_array(borrow mut JsonCursor cursor, int depth): Value {
   val List<Value> values = new List<Value>();
 
-  expect_byte(cursor, 91, "expected '['");
+  expect_byte(rt mut borrow cursor, 91, "expected '['");
   if cursor.failed || cursor.incomplete then
     return value_array(values);
   fi
 
-  skip_whitespace(cursor);
+  skip_whitespace(rt mut borrow cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 93 then
     cursor.index = cursor.index + 1;
@@ -846,25 +846,25 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
   loop do
     if values.length >= cursor.options.max_array_entries then
-      fail(cursor, "array_limit", "JSON array exceeds max_array_entries");
+      fail(rt mut borrow cursor, "array_limit", "JSON array exceeds max_array_entries");
       return value_array(values);
     fi
 
-    let Value item = parse_value(cursor, depth + 1);
+    let Value item = parse_value(rt mut borrow cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
       return value_array(values);
     fi
     values.add(item);
 
-    skip_whitespace(cursor);
-    let int separator = peek(cursor);
+    skip_whitespace(rt mut borrow cursor);
+    let int separator = peek(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
       return value_array(values);
     fi
 
     if separator == 44 then
       cursor.index = cursor.index + 1;
-      skip_whitespace(cursor);
+      skip_whitespace(rt mut borrow cursor);
       continue;
     fi
 
@@ -873,23 +873,23 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
       break;
     fi
 
-    fail(cursor, "array_separator", "expected ',' or ']' after JSON array value");
+    fail(rt mut borrow cursor, "array_separator", "expected ',' or ']' after JSON array value");
     return value_array(values);
   done
 
   return value_array(values);
 }
 
-fnc parse_object(JsonCursor mut cursor, int depth): Value {
+fnc parse_object(borrow mut JsonCursor cursor, int depth): Value {
   val List<WireMember> members = new List<WireMember>();
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
 
-  expect_byte(cursor, 123, "expected '{'");
+  expect_byte(rt mut borrow cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
     return value_object(members);
   fi
 
-  skip_whitespace(cursor);
+  skip_whitespace(rt mut borrow cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 125 then
     cursor.index = cursor.index + 1;
@@ -899,53 +899,53 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
   let int parsed_members = 0;
   loop do
     if parsed_members >= cursor.options.max_map_entries then
-      fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
+      fail(rt mut borrow cursor, "map_limit", "JSON object exceeds max_map_entries");
       return value_object(members);
     fi
 
-    if peek(cursor) != 34 then
+    if peek(rt mut borrow cursor) != 34 then
       if !cursor.failed && !cursor.incomplete then
-        fail(cursor, "object_key", "JSON object key must be a string");
+        fail(rt mut borrow cursor, "object_key", "JSON object key must be a string");
       fi
       return value_object(members);
     fi
 
     if !charge_decode_nodes(cursor.materialization, 1) then
-      fail(cursor, "node_limit", "JSON cumulative key node limit exhausted");
+      fail(rt mut borrow cursor, "node_limit", "JSON cumulative key node limit exhausted");
       return value_object(members);
     fi
     parsed_members = parsed_members + 1;
-    let Utf8Text key = parse_string(cursor);
+    let Utf8Text key = parse_string(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
       return value_object(members);
     fi
 
-    skip_whitespace(cursor);
-    expect_byte(cursor, 58, "expected ':' after JSON object key");
+    skip_whitespace(rt mut borrow cursor);
+    expect_byte(rt mut borrow cursor, 58, "expected ':' after JSON object key");
     if cursor.failed || cursor.incomplete then
       return value_object(members);
     fi
 
-    skip_whitespace(cursor);
-    let Value field_value = parse_value(cursor, depth + 1);
+    skip_whitespace(rt mut borrow cursor);
+    let Value field_value = parse_value(rt mut borrow cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
       return value_object(members);
     fi
 
     val ValueHashAttempt key_hash = text_hash_with_fuel(rt borrow key, cursor.key_fuel);
     if !key_hash.completed then
-      fail(cursor, "key_work_limit", "JSON object key hashing budget exhausted");
+      fail(rt mut borrow cursor, "key_work_limit", "JSON object key hashing budget exhausted");
       return value_object(members);
     fi
     let int existing = member_index(rt borrow members, buckets, rt borrow key,
       key_hash.hash, cursor.key_fuel);
     if existing == -2 then
-      fail(cursor, "key_work_limit", "JSON object key comparison budget exhausted");
+      fail(rt mut borrow cursor, "key_work_limit", "JSON object key comparison budget exhausted");
       return value_object(members);
     fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
-        fail(cursor, "duplicate_key", "duplicate JSON object key");
+        fail(rt mut borrow cursor, "duplicate_key", "duplicate JSON object key");
         return value_object(members);
       elseif cursor.options.duplicate_key_policy == 2 then
         members[existing] = new WireMember(key, field_value);
@@ -957,15 +957,15 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       remember_metered_map_entry(buckets, key_hash.hash, index);
     fi
 
-    skip_whitespace(cursor);
-    let int separator = peek(cursor);
+    skip_whitespace(rt mut borrow cursor);
+    let int separator = peek(rt mut borrow cursor);
     if cursor.failed || cursor.incomplete then
       return value_object(members);
     fi
 
     if separator == 44 then
       cursor.index = cursor.index + 1;
-      skip_whitespace(cursor);
+      skip_whitespace(rt mut borrow cursor);
       continue;
     fi
 
@@ -974,60 +974,60 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       break;
     fi
 
-    fail(cursor, "object_separator", "expected ',' or '}' after JSON object member");
+    fail(rt mut borrow cursor, "object_separator", "expected ',' or '}' after JSON object member");
     return value_object(members);
   done
 
   return value_object(members);
 }
 
-fnc parse_value(JsonCursor mut cursor, int depth): Value {
+fnc parse_value(borrow mut JsonCursor cursor, int depth): Value {
   if depth > cursor.options.max_depth then
-    fail(cursor, "depth_limit", "JSON nesting exceeds max_depth");
+    fail(rt mut borrow cursor, "depth_limit", "JSON nesting exceeds max_depth");
     return value_null();
   fi
 
-  skip_whitespace(cursor);
+  skip_whitespace(rt mut borrow cursor);
 
-  let int byte = peek(cursor);
+  let int byte = peek(rt mut borrow cursor);
   if cursor.failed || cursor.incomplete then
     return value_null();
   fi
 
   if !charge_decode_nodes(cursor.materialization, 1) then
-    fail(cursor, "node_limit", "JSON cumulative materialized node limit exhausted");
+    fail(rt mut borrow cursor, "node_limit", "JSON cumulative materialized node limit exhausted");
     return value_null();
   fi
 
   if byte == 110 then
-    return parse_literal(cursor, new List<int>(110, 117, 108, 108), value_null());
+    return parse_literal(rt mut borrow cursor, new List<int>(110, 117, 108, 108), value_null());
   fi
 
   if byte == 116 then
-    return parse_literal(cursor, new List<int>(116, 114, 117, 101), value_bool(true));
+    return parse_literal(rt mut borrow cursor, new List<int>(116, 114, 117, 101), value_bool(true));
   fi
 
   if byte == 102 then
-    return parse_literal(cursor, new List<int>(102, 97, 108, 115, 101), value_bool(false));
+    return parse_literal(rt mut borrow cursor, new List<int>(102, 97, 108, 115, 101), value_bool(false));
   fi
 
   if byte == 34 then
-    return value_string(parse_string(cursor));
+    return value_string(parse_string(rt mut borrow cursor));
   fi
 
   if byte == 91 then
-    return parse_array(cursor, depth);
+    return parse_array(rt mut borrow cursor, depth);
   fi
 
   if byte == 123 then
-    return parse_object(cursor, depth);
+    return parse_object(rt mut borrow cursor, depth);
   fi
 
   if byte == 45 || is_digit(byte) then
-    return parse_number(cursor);
+    return parse_number(rt mut borrow cursor);
   fi
 
-  fail(cursor, "unexpected_token", "invalid JSON value token");
+  fail(rt mut borrow cursor, "unexpected_token", "invalid JSON value token");
   return value_null();
 }
 
@@ -1070,7 +1070,7 @@ pub fnc decode_attempt(
   // immutable scalar facts required by the trailing-data check.
   val int input_length = input.length;
   val bool allow_trailing_data = options.allow_trailing_data;
-  let JsonCursor cursor = new JsonCursor(
+  let mut JsonCursor cursor = new JsonCursor(
     input,
     options,
     0,
@@ -1081,7 +1081,7 @@ pub fnc decode_attempt(
     new_decode_materialization_budget()
   );
 
-  let Value value = parse_value(cursor, 0);
+  let Value value = parse_value(rt mut borrow cursor, 0);
 
   if cursor.incomplete then
     return new DecodeAttempt(1, value_null(), cursor.index, cursor.error);
@@ -1091,7 +1091,7 @@ pub fnc decode_attempt(
     return new DecodeAttempt(2, value_null(), cursor.index, cursor.error);
   fi
 
-  skip_whitespace(cursor);
+  skip_whitespace(rt mut borrow cursor);
 
   if !allow_trailing_data && cursor.index != input_length then
     return new DecodeAttempt(
@@ -1136,7 +1136,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
   );
 
   val int byte_length = bytes.length;
-  let JsonCursor cursor = new JsonCursor(
+  let mut JsonCursor cursor = new JsonCursor(
     bytes,
     options,
     0,
@@ -1147,7 +1147,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     new_decode_materialization_budget()
   );
 
-  let Value value = parse_number(cursor);
+  let Value value = parse_number(rt mut borrow cursor);
   if cursor.failed || cursor.incomplete then
     return false;
   fi
@@ -1157,8 +1157,8 @@ fnc valid_number_lexeme(List<int> bytes): bool {
   return value.kind == 2;
 }
 
-fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
-  append_output(writer, 34);
+fnc write_json_string(borrow mut JsonWriter writer, Utf8Text text): void {
+  append_output(rt mut borrow writer, 34);
 
   let int i = 0;
   loop do
@@ -1169,77 +1169,77 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
     let int byte = text.bytes[i];
 
     if byte == 34 then
-      append_output(writer, 92);
-      append_output(writer, 34);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 34);
       i = i + 1;
       continue;
     fi
 
     if byte == 92 then
-      append_output(writer, 92);
-      append_output(writer, 92);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 92);
       i = i + 1;
       continue;
     fi
 
     if byte == 8 then
-      append_output(writer, 92);
-      append_output(writer, 98);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 98);
       i = i + 1;
       continue;
     fi
 
     if byte == 12 then
-      append_output(writer, 92);
-      append_output(writer, 102);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 102);
       i = i + 1;
       continue;
     fi
 
     if byte == 10 then
-      append_output(writer, 92);
-      append_output(writer, 110);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 110);
       i = i + 1;
       continue;
     fi
 
     if byte == 13 then
-      append_output(writer, 92);
-      append_output(writer, 114);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 114);
       i = i + 1;
       continue;
     fi
 
     if byte == 9 then
-      append_output(writer, 92);
-      append_output(writer, 116);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 116);
       i = i + 1;
       continue;
     fi
 
     if byte < 32 then
-      append_output(writer, 92);
-      append_output(writer, 117);
-      append_output(writer, 48);
-      append_output(writer, 48);
+      append_output(rt mut borrow writer, 92);
+      append_output(rt mut borrow writer, 117);
+      append_output(rt mut borrow writer, 48);
+      append_output(rt mut borrow writer, 48);
 
-      let int high = byte / 16;
+      let int high = byte >> 4;
       let int low = byte % 16;
-      append_output(writer, high < 10 ? 48 + high : 87 + high);
-      append_output(writer, low < 10 ? 48 + low : 87 + low);
+      append_output(rt mut borrow writer, high < 10 ? 48 + high : 87 + high);
+      append_output(rt mut borrow writer, low < 10 ? 48 + low : 87 + low);
       i = i + 1;
       continue;
     fi
 
     if byte < 128 then
-      append_output(writer, byte);
+      append_output(rt mut borrow writer, byte);
       i = i + 1;
       continue;
     fi
 
     let int width = utf8_sequence_length(text.bytes, i);
     if width < 2 then
-      writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
+      writer_fail(rt mut borrow writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
       return;
     fi
 
@@ -1248,68 +1248,68 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
       if j >= width then
         break;
       fi
-      append_output(writer, text.bytes[i + j]);
+      append_output(rt mut borrow writer, text.bytes[i + j]);
       j = j + 1;
     done
     i = i + width;
   done
 
-  append_output(writer, 34);
+  append_output(rt mut borrow writer, 34);
   return;
 }
 
-fnc write_literal(JsonWriter mut writer, List<int> bytes): void {
+fnc write_literal(borrow mut JsonWriter writer, List<int> bytes): void {
   for const byte of bytes do
-    append_output(writer, byte);
+    append_output(rt mut borrow writer, byte);
   done
   return;
 }
 
-fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
+fnc encode_value(borrow mut JsonWriter writer, Value value, int depth): void {
   if writer.failed then
     return;
   fi
 
   if depth > writer.options.max_depth then
-    writer_fail(writer, "depth_limit", "JSON encoding exceeds max_depth");
+    writer_fail(rt mut borrow writer, "depth_limit", "JSON encoding exceeds max_depth");
     return;
   fi
 
   if value.kind == 0 then
-    write_literal(writer, new List<int>(110, 117, 108, 108));
+    write_literal(rt mut borrow writer, new List<int>(110, 117, 108, 108));
     return;
   fi
 
   if value.kind == 1 then
     if value.bool_value then
-      write_literal(writer, new List<int>(116, 114, 117, 101));
+      write_literal(rt mut borrow writer, new List<int>(116, 114, 117, 101));
     else
-      write_literal(writer, new List<int>(102, 97, 108, 115, 101));
+      write_literal(rt mut borrow writer, new List<int>(102, 97, 108, 115, 101));
     fi
     return;
   fi
 
   if value.kind == 2 then
     if !valid_number_lexeme(value.number_lexeme) then
-      writer_fail(writer, "invalid_number", "number Value contains an invalid JSON number lexeme");
+      writer_fail(rt mut borrow writer, "invalid_number", "number Value contains an invalid JSON number lexeme");
       return;
     fi
-    write_literal(writer, value.number_lexeme);
+    write_literal(rt mut borrow writer, value.number_lexeme);
     return;
   fi
 
   if value.kind == 3 then
-    write_json_string(writer, value.string_value);
+    write_json_string(rt mut borrow writer, value.string_value);
     return;
   fi
 
   if value.kind == 4 || value.kind == 7 then
-    writer_fail(writer, "unsupported_value", "JSON cannot directly encode binary or extension values");
+    writer_fail(rt mut borrow writer, "unsupported_value", "JSON cannot directly encode binary or extension values");
     return;
   fi
 
   if value.kind == 5 then
-    append_output(writer, 91);
+    append_output(rt mut borrow writer, 91);
 
     let int i = 0;
     loop do
@@ -1317,31 +1317,31 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
         break;
       fi
       if i > 0 then
-        append_output(writer, 44);
+        append_output(rt mut borrow writer, 44);
       fi
-      encode_value(writer, value.array_value[i], depth + 1);
+      encode_value(rt mut borrow writer, value.array_value[i], depth + 1);
       if writer.failed then
         return;
       fi
       i = i + 1;
     done
 
-    append_output(writer, 93);
+    append_output(rt mut borrow writer, 93);
     return;
   fi
 
   if value.kind == 6 then
     val int key_status = object_keys_status(rt borrow value.object_value, writer.key_fuel);
     if key_status == 2 then
-      writer_fail(writer, "key_work_limit", "JSON object key work exhausted");
+      writer_fail(rt mut borrow writer, "key_work_limit", "JSON object key work exhausted");
       return;
     fi
     if key_status == 1 then
-      writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
+      writer_fail(rt mut borrow writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
       return;
     fi
 
-    append_output(writer, 123);
+    append_output(rt mut borrow writer, 123);
 
     let int i = 0;
     loop do
@@ -1349,13 +1349,13 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
         break;
       fi
       if i > 0 then
-        append_output(writer, 44);
+        append_output(rt mut borrow writer, 44);
       fi
 
       let WireMember member = value.object_value[i];
-      write_json_string(writer, member.key);
-      append_output(writer, 58);
-      encode_value(writer, member.value, depth + 1);
+      write_json_string(rt mut borrow writer, member.key);
+      append_output(rt mut borrow writer, 58);
+      encode_value(rt mut borrow writer, member.value, depth + 1);
 
       if writer.failed then
         return;
@@ -1363,11 +1363,11 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
       i = i + 1;
     done
 
-    append_output(writer, 125);
+    append_output(rt mut borrow writer, 125);
     return;
   fi
 
-  writer_fail(writer, "unsupported_value", "unknown dynamic Value kind");
+  writer_fail(rt mut borrow writer, "unsupported_value", "unknown dynamic Value kind");
   return;
 }
 
@@ -1395,7 +1395,7 @@ pub fnc encode(
     return Err(encode_error("unsupported_value", "unknown dynamic Value kind"));
   fi
 
-  let JsonWriter writer = new JsonWriter(
+  let mut JsonWriter writer = new JsonWriter(
     new List<int>(),
     options,
     false,
@@ -1403,7 +1403,7 @@ pub fnc encode(
     new ValueWorkFuel(max_codec_key_work())
   );
 
-  encode_value(writer, value, 0);
+  encode_value(rt mut borrow writer, value, 0);
 
   if writer.failed then
     return Err(writer.error);

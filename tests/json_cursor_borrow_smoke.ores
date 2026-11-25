@@ -1,0 +1,85 @@
+// Targeted real-guest JSON cursor ownership regression. All input lists are
+// constructed with the supported empty constructor + List.add() API.
+import fnc require_true, require_int from './assert';
+import class DecodedValue, DecodeError, DecodeStep from '../src/core/options';
+import fnc default_decode_options from '../src/core/options';
+import class JsonIncrementalDecoder from '../src/json/json';
+import fnc decode_default, new_incremental_decoder from '../src/json/json';
+
+fnc ascii_string_a(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  data.add(97);
+  data.add(34);
+  return data;
+}
+
+fnc incomplete_string(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  data.add(97);
+  return data;
+}
+
+fnc malformed_utf8(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  data.add(226);
+  data.add(40);
+  data.add(34);
+  return data;
+}
+
+fnc unpaired_high_surrogate(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  data.add(92);
+  data.add(117);
+  data.add(68);
+  data.add(56);
+  data.add(48);
+  data.add(48);
+  data.add(34);
+  return data;
+}
+
+fnc first_chunk(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  data.add(97);
+  return data;
+}
+
+fnc second_chunk(): List<int> {
+  val List<int> data = new List<int>();
+  data.add(34);
+  return data;
+}
+
+pub fnc main(): void {
+  val Result<DecodedValue, DecodeError> good = decode_default(ascii_string_a());
+  require_true(!good.is_err(), "complete JSON string decodes");
+  val DecodedValue actual = good.unwrap();
+  require_int(actual.value.kind, 3, "successful JSON string is the string variant");
+  require_int(actual.value.string_value.bytes.length, 1, "decoded string has one byte");
+  require_int(actual.value.string_value.bytes[0], 97, "decoded string preserves scalar");
+
+  val Result<DecodedValue, DecodeError> partial = decode_default(incomplete_string());
+  require_true(partial.is_err(), "incomplete JSON string must not publish bytes");
+
+  val Result<DecodedValue, DecodeError> malformed = decode_default(malformed_utf8());
+  require_true(malformed.is_err(), "invalid UTF8 continuation is rejected");
+
+  val Result<DecodedValue, DecodeError> surrogate = decode_default(unpaired_high_surrogate());
+  require_true(surrogate.is_err(), "unpaired high surrogate is rejected");
+
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  val DecodeStep first = decoder.feed(first_chunk());
+  require_int(first.status, 0, "partial incremental JSON requests more bytes");
+  val DecodeStep second = decoder.feed(second_chunk());
+  require_int(second.status, 1, "completed incremental JSON publishes exactly once");
+  require_int(second.value.kind, 3, "incremental JSON preserves string kind");
+
+  stdio.stdout.println("native Zorde JSON cursor smoke passed");
+  return;
+}

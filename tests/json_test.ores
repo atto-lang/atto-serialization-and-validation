@@ -113,7 +113,7 @@ pub fnc run_json_tests(): void {
   require_true(decode(new List<int>(123,34,97,34,58,49,44,34,97,34,58,50,44,34,97,34,58,51,125),
     duplicate_occurrence_options(2)).is_err(), "last-wins cannot evade occurrence limit");
 
-  let JsonIncrementalDecoder sealed_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder sealed_decoder = new_incremental_decoder(default_decode_options());
   require_int(sealed_decoder.received_bytes(), 0, "fresh decoder has zero received bytes");
   require_int(sealed_decoder.feed(new List<int>(123)).status, 0, "partial sealed frame");
   require_int(sealed_decoder.received_bytes(), 1, "scalar received-byte observation");
@@ -129,7 +129,7 @@ pub fnc run_json_tests(): void {
     "JSON reader exact shared key fuel");
   require_true(decode_default(json_work_wire(500000)).is_err(),
     "JSON reader one over shared key fuel");
-  let JsonIncrementalDecoder budget_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder budget_decoder = new_incremental_decoder(default_decode_options());
   require_int(budget_decoder.feed(json_work_chunk(499999, true)).status, 0,
     "first chunk is incomplete");
   val DecodeStep budget_error = budget_decoder.feed(json_work_chunk(500000, false));
@@ -139,7 +139,7 @@ pub fnc run_json_tests(): void {
   require_true(retry_error.status == 2 && retry_error.error.code == "decoder_complete",
     "budget refusal is terminal, even on empty retry");
   require_int(budget_decoder.finish().status, 2, "finish cannot retry rejected frame");
-  let JsonIncrementalDecoder exact_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder exact_decoder = new_incremental_decoder(default_decode_options());
   require_int(exact_decoder.feed(json_work_chunk(499999, true)).status, 0,
     "exact split control begins incomplete");
   require_int(exact_decoder.feed(json_work_chunk(499999, false)).status, 1,
@@ -243,7 +243,7 @@ pub fnc run_json_tests(): void {
   require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
   require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
 
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
   require_int(first.status, 0, "partial JSON must request more input");
 
@@ -253,14 +253,14 @@ pub fnc run_json_tests(): void {
   require_int(second.status, 1, "completed incremental JSON must yield a value");
   require_int(second.value.kind, 6, "incremental JSON root kind");
 
-  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
   require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
   val DecodeStep number_finished = number_decoder.finish();
   require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
-  val JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
+  let mut JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
   val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     new List<int>(34, 226, 40)
   );
