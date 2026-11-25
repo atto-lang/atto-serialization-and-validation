@@ -19,11 +19,13 @@ pub struct Usage {
 }
 
 /// Trusted registration-time descriptor, never obtained from DATA.
+/// Record fields are in authenticated schema order and encoded as definite
+/// arrays. The codec does not itself authenticate nominal schema identity.
 #[derive(Clone, Copy)]
-pub enum Shape<'a> { Bool, I64, F64, Text, List(&'a Shape<'a>) }
+pub enum Shape<'a> { Bool, I64, F64, Text, List(&'a Shape<'a>), Record(&'a [Shape<'a>]) }
 
 #[derive(Debug, PartialEq)]
-pub enum Value { Bool(bool), I64(i64), F64(f64), Text(String), List(Vec<Value>) }
+pub enum Value { Bool(bool), I64(i64), F64(f64), Text(String), List(Vec<Value>), Record(Vec<Value>) }
 
 struct Reader<'a> {
     bytes: &'a [u8], pos: usize, limits: Limits, usage: Usage,
@@ -70,7 +72,7 @@ impl Reader<'_> {
                 Shape::I64 => major == 0 || major == 1,
                 Shape::F64 => major == 7 && ai == 27,
                 Shape::Text => major == 3,
-                Shape::List(_) => major == 4,
+                Shape::List(_) | Shape::Record(_) => major == 4,
             };
             if !matches { return Err(Reject::Shape); }
         }
@@ -97,13 +99,18 @@ impl Reader<'_> {
             }
             4 => {
                 let n = usize::try_from(self.arg(ai)?).map_err(|_| Reject::Range)?;
+                // Registered record layout is positional and fixed-arity; no
+                // untrusted key, field name, or descriptor selection on the wire.
+                if let Some(Shape::Record(fields)) = shape {
+                    if n != fields.len() { return Err(Reject::Shape); }
+                }
                 if n > self.bytes.len() - self.pos || n > self.limits.nodes - self.usage.nodes {
                     return Err(Reject::Budget);
                 }
                 charge(&mut self.usage.elements, n, self.limits.elements)?;
                 charge(&mut self.usage.expanded, n.checked_mul(8).ok_or(Reject::Budget)?,
                        self.limits.expanded)?;
-                if let Some(Shape::List(child)) = shape {
+                if let Some(expected) = shape {
                     // Charge element writes and all minimum child-node costs
                     // before allocation; recursive calls charge their own nodes.
                     charge(&mut self.usage.work, n, self.limits.work)?;
@@ -119,10 +126,19 @@ impl Reader<'_> {
                     }
                     let mut values = Vec::new();
                     values.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
-                    for _ in 0..n {
+                    for index in 0..n {
+                        let child = match expected {
+                            Shape::List(child) => *child,
+                            Shape::Record(fields) => fields.get(index).ok_or(Reject::Shape)?,
+                            _ => return Err(Reject::Shape),
+                        };
                         values.push(self.item(depth + 1, Some(child))?.ok_or(Reject::Shape)?);
                     }
-                    Some(Value::List(values))
+                    Some(match expected {
+                        Shape::List(_) => Value::List(values),
+                        Shape::Record(_) => Value::Record(values),
+                        _ => return Err(Reject::Shape),
+                    })
                 } else {
                     for _ in 0..n { let _ = self.item(depth + 1, None)?; }
                     None
@@ -178,7 +194,7 @@ fn validate_limits(limits: Limits) -> Result<(), Reject> {
     Ok(())
 }
 
-/// Bounded deterministic encoder for the same trusted homogeneous profile.
+/// Bounded deterministic encoder for the same trusted positional profile.
 /// Measures without allocating, then reserves the exact wire length once.
 /// Work is cumulative across both passes; expanded includes output bytes.
 /// This is a logical budget, not a physical allocator/receiver heap guarantee.
@@ -263,6 +279,18 @@ impl Encoder {
                 }
                 self.arg(3, u64::try_from(v.len()).map_err(|_| Reject::Range)?)?;
                 self.emit(v.as_bytes())
+            }
+            (Value::Record(items), Shape::Record(fields)) => {
+                if items.len() != fields.len() { return Err(Reject::Shape); }
+                if measuring {
+                    charge(&mut self.usage.elements, items.len(), self.limits.elements)?;
+                    charge(&mut self.usage.expanded, items.len().checked_mul(8).ok_or(Reject::Budget)?, self.limits.expanded)?;
+                }
+                self.arg(4, u64::try_from(items.len()).map_err(|_| Reject::Range)?)?;
+                for (item, field) in items.iter().zip(fields.iter()) {
+                    self.item(item, field, depth + 1)?;
+                }
+                Ok(())
             }
             (Value::List(items), Shape::List(child)) => {
                 if measuring {
@@ -416,6 +444,63 @@ mod tests {
             assert_eq!(encode_typed(&Value::F64(n),&Shape::F64,limits()),Err(Reject::Range));
         }
         assert_eq!(encode_typed(&Value::Bool(true),&Shape::Bool,Limits{depth:65,..limits()}),Err(Reject::Limits));
+    }
+
+    #[test] fn record_exact_budgets_and_wire() {
+        let fields = [Shape::Bool, Shape::Text];
+        let shape = Shape::Record(&fields);
+        let v = Value::Record(vec![Value::Bool(true), Value::Text("x".into())]);
+        let bytes = [0x82, 0xf5, 0x61, b'x'];
+        let decode = Limits {wire:4,expanded:116,nodes:3,elements:2,work:11,depth:1};
+        let (decoded, usage) = decode_typed(&bytes, decode, &shape).unwrap();
+        assert_eq!(decoded,v);
+        assert_eq!(usage,Usage{expanded:116,nodes:3,elements:2,work:11});
+        for l in [Limits{wire:3,..decode},Limits{expanded:115,..decode},
+                  Limits{nodes:2,..decode},Limits{elements:1,..decode},
+                  Limits{work:10,..decode},Limits{depth:0,..decode}] {
+            assert_eq!(decode_typed(&bytes,l,&shape),Err(Reject::Budget));
+        }
+        let encode = Limits{expanded:120,work:14,..decode};
+        assert_eq!(encode_typed(&v,&shape,encode),Ok((bytes.to_vec(),Usage{expanded:120,nodes:3,elements:2,work:14})));
+        for l in [Limits{wire:3,..encode},Limits{expanded:119,..encode},
+                  Limits{nodes:2,..encode},Limits{elements:1,..encode},
+                  Limits{work:13,..encode},Limits{depth:0,..encode}] {
+            assert_eq!(encode_typed(&v,&shape,l),Err(Reject::Budget));
+        }
+        assert!(preflight(&bytes,limits()).is_ok());
+    }
+
+    #[test] fn record_rejects_arity_types_and_noncanonical_wire() {
+        let fields = [Shape::Bool, Shape::I64];
+        let shape = Shape::Record(&fields);
+        for b in [&[0x81,0xf5][..], &[0x83,0xf5,0x01,0x02], &[0x82,0x01,0xf5], &[0xa0]] {
+            assert_eq!(decode_typed(b,limits(),&shape),Err(Reject::Shape));
+        }
+        assert_eq!(decode_typed(&[0x98,0x02,0xf5,0x01],limits(),&shape),Err(Reject::NonCanonical));
+        assert_eq!(decode_typed(&[0x82,0xf5,0x18,0x01],limits(),&shape),Err(Reject::NonCanonical));
+        assert_eq!(decode_typed(&[0x82,0xf5,0x01,0x00],limits(),&shape),Err(Reject::Trailing));
+        for v in [Value::Record(vec![Value::Bool(true)]),
+                  Value::Record(vec![Value::I64(1),Value::Bool(true)]),
+                  Value::List(vec![Value::Bool(true),Value::I64(1)])] {
+            assert_eq!(encode_typed(&v,&shape,limits()),Err(Reject::Shape));
+        }
+    }
+
+    #[test] fn nested_records_lists_and_empty_records() {
+        let fields = [Shape::I64, Shape::Text];
+        let record = Shape::Record(&fields);
+        let list = Shape::List(&record);
+        let outer_fields = [Shape::Bool, list, Shape::Record(&[])];
+        let shape = Shape::Record(&outer_fields);
+        let v = Value::Record(vec![Value::Bool(false),Value::List(vec![
+            Value::Record(vec![Value::I64(-1),Value::Text("é".into())])
+        ]),Value::Record(vec![])]);
+        let (b,_) = encode_typed(&v,&shape,limits()).unwrap();
+        assert_eq!(b,[0x83,0xf4,0x81,0x82,0x20,0x62,0xc3,0xa9,0x80]);
+        assert_eq!(decode_typed(&b,limits(),&shape).unwrap().0,v);
+        assert_eq!(decode_typed(&b,Limits{depth:2,..limits()},&shape),Err(Reject::Budget));
+        assert_eq!(decode_typed(&[0x80],limits(),&Shape::Record(&[])).unwrap().0,Value::Record(vec![]));
+        assert_eq!(encode_typed(&Value::Record(vec![]),&Shape::Record(&[]),limits()).unwrap().0,[0x80]);
     }
     #[test] fn bounded_mutation_smoke() {
         let mut state=0x12345678u32;
