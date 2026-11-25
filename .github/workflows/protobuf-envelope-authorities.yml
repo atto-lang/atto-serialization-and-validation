@@ -1,0 +1,92 @@
+name: Protobuf diagnostic envelope authorities (host only)
+on:
+  pull_request:
+    paths: ['contracts/protobuf/**','wit/protobuf-wire.wit','tests/protobuf_envelope_contract.rs','.github/workflows/protobuf-envelope-authorities.yml','Cargo.lock']
+  push:
+    branches: [main]
+    paths: ['contracts/protobuf/**','wit/protobuf-wire.wit','tests/protobuf_envelope_contract.rs','.github/workflows/protobuf-envelope-authorities.yml','Cargo.lock']
+permissions:
+  contents: read
+jobs:
+  authored-and-wit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Execute actual Rust schema fixtures
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal
+          cargo +1.88.0 test --locked --test protobuf_envelope_contract
+      - name: Install pinned WIT parser and test syntax roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/wasm-tools.tar.gz"
+          curl --proto '=https' --tlsv1.2 --fail --location --silent --show-error --retry 2 --max-time 90 https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o "$archive"
+          printf '%s  %s\n' '655b8df67d54c3ef9b52fc237c4e94bbfbb5f5f43825245cb0940a7002a9ed65' "$archive" | sha256sum --check --status
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+          bin="$(find "$RUNNER_TEMP" -type f -name wasm-tools -print -quit)"
+          test -x "$bin"
+          "$bin" component wit wit/protobuf-wire.wit --json > "$RUNNER_TEMP/wit.json"
+          "$bin" component wit wit/protobuf-wire.wit --wasm -o "$RUNNER_TEMP/wit.wasm"
+          "$bin" validate "$RUNNER_TEMP/wit.wasm"
+          "$bin" component wit "$RUNNER_TEMP/wit.wasm" --json > "$RUNNER_TEMP/roundtrip.json"
+          cmp "$RUNNER_TEMP/wit.json" "$RUNNER_TEMP/roundtrip.json"
+          cp wit/protobuf-wire.wit "$RUNNER_TEMP/mutant.wit"
+          printf '\nNOT VALID WIT !!!\n' >> "$RUNNER_TEMP/mutant.wit"
+          if "$bin" component wit "$RUNNER_TEMP/mutant.wit" --json; then exit 1; fi
+  dual-authority:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.18.0
+      - name: Independently compare TypeSpec and JSON Schema
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/protobuf/main.tsp
+          schema: contracts/protobuf/authored.schema.json
+          instances: contracts/protobuf/instances
+          report: protobuf-parity.json
+          sarif: protobuf-parity.sarif
+          output_dir: protobuf-generated
+      - name: Require semantic comparison and negative drift
+        run: |
+          node --input-type=module - <<'JS'
+          import {readFileSync,writeFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('protobuf-parity.json'));
+          if(r.status!=='passed'||r.zeroUnexplainedFindings!==true||r.counts?.findings!==0||r.coverage?.differentialInstanceValidation!==true||!(r.differential?.summary?.probesEvaluated>0)||r.differential?.summary?.divergences!==0)throw Error('missing semantic parity');
+          const s=JSON.parse(readFileSync('contracts/protobuf/authored.schema.json'));
+          if(s.$defs.WireField.properties.fieldNumber.maximum!==536870911)throw Error('anchor');
+          s.$defs.WireField.properties.fieldNumber.maximum=536870912;
+          writeFileSync('protobuf-mutant.schema.json',JSON.stringify(s));
+          JS
+      - name: Require drift detection
+        id: negative
+        continue-on-error: true
+        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        with:
+          typespec: contracts/protobuf/main.tsp
+          schema: protobuf-mutant.schema.json
+          instances: contracts/protobuf/instances
+          report: protobuf-mutant-report.json
+          sarif: ''
+          output_dir: protobuf-mutant-generated
+      - name: Reject infrastructure failures as evidence
+        env:
+          MUTANT_OUTCOME: ${{ steps.negative.outcome }}
+        run: |
+          test "$MUTANT_OUTCOME" = failure
+          node --input-type=module - <<'JS'
+          import {readFileSync} from 'node:fs';
+          const r=JSON.parse(readFileSync('protobuf-mutant-report.json'));
+          if(r.status!=='stopped_for_evaluation'||r.zeroUnexplainedFindings!==false||!(r.counts?.findings>0)||!r.findings?.some(f=>f.resolutionState==='unexplained')||r.error)throw Error('semantic drift not proved');
+          JS
+          echo 'GUEST_CONFORMANCE=NOT_EXECUTED'

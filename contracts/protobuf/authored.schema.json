@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oreslang.dev/schemas/protobuf-wire-envelope-v1.schema.json",
+  "$defs": {
+    "WireField": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WireField",
+      "type": "object",
+      "properties": {
+        "fieldNumber": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 536870911
+        },
+        "wireType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            5
+          ]
+        },
+        "payload": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          }
+        }
+      },
+      "required": [
+        "fieldNumber",
+        "wireType",
+        "payload"
+      ],
+      "unevaluatedProperties": false
+    },
+    "WireMessage": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "$id": "WireMessage",
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "WireField"
+          }
+        }
+      },
+      "required": [
+        "fields"
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
