@@ -133,6 +133,27 @@ jobs:
           report: protobuf-parity.json
           sarif: protobuf-parity.sarif
           output_dir: protobuf-generated
+      - name: Inspect only generated wireType diagnostic (not a receipt)
+        if: failure()
+        run: |
+          node --input-type=module - <<'JS'
+          import {readdirSync,readFileSync,existsSync} from 'node:fs';
+          import {join} from 'node:path';
+          function walk(dir) {
+            if (!existsSync(dir)) return;
+            for (const e of readdirSync(dir,{withFileTypes:true})) {
+              const p=join(dir,e.name);
+              if(e.isDirectory()) walk(p);
+              else if(e.isFile() && p.endsWith('.json')) {
+                const j=JSON.parse(readFileSync(p,'utf8'));
+                for(const x of [j,...Object.values(j.$defs||{}),...Object.values(j.definitions||{})]) {
+                  if(x.properties?.wireType) console.log('GENERATED_WIRE_TYPE='+JSON.stringify(x.properties.wireType));
+                }
+              }
+            }
+          }
+          walk('protobuf-generated');
+          JS
       - name: Retain failed schema comparison diagnostics (not a receipt)
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
