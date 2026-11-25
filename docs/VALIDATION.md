@@ -102,9 +102,10 @@ binary/extension payloads fail closed with a payload-free invalid_value_tree
 report. Nested text-object and general-map duplicate keys are denied. General-map
 key hashing and equality run only after the entire active graph passes
 structural validation. A single 1,000,000-credit logical meter and 16,384
-candidate ceiling span all general maps; incomplete hashes or comparisons
-deny admission. The metered unique-array path uses a separate per-array
-budget. This does not validate inactive slots, meter every schema lookup
+candidate ceiling span all general maps and all unique-array rules in
+one validation operation; incomplete hashes or comparisons deny admission.
+Conservative uniqueness estimates also accumulate across fields. Resource
+refusals stop field traversal even with fail_fast disabled. This does not validate inactive slots, meter every schema lookup
 or prove physical heap bounds, ownership or metadata authenticity. Native
 tests remain required; exact cumulative structural-byte boundary tests
 are pending.
