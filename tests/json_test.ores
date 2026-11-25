@@ -1,7 +1,7 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
-import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
+import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, value_array, int_to_decimal_bytes from '../src/core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
@@ -23,6 +23,15 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  val List<Value> nested_graph = new List<Value>();
+  nested_graph.add(value_int(7));
+  require_true(encode(value_array(nested_graph), new EncodeOptions(0,64)).is_err(),
+    "JSON writer rejects child beyond depth");
+  val List<Value> legal_graph = new List<Value>();
+  legal_graph.add(value_int(7));
+  require_true(!encode(value_array(legal_graph), new EncodeOptions(1,64)).is_err(),
+    "JSON writer accepts legal depth control");
+
   // Regression for three-way merge corruption in decimal integer emission.
   require_true(
     bytes_equal(int_to_decimal_bytes(0), new List<int>(48)),

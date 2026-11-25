@@ -128,8 +128,10 @@ these limits. This is not an identity-preserving graph codec, physical heap
 bound, or complete bound on writer-side collision comparisons; recursive
 hashing and equality in compatibility codec paths remain separate work.
 The numbered Protobuf wire codec is not a dynamic Value encoder.
-Native execution and actual cyclic-reference ownership fixtures remain
-required.
+Native execution remains required. The isolated candidate programs under
+`fixtures/graph-ownership/` exercise direct and mutual cycles and shared
+subgraphs; they are not yet admitted to the default native suite until
+compiler ownership behavior is established.
 
 ## Schema builder ownership and explicit refusal
 

@@ -1,0 +1,25 @@
+import class Value from '../../src/core/value';
+import fnc value_array, value_bytes, encode_graph_shape_status from '../../src/core/value';
+import fnc any_rule, default_validation_options, validate_value_checked from '../../src/validation/validation';
+import fnc require_true from '../../tests/assert';
+
+fnc shared_graph(): Value {
+  val Value leaf = value_bytes(new List<int>(0,255));
+  val List<Value> edges = new List<Value>();
+  // Candidate ownership probe: shared immutable storage or an explicit
+  // ownership denial are distinct outcomes, not evidence of the same thing.
+  edges.add(rt borrow leaf);
+  edges.add(rt borrow leaf);
+  return value_array(edges);
+}
+
+pub fnc main(): void {
+  require_true(encode_graph_shape_status(shared_graph(), 64, 7) == 0,
+    "shared leaf counts twice at exact output lower bound");
+  require_true(encode_graph_shape_status(shared_graph(), 64, 6) == 2,
+    "shared leaf cannot bypass occurrence-based byte charging");
+  require_true(!validate_value_checked(shared_graph(), any_rule(),
+    default_validation_options()).is_err(), "finite shared DAG is admitted");
+  stdio.stdout.println("graph ownership shared-subgraph runtime controls");
+  return;
+}
