@@ -358,35 +358,33 @@ pub fnc decode_actor_message_bounded(
     return Err(new ProtoError("actor_budget", 0, "invalid or oversized actor decode budget"));
   fi
 
-  // Account for the complete input before the validation scan and copies.
-  // 16 logical bytes per wire byte + base 128 + 128 per field. The
-  // preflight uses division before multiplication to avoid overflow.
-  if input.length > (max_logical_bytes - 128) / 16 ||
-     input.length > max_work / 3 then
+  // Input length already has a hard upper bound, so these products cannot
+  // overflow. Do not rely on / to produce an integer field credit.
+  val int wire_bytes = input.length * 16;
+  val int wire_work = input.length * 3;
+  if wire_bytes > max_logical_bytes - 128 || wire_work > max_work then
     return Err(new ProtoError("actor_budget", 0, "actor input allocation or work budget exceeded"));
   fi
-
-  let int remaining = max_logical_bytes - 128 - input.length * 16;
-  let int field_cap = remaining / 128;
-  let int work_cap = max_work - input.length * 3;
-  if field_cap > work_cap then
-    field_cap = work_cap;
-  fi
-  if field_cap > options.max_fields then
-    field_cap = options.max_fields;
-  fi
-
-  // The actual decoder enforces the derived cumulative field cap BEFORE
-  // reading another key or allocating a field. Empty fields consume credit.
-  return decode_message(input, new ProtoDecodeOptions(
-    options.max_input_bytes, field_cap, options.max_length_delimited_bytes
-  ));
+  return decode_message_with_budget(input, options, true,
+    max_logical_bytes - 128 - wire_bytes, max_work - wire_work);
 }
 
 pub fnc decode_message(
   List<int> input,
   ProtoDecodeOptions options
 ): Result<ProtoMessage, ProtoError> {
+  return decode_message_with_budget(input, options, false, 0, 0);
+}
+
+fnc decode_message_with_budget(
+  List<int> input,
+  ProtoDecodeOptions options,
+  bool actor_bounded,
+  int initial_logical_bytes,
+  int initial_work
+): Result<ProtoMessage, ProtoError> {
+  let int logical_remaining = initial_logical_bytes;
+  let int work_remaining = initial_work;
   if !proto_decode_options_valid(options) then
     return Err(new ProtoError("invalid_options", 0, "invalid or unsafe Protobuf decode options"));
   fi
@@ -416,6 +414,16 @@ pub fnc decode_message(
 
     if fields.length >= options.max_fields then
       return Err(new ProtoError("field_limit", cursor.index, "Protobuf message exceeds max_fields"));
+    fi
+
+    // Charge before parsing the next key or allocating its field. The
+    // original option field limit remains independent and unchanged.
+    if actor_bounded then
+      if logical_remaining < 128 || work_remaining < 1 then
+        return Err(new ProtoError("actor_budget", cursor.index, "cumulative actor field budget exhausted"));
+      fi
+      logical_remaining = logical_remaining - 128;
+      work_remaining = work_remaining - 1;
     fi
 
     let VarintRead key = read_varint(cursor);
