@@ -240,3 +240,25 @@ The validator does not mint typed `Valid<T,S>`, dispatch automatically from
 guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
+
+## Bounded graph and uniqueness admission (2026-11-25 candidate)
+
+Both report-only and checked dynamic validation enter the same occurrence-based
+structural preflight; checked wrappers reuse the report result rather than
+scanning the tree twice. Nested malformed values and duplicate object keys
+cannot hide behind any_rule or open schemas. Structural denials return
+invalid_value_tree (including some formerly root-specific errors; review
+compatibility before release). This is a bounded expanded tree, not an identity
+preserving graph codec. Cyclic inputs are refused by depth or occurrence limits;
+shared acyclic subgraphs are charged for every expanded occurrence.
+
+Unique-items now ports the metered primitives from #30. One operation-local
+ValueWorkFuel is shared by all candidate hashes and comparisons, with a separate
+conservative structural cost limit and collision-attempt limit. Incomplete
+hash/equality is a validation error, never a successful hash or false equality.
+Compatibility value_hash and value_deep_equal remain unchanged for existing
+trusted callers; they are not certified untrusted-graph APIs. The meter is not
+a wall-clock quota, and the current code does not mint authoritative Valid<T>.
+Root/schema key lookup fuel, general-map duplicate semantics, true identity-aware
+cycle diagnostics, stable graph snapshots, and cross-backend AOT tests remain gates.
+Native guest execution remains NOT_EXECUTED until exact-head compiler evidence.
