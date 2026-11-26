@@ -180,5 +180,16 @@ pub fnc run_generated_typed_codec_tests(): void {
     58, 52, 50, 44, 34, 120, 34, 58, 48, 125
   ));
   require_true(extra.is_err(), "typed decoder must reject unknown field");
+  let Result<User, ObjectCodecError> duplicate = decode_user(new List<int>(123, 34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34, 58, 34, 65, 108, 101, 120, 34, 44, 34, 97, 103, 101, 34, 58, 52, 50, 44, 34, 97, 103, 101, 34, 58, 52, 51, 125));
+  require_true(duplicate.is_err(), "typed decoder must reject duplicate field");
+
+  let Result<User, ObjectCodecError> trailing = decode_user(new List<int>(123, 34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34, 58, 34, 65, 108, 101, 120, 34, 44, 34, 97, 103, 101, 34, 58, 52, 50, 125, 123, 125));
+  require_true(trailing.is_err(), "typed decoder must reject trailing data");
+
+  let Result<User, ObjectCodecError> overflow = decode_user(new List<int>(123, 34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34, 58, 34, 65, 108, 101, 120, 34, 44, 34, 97, 103, 101, 34, 58, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 56, 125));
+  require_true(overflow.is_err(), "typed decoder must reject signed integer overflow");
+
+  let Result<User, ObjectCodecError> fraction = decode_user(new List<int>(123, 34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34, 58, 34, 65, 108, 101, 120, 34, 44, 34, 97, 103, 101, 34, 58, 52, 50, 46, 53, 125));
+  require_true(fraction.is_err(), "typed decoder must reject fractional integer field");
   return;
 }
