@@ -15,3 +15,5 @@ caller; capture is not an authentication or receipt issuer. GNU timeout
 is not a sandbox for daemonized or process-group-escaping descendants;
 production requires an isolated runner/cgroup. Legacy Python gates remain
 active pending exact-head tests and review. No actual guest evidence.
+
+First exact-head CI compiled both binaries and passed 2 unit methods; the CLI fixture reused the bootstrap alias pathname as a later log case directory. Separate names and remove the bootstrap link after the denial. No production behavior or assertions changed.
