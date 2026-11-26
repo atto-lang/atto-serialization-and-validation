@@ -2,20 +2,20 @@ import class TestCase, TestSuite, TestOptions, TestOutcome, RunSummary from "ore
 import fnc expect_true, expect_false, expect_equal_int, expect_equal_string, run_suite, require_success, fail from "ores.std/testing";
 import fnc utf8_scalar_count from "../src/core/utf8_scalar";
 fnc rejects_overlong_null_encoding(): TestOutcome {
-  return expect_equal_int(utf8_scalar_count(arr[192, 128]), -1,
+  return imports::expect_equal_int(imports::utf8_scalar_count(arr[192, 128]), -1,
     "overlong UTF-8 NUL must be rejected");
 }
 fnc rejects_utf8_surrogate(): TestOutcome {
-  return expect_equal_int(utf8_scalar_count(arr[237, 160, 128]), -1,
+  return imports::expect_equal_int(imports::utf8_scalar_count(arr[237, 160, 128]), -1,
     "UTF-8 encoding of a surrogate scalar must be rejected");
 }
 fnc valid_utf8_four_byte_scalar(): TestOutcome {
-  return expect_equal_int(utf8_scalar_count(arr[240, 159, 152, 128]), 1,
+  return imports::expect_equal_int(imports::utf8_scalar_count(arr[240, 159, 152, 128]), 1,
     "one valid four-byte Unicode code point is one scalar");
 }
 
 fnc rejects_truncated_multibyte_scalar(): TestOutcome {
-  return expect_equal_int(utf8_scalar_count(arr[226, 130]), -1,
+  return imports::expect_equal_int(imports::utf8_scalar_count(arr[226, 130]), -1,
     "incomplete three-byte UTF-8 sequence must fail closed");
 }
 
@@ -27,7 +27,7 @@ pub routine main(): void {
     new TestCase("rejects_truncated_multibyte_scalar", rejects_truncated_multibyte_scalar, false, "")
   ]);
   val TestOptions options = new TestOptions("", false, true);
-  val RunSummary summary = run_suite(rt borrow suite, rt borrow options);
-  require_success(rt borrow summary);
+  val RunSummary summary = imports::run_suite(rt borrow suite, rt borrow options);
+  imports::require_success(rt borrow summary);
   return;
 }
