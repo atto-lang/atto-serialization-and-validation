@@ -94,7 +94,7 @@ jobs:
           python3 -I -S tests/source_free/test_zorde_native_log_admission.py
           python3 -I -S tests/source_free/test_zorde_static_receipt_signer.py
       - name: Create independently compiled TypeSpec witness and source-bound Contract IR
-        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: contracts/zorde/scalars.tsp
           schema: contracts/zorde/scalars.schema.json
@@ -104,7 +104,7 @@ jobs:
           sarif: ''
           output_dir: artifacts/zorde-scalars-witness
       - name: Independently verify IR against current peer authorities and generated witness
-        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@f386c78e44c93309029e186799d926c652cb0d96
         with:
           contract_ir: artifacts/zorde-scalars-contract-ir.json
           report: artifacts/zorde-scalars-parity.json

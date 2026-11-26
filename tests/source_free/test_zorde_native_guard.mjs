@@ -309,8 +309,8 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
 test('source-local TJSV/Contract IR driver refuses unapproved inputs before compiler execution',()=>{
   const gate=resolve('scripts/test-zorde-contract-source-local.sh');
   const source=readFileSync(gate,'utf8');
-  assert.match(source,/a9aa7e0a258a0514b433178842288ab798b0947c/);
-  assert.match(source,/414047074b9358b81e79b5995a1dc4c1c5596a48/);
+  assert.match(source,/f386c78e44c93309029e186799d926c652cb0d96/);
+  assert.match(source,/643ebaf392a0585c18e5ad564e50471f087ae10b/);
   assert.match(source,/source_bound_contract_ir_consumer_verification_executed/);
   assert.match(source,/native_guest_executed':False/);
   assert.match(source,/python3 -I -S - <<'PY'/,'receipt signer must run with assertions enabled despite hostile Python env');
