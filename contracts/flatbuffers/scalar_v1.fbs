@@ -1,0 +1,2 @@
+table ScalarRecord { paid:bool; total:long; count:uint; }
+root_type ScalarRecord;

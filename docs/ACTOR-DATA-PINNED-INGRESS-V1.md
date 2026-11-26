@@ -112,3 +112,7 @@ admission. This intentionally tightens endpoint budget semantics; callers
 with old per-pass configurations must migrate their limits. This is a
 logical per-message cap, not aggregate tenant CPU throttling, physical heap
 accounting, authentication cost, allocator overhead or wall-clock time.
+
+## FlatBuffers scalar-table reconciliation
+
+The #76 restricted scalar-table decoder and schema fixtures are carried into the #86 endpoint stack. Both sequenced and trusted unsequenced entrypoints perform metadata checks, wire reservation, allocation-free preflight, aggregate expansion reservation, exact planned receiver work commitment and owned publication. The cumulative budget is wire copy + twice the planned logical codec work, capped additionally by the FlatBuffers single-pass profile. The decoder returns owned scalar values; no zero-copy borrowing, compiler proof, cryptographic verification, persistent replay, physical allocator quotas or native scheduler integration is implied. The existing fixed-size parser scratch is bounded but its initialization is not separately measured as logical work. The registration digest is trusted rather than compiler-derived. Four endpoint regressions are added; the optional flatc control only provides independent wire evidence when its fixture is supplied. Shape digest reconciliation is handled separately in #93; the benchmark is deferred to a later integration.
