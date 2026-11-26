@@ -22,10 +22,10 @@ pub async fnc run_channel_codec_tests(): void {
   writech msgpack, eof;
 
   val Future<Result<DecodedValue, DecodeError>> msgpack_task =
-    decode_messagepack_from_channel(rt take msgpack, default_decode_options());
+    imports::decode_messagepack_from_channel(rt take msgpack, imports::default_decode_options());
   val Result<DecodedValue, DecodeError> msgpack_result = await msgpack_task;
-  require_true(!msgpack_result.is_err(), "MessagePack channel decode must succeed");
-  require_int(msgpack_result.unwrap().value.array_value.length, 3, "MessagePack channel array length");
+  imports::require_true(!msgpack_result.is_err(), "MessagePack channel decode must succeed");
+  imports::require_int(msgpack_result.unwrap().value.array_value.length, 3, "MessagePack channel array length");
 
   val Channel<Option<List<int>>> cbor = Channel.new<Option<List<int>>>(3);
   writech cbor, Some(new List<int>(24));
@@ -33,10 +33,10 @@ pub async fnc run_channel_codec_tests(): void {
   writech cbor, eof;
 
   val Future<Result<DecodedValue, DecodeError>> cbor_task =
-    decode_cbor_from_channel(rt take cbor, default_decode_options());
+    imports::decode_cbor_from_channel(rt take cbor, imports::default_decode_options());
   val Result<DecodedValue, DecodeError> cbor_result = await cbor_task;
-  require_true(!cbor_result.is_err(), "CBOR channel decode must succeed");
-  require_int(cbor_result.unwrap().value.kind, 2, "CBOR channel integer kind");
+  imports::require_true(!cbor_result.is_err(), "CBOR channel decode must succeed");
+  imports::require_int(cbor_result.unwrap().value.kind, 2, "CBOR channel integer kind");
 
   val Channel<Option<List<int>>> protobuf = Channel.new<Option<List<int>>>(3);
   writech protobuf, Some(new List<int>(8, 150));
@@ -44,21 +44,21 @@ pub async fnc run_channel_codec_tests(): void {
   writech protobuf, eof;
 
   val Future<Result<ProtoMessage, ProtoError>> protobuf_task =
-    decode_protobuf_from_channel(rt take protobuf, default_proto_decode_options());
+    imports::decode_protobuf_from_channel(rt take protobuf, imports::default_proto_decode_options());
   val Result<ProtoMessage, ProtoError> protobuf_result = await protobuf_task;
-  require_true(!protobuf_result.is_err(), "Protobuf channel decode must succeed");
+  imports::require_true(!protobuf_result.is_err(), "Protobuf channel decode must succeed");
   val ProtoMessage proto_payload = protobuf_result.unwrap();
-  require_int(proto_payload.fields.length, 1, "Protobuf channel field count");
-  require_int(proto_payload.fields[0].varint_value, 150, "Protobuf channel varint");
+  imports::require_int(proto_payload.fields.length, 1, "Protobuf channel field count");
+  imports::require_int(proto_payload.fields[0].varint_value, 150, "Protobuf channel varint");
 
   val Channel<Option<List<int>>> invalid = Channel.new<Option<List<int>>>(2);
   writech invalid, Some(new List<int>(256));
   writech invalid, eof;
 
   val Future<Result<DecodedValue, DecodeError>> invalid_task =
-    decode_messagepack_from_channel(rt take invalid, default_decode_options());
+    imports::decode_messagepack_from_channel(rt take invalid, imports::default_decode_options());
   val Result<DecodedValue, DecodeError> invalid_result = await invalid_task;
-  require_true(invalid_result.is_err(), "channel byte validation must reject values outside 0..255");
+  imports::require_true(invalid_result.is_err(), "channel byte validation must reject values outside 0..255");
 
   val DecodeOptions trailing_allowed = new DecodeOptions(
     0, true, 128, 64, 64, 64, 64, 16, 16
@@ -66,27 +66,27 @@ pub async fnc run_channel_codec_tests(): void {
 
   val Channel<Option<List<int>>> unframed_msgpack = Channel.new<Option<List<int>>>(1);
   val Future<Result<DecodedValue, DecodeError>> msgpack_framing_task =
-    decode_messagepack_from_channel(rt take unframed_msgpack, rt borrow trailing_allowed);
+    imports::decode_messagepack_from_channel(rt take unframed_msgpack, rt borrow trailing_allowed);
   val Result<DecodedValue, DecodeError> msgpack_framing = await msgpack_framing_task;
-  require_true(
+  imports::require_true(
     msgpack_framing.is_err(),
     "MessagePack channel decode must reject trailing-data mode without explicit framing"
   );
 
   val Channel<Option<List<int>>> unframed_cbor = Channel.new<Option<List<int>>>(1);
   val Future<Result<DecodedValue, DecodeError>> cbor_framing_task =
-    decode_cbor_from_channel(rt take unframed_cbor, trailing_allowed);
+    imports::decode_cbor_from_channel(rt take unframed_cbor, trailing_allowed);
   val Result<DecodedValue, DecodeError> cbor_framing = await cbor_framing_task;
-  require_true(
+  imports::require_true(
     cbor_framing.is_err(),
     "CBOR channel decode must reject trailing-data mode without explicit framing"
   );
 
   val Channel<Option<List<int>>> oversized_stream = Channel.new<Option<List<int>>>(1);
   val Future<ByteStreamResult> oversized_task =
-    collect_bytes_from_channel(rt take oversized_stream, 268435457);
+    imports::collect_bytes_from_channel(rt take oversized_stream, 268435457);
   val ByteStreamResult oversized = await oversized_task;
-  require_true(!oversized.ok, "generic channel collector must enforce an absolute byte cap");
+  imports::require_true(!oversized.ok, "generic channel collector must enforce an absolute byte cap");
 
   return;
 }

@@ -11,7 +11,7 @@ import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
 // Freshly decoded fixtures ensure no ownership transfer of one nested Value
 // is reused by a subsequent path lookup.
 fnc new_nested_json_root(): Value {
-  let Result<DecodedValue, DecodeError> decoded = decode_default(
+  let Result<DecodedValue, DecodeError> decoded = imports::decode_default(
     new List<int>(
       123, 34, 105, 116, 101, 109, 115, 34, 58, 91,
       123, 34, 109, 101, 116, 97, 34, 58, 91,
@@ -24,13 +24,13 @@ fnc new_nested_json_root(): Value {
 
 pub fnc run_json_tests(): void {
   // Control octets on both sides of the hexadecimal nibble boundary.
-  val Result<List<int>, EncodeError> control_encoded = encode(
-    value_string(new Utf8Text(new List<int>(0, 15, 16, 31))),
-    default_encode_options()
+  val Result<List<int>, EncodeError> control_encoded = imports::encode(
+    imports::value_string(new Utf8Text(new List<int>(0, 15, 16, 31))),
+    imports::default_encode_options()
   );
-  require_true(control_encoded.is_err() == false, "control octets encode");
-  require_true(
-    bytes_equal(control_encoded.unwrap(), new List<int>(
+  imports::require_true(control_encoded.is_err() == false, "control octets encode");
+  imports::require_true(
+    imports::bytes_equal(control_encoded.unwrap(), new List<int>(
       34, 92, 117, 48, 48, 48, 48, 92, 117, 48, 48, 48, 102,
       92, 117, 48, 48, 49, 48, 92, 117, 48, 48, 49, 102, 34
     )),
@@ -38,24 +38,24 @@ pub fnc run_json_tests(): void {
   );
 
   // Regression for three-way merge corruption in decimal integer emission.
-  require_true(
-    bytes_equal(int_to_decimal_bytes(0), new List<int>(48)),
+  imports::require_true(
+    imports::bytes_equal(imports::int_to_decimal_bytes(0), new List<int>(48)),
     "decimal 0 emits exactly one zero"
   );
-  require_true(
-    bytes_equal(int_to_decimal_bytes(-17), new List<int>(45, 49, 55)),
+  imports::require_true(
+    imports::bytes_equal(imports::int_to_decimal_bytes(-17), new List<int>(45, 49, 55)),
     "negative decimal preserves sign and digit order"
   );
-  require_true(
-    bytes_equal(
-      int_to_decimal_bytes(9223372036854775807),
+  imports::require_true(
+    imports::bytes_equal(
+      imports::int_to_decimal_bytes(9223372036854775807),
       new List<int>(57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 55)
     ),
     "signed int64 maximum emits every digit"
   );
-  require_true(
-    bytes_equal(
-      int_to_decimal_bytes(-9223372036854775807 - 1),
+  imports::require_true(
+    imports::bytes_equal(
+      imports::int_to_decimal_bytes(-9223372036854775807 - 1),
       new List<int>(45, 57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 56, 48, 56)
     ),
     "signed int64 minimum does not overflow on absolute value"
@@ -75,22 +75,22 @@ pub fnc run_json_tests(): void {
     125
   );
 
-  val Result<DecodedValue, DecodeError> decoded_result = decode_default(rt borrow input);
-  require_true(decoded_result.is_err() == false, "JSON object should decode");
+  val Result<DecodedValue, DecodeError> decoded_result = imports::decode_default(rt borrow input);
+  imports::require_true(decoded_result.is_err() == false, "JSON object should decode");
 
   val DecodedValue decoded = decoded_result.unwrap();
-  require_int(decoded.value.kind, 6, "JSON root must be object");
-  require_int(decoded.value.object_value.length, 1, "JSON object must have one field");
-  require_int(decoded.value.object_value[0].value.kind, 5, "x must decode as array");
-  require_int(decoded.value.object_value[0].value.array_value.length, 3, "x array length");
+  imports::require_int(decoded.value.kind, 6, "JSON root must be object");
+  imports::require_int(decoded.value.object_value.length, 1, "JSON object must have one field");
+  imports::require_int(decoded.value.object_value[0].value.kind, 5, "x must decode as array");
+  imports::require_int(decoded.value.object_value[0].value.array_value.length, 3, "x array length");
 
-  val Result<List<int>, EncodeError> encoded_result = encode(
+  val Result<List<int>, EncodeError> encoded_result = imports::encode(
     decoded.value,
-    default_encode_options()
+    imports::default_encode_options()
   );
-  require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
-  require_true(
-    bytes_equal(
+  imports::require_true(encoded_result.is_err() == false, "decoded JSON should re-encode");
+  imports::require_true(
+    imports::bytes_equal(
       encoded_result.unwrap(),
       new List<int>(123, 34, 120, 34, 58, 91, 49, 44,
         116, 114, 117, 101, 44, 110, 117, 108, 108, 93, 125)
@@ -105,140 +105,140 @@ pub fnc run_json_tests(): void {
     34, 120, 34, 58, 50,
     125
   );
-  val Result<DecodedValue, DecodeError> duplicate_result = decode_default(rt borrow duplicate);
-  require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
+  val Result<DecodedValue, DecodeError> duplicate_result = imports::decode_default(rt borrow duplicate);
+  imports::require_true(duplicate_result.is_err(), "duplicate JSON keys must reject by default");
 
   val DecodeOptions duplicate_first = new DecodeOptions(
     1, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> first_wins = decode(rt borrow duplicate, duplicate_first);
-  require_true(!first_wins.is_err(), "JSON first-wins duplicate policy must decode");
+  val Result<DecodedValue, DecodeError> first_wins = imports::decode(rt borrow duplicate, duplicate_first);
+  imports::require_true(!first_wins.is_err(), "JSON first-wins duplicate policy must decode");
   val DecodedValue first_value = first_wins.unwrap();
-  require_int(first_value.value.object_value.length, 1, "JSON first-wins must keep one member");
-  require_int(first_value.value.object_value[0].value.number_lexeme[0], 49, "JSON first-wins must preserve first value");
+  imports::require_int(first_value.value.object_value.length, 1, "JSON first-wins must keep one member");
+  imports::require_int(first_value.value.object_value[0].value.number_lexeme[0], 49, "JSON first-wins must preserve first value");
 
   val DecodeOptions duplicate_last = new DecodeOptions(
     2, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> last_wins = decode(rt borrow duplicate, duplicate_last);
-  require_true(!last_wins.is_err(), "JSON last-wins duplicate policy must decode");
+  val Result<DecodedValue, DecodeError> last_wins = imports::decode(rt borrow duplicate, duplicate_last);
+  imports::require_true(!last_wins.is_err(), "JSON last-wins duplicate policy must decode");
   val DecodedValue last_value = last_wins.unwrap();
-  require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
-  require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
+  imports::require_int(last_value.value.object_value.length, 1, "JSON last-wins must keep one member");
+  imports::require_int(last_value.value.object_value[0].value.number_lexeme[0], 50, "JSON last-wins must preserve last value");
 
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(default_decode_options());
+  let JsonIncrementalDecoder decoder = imports::new_incremental_decoder(imports::default_decode_options());
   val DecodeStep first = decoder.feed(new List<int>(123, 34, 120));
-  require_int(first.status, 0, "partial JSON must request more input");
+  imports::require_int(first.status, 0, "partial JSON must request more input");
 
   val DecodeStep second = decoder.feed(
     new List<int>(34, 58, 49, 125)
   );
-  require_int(second.status, 1, "completed incremental JSON must yield a value");
-  require_int(second.value.kind, 6, "incremental JSON root kind");
+  imports::require_int(second.status, 1, "completed incremental JSON must yield a value");
+  imports::require_int(second.value.kind, 6, "incremental JSON root kind");
 
-  let JsonIncrementalDecoder number_decoder = new_incremental_decoder(default_decode_options());
+  let JsonIncrementalDecoder number_decoder = imports::new_incremental_decoder(imports::default_decode_options());
   val DecodeStep number_partial = number_decoder.feed(new List<int>(49));
-  require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
+  imports::require_int(number_partial.status, 0, "chunk-terminal JSON number must wait for finish or a delimiter");
 
   val DecodeStep number_finished = number_decoder.finish();
-  require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
+  imports::require_int(number_finished.status, 1, "finish must publish a complete terminal JSON number");
 
-  val JsonIncrementalDecoder bad_utf8_decoder = new_incremental_decoder(default_decode_options());
+  val JsonIncrementalDecoder bad_utf8_decoder = imports::new_incremental_decoder(imports::default_decode_options());
   val DecodeStep bad_utf8 = bad_utf8_decoder.feed(
     new List<int>(34, 226, 40)
   );
-  require_int(
+  imports::require_int(
     bad_utf8.status,
     2,
     "invalid UTF-8 continuation must fail immediately even at a chunk boundary"
   );
 
-  require_true(
-    utf8_is_valid(new List<int>(240, 159, 152, 128)),
+  imports::require_true(
+    imports::utf8_is_valid(new List<int>(240, 159, 152, 128)),
     "valid four-byte UTF-8 scalar must be accepted"
   );
-  require_true(
-    !utf8_is_valid(new List<int>(192, 128)),
+  imports::require_true(
+    !imports::utf8_is_valid(new List<int>(192, 128)),
     "overlong UTF-8 must be rejected"
   );
-  require_int(
-    utf8_codepoint_count(new List<int>(65, 240, 159, 152, 128)),
+  imports::require_int(
+    imports::utf8_codepoint_count(new List<int>(65, 240, 159, 152, 128)),
     2,
     "UTF-8 scan must count ASCII and multibyte scalar values once"
   );
-  require_int(
-    utf8_codepoint_count(new List<int>(237, 160, 128)),
+  imports::require_int(
+    imports::utf8_codepoint_count(new List<int>(237, 160, 128)),
     -1,
     "UTF-8 scan must reject a surrogate encoding"
   );
-  require_true(
-    !utf8_is_valid(new List<int>(244, 144, 128, 128)),
+  imports::require_true(
+    !imports::utf8_is_valid(new List<int>(244, 144, 128, 128)),
     "UTF-8 scan must reject codepoints above U+10FFFF"
   );
-  require_true(
-    !utf8_is_valid(new List<int>(240, 159, 152)),
+  imports::require_true(
+    !imports::utf8_is_valid(new List<int>(240, 159, 152)),
     "UTF-8 scan must reject truncated four-byte sequences"
   );
 
   val DecodeOptions shallow = new DecodeOptions(
     0, false, 1, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> too_deep = decode(
+  val Result<DecodedValue, DecodeError> too_deep = imports::decode(
     new List<int>(91, 91, 48, 93, 93),
     shallow
   );
-  require_true(too_deep.is_err(), "JSON max_depth must reject before unbounded recursion");
+  imports::require_true(too_deep.is_err(), "JSON max_depth must reject before unbounded recursion");
 
   val DecodeOptions tiny_input = new DecodeOptions(
     0, false, 128, 1, 16, 16, 16, 16, 16
   );
-  val Result<DecodedValue, DecodeError> input_limited = decode(
+  val Result<DecodedValue, DecodeError> input_limited = imports::decode(
     new List<int>(91, 48, 93),
     tiny_input
   );
-  require_true(input_limited.is_err(), "JSON max_input_bytes must fail closed");
+  imports::require_true(input_limited.is_err(), "JSON max_input_bytes must fail closed");
 
   val DecodeOptions one_number_byte = new DecodeOptions(
     0, false, 128, 64, 64, 64, 1, 16, 16
   );
-  val Result<DecodedValue, DecodeError> number_exact = decode(
+  val Result<DecodedValue, DecodeError> number_exact = imports::decode(
     new List<int>(49),
     rt borrow one_number_byte
   );
-  require_true(!number_exact.is_err(), "JSON number at max_number_bytes must succeed");
+  imports::require_true(!number_exact.is_err(), "JSON number at max_number_bytes must succeed");
 
-  val Result<DecodedValue, DecodeError> number_over = decode(
+  val Result<DecodedValue, DecodeError> number_over = imports::decode(
     new List<int>(49, 50),
     one_number_byte
   );
-  require_true(number_over.is_err(), "JSON number over max_number_bytes must reject before growth");
+  imports::require_true(number_over.is_err(), "JSON number over max_number_bytes must reject before growth");
 
   val DecodeOptions one_string_byte = new DecodeOptions(
     0, false, 128, 64, 1, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> string_exact = decode(
+  val Result<DecodedValue, DecodeError> string_exact = imports::decode(
     new List<int>(34, 97, 34),
     rt borrow one_string_byte
   );
-  require_true(!string_exact.is_err(), "JSON string at max_string_bytes must succeed");
+  imports::require_true(!string_exact.is_err(), "JSON string at max_string_bytes must succeed");
 
-  val Result<DecodedValue, DecodeError> utf8_over = decode(
+  val Result<DecodedValue, DecodeError> utf8_over = imports::decode(
     new List<int>(34, 195, 169, 34),
     rt borrow one_string_byte
   );
-  require_true(utf8_over.is_err(), "JSON multibyte UTF-8 must preflight max_string_bytes");
+  imports::require_true(utf8_over.is_err(), "JSON multibyte UTF-8 must preflight max_string_bytes");
 
-  val Result<DecodedValue, DecodeError> escaped_utf8_over = decode(
+  val Result<DecodedValue, DecodeError> escaped_utf8_over = imports::decode(
     new List<int>(34, 92, 117, 48, 48, 101, 57, 34),
     one_string_byte
   );
-  require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
+  imports::require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
 
   // Native UTF-8 boundary cases independent of the JSON decoder.
-  require_true(!utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
-  require_int(utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
-  require_int(utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
-  require_true(!utf8_is_valid(new List<int>(255)), "0xFF is not a valid Unicode lead byte");
-  require_int(utf8_codepoint_count(new List<int>(65, 66, 67)), 3, "three ASCII code points");
+  imports::require_true(!imports::utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
+  imports::require_int(imports::utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
+  imports::require_int(imports::utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
+  imports::require_true(!imports::utf8_is_valid(new List<int>(255)), "0xFF is not a valid Unicode lead byte");
+  imports::require_int(imports::utf8_codepoint_count(new List<int>(65, 66, 67)), 3, "three ASCII code points");
   return;
 }

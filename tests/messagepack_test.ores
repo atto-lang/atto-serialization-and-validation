@@ -12,173 +12,173 @@ pub fnc run_messagepack_tests(): void {
   val List<WireMember> user_members = new List<WireMember>();
   user_members.add(new WireMember(
     new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
-    value_string(new Utf8Text(new List<int>(65, 108, 101, 120)))
+    imports::value_string(new Utf8Text(new List<int>(65, 108, 101, 120)))
   ));
-  user_members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(42)));
-  val Value user_wire = value_object(user_members);
+  user_members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), imports::value_int(42)));
+  val Value user_wire = imports::value_object(user_members);
   val List<int> user_golden = new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42);
-  val Result<List<int>, EncodeError> user_encoded = encode(rt borrow user_wire, default_encode_options());
-  require_true(!user_encoded.is_err(), "User MessagePack object must encode");
+  val Result<List<int>, EncodeError> user_encoded = imports::encode(rt borrow user_wire, imports::default_encode_options());
+  imports::require_true(!user_encoded.is_err(), "User MessagePack object must encode");
   val List<int> user_bytes = user_encoded.unwrap();
-  require_int(user_bytes.length, user_golden.length, "User MessagePack golden length");
+  imports::require_int(user_bytes.length, user_golden.length, "User MessagePack golden length");
   let int user_index = 0;
   loop do
     if user_index >= user_golden.length then
       break;
     fi
-    require_int(user_bytes[user_index], user_golden[user_index], "User MessagePack golden byte");
+    imports::require_int(user_bytes[user_index], user_golden[user_index], "User MessagePack golden byte");
     user_index = user_index + 1;
   done
-  val Result<DecodedValue, DecodeError> user_decoded = decode(user_bytes, default_decode_options());
-  require_true(!user_decoded.is_err(), "User MessagePack golden must decode");
+  val Result<DecodedValue, DecodeError> user_decoded = imports::decode(user_bytes, imports::default_decode_options());
+  imports::require_true(!user_decoded.is_err(), "User MessagePack golden must decode");
   val DecodedValue user_value = user_decoded.unwrap();
-  require_int(user_value.consumed, user_golden.length, "User MessagePack full frame");
-  require_true(value_deep_equal(user_wire, user_value.value), "User MessagePack exact logical roundtrip");
+  imports::require_int(user_value.consumed, user_golden.length, "User MessagePack full frame");
+  imports::require_true(imports::value_deep_equal(user_wire, user_value.value), "User MessagePack exact logical roundtrip");
 
-  val Result<DecodedValue, DecodeError> user_duplicate = decode(
+  val Result<DecodedValue, DecodeError> user_duplicate = imports::decode(
     new List<int>(131, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42, 163, 97, 103, 101, 43),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(user_duplicate.is_err(), "User MessagePack duplicate age must reject");
-  val Result<DecodedValue, DecodeError> user_trailing = decode(
+  imports::require_true(user_duplicate.is_err(), "User MessagePack duplicate age must reject");
+  val Result<DecodedValue, DecodeError> user_trailing = imports::decode(
     new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42, 0),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(user_trailing.is_err(), "User MessagePack suffix must reject");
-  val Result<DecodedValue, DecodeError> user_truncated = decode(
+  imports::require_true(user_trailing.is_err(), "User MessagePack suffix must reject");
+  val Result<DecodedValue, DecodeError> user_truncated = imports::decode(
     new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(user_truncated.is_err(), "User MessagePack truncated field must reject");
+  imports::require_true(user_truncated.is_err(), "User MessagePack truncated field must reject");
 
 
   val List<Value> values = new List<Value>();
-  values.add(value_int(7));
-  values.add(value_bool(true));
+  values.add(imports::value_int(7));
+  values.add(imports::value_bool(true));
 
   val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
       new Utf8Text(new List<int>(120)),
-      value_array(values)
+      imports::value_array(values)
     )
   );
 
-  val Value source = value_object(members);
+  val Value source = imports::value_object(members);
 
-  val Result<List<int>, EncodeError> encoded = encode(
+  val Result<List<int>, EncodeError> encoded = imports::encode(
     rt borrow source,
-    default_encode_options()
+    imports::default_encode_options()
   );
-  require_true(encoded.is_err() == false, "MessagePack object must encode");
+  imports::require_true(encoded.is_err() == false, "MessagePack object must encode");
 
-  val Result<DecodedValue, DecodeError> decoded = decode(
+  val Result<DecodedValue, DecodeError> decoded = imports::decode(
     encoded.unwrap(),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(decoded.is_err() == false, "MessagePack object must decode");
-  require_true(
-    value_deep_equal(source, decoded.unwrap().value),
+  imports::require_true(decoded.is_err() == false, "MessagePack object must decode");
+  imports::require_true(
+    imports::value_deep_equal(source, decoded.unwrap().value),
     "MessagePack dynamic value must round-trip without consuming source"
   );
 
   // [1, 2, 3] using fixarray/fixints.
-  val Result<DecodedValue, DecodeError> fixed = decode(
+  val Result<DecodedValue, DecodeError> fixed = imports::decode(
     new List<int>(147, 1, 2, 3),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(fixed.is_err() == false, "MessagePack fixarray should decode");
-  require_int(fixed.unwrap().value.array_value.length, 3, "MessagePack fixarray length");
+  imports::require_true(fixed.is_err() == false, "MessagePack fixarray should decode");
+  imports::require_int(fixed.unwrap().value.array_value.length, 3, "MessagePack fixarray length");
 
   // { 1: 2 } is a general MessagePack map, not a JSON-shaped object.
-  val Result<DecodedValue, DecodeError> general_map = decode(
+  val Result<DecodedValue, DecodeError> general_map = imports::decode(
     new List<int>(129, 1, 2),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(general_map.is_err() == false, "MessagePack integer-key map must decode");
+  imports::require_true(general_map.is_err() == false, "MessagePack integer-key map must decode");
   val DecodedValue general = general_map.unwrap();
-  require_int(general.value.kind, 8, "integer-key MessagePack map kind");
-  require_int(general.value.map_value.length, 1, "integer-key MessagePack map size");
+  imports::require_int(general.value.kind, 8, "integer-key MessagePack map kind");
+  imports::require_int(general.value.map_value.length, 1, "integer-key MessagePack map size");
 
-  val Result<List<int>, EncodeError> general_map_encoded = encode(
+  val Result<List<int>, EncodeError> general_map_encoded = imports::encode(
     general.value,
-    default_encode_options()
+    imports::default_encode_options()
   );
-  require_true(general_map_encoded.is_err() == false, "MessagePack general map must re-encode");
-  require_int(general_map_encoded.unwrap()[0], 129, "MessagePack general map header");
+  imports::require_true(general_map_encoded.is_err() == false, "MessagePack general map must re-encode");
+  imports::require_int(general_map_encoded.unwrap()[0], 129, "MessagePack general map header");
 
   // fixmap(2): { 1: 2, 1: 3 }
   val List<int> duplicate_map = new List<int>(130, 1, 2, 1, 3);
-  val Result<DecodedValue, DecodeError> duplicate_reject = decode(
+  val Result<DecodedValue, DecodeError> duplicate_reject = imports::decode(
     rt borrow duplicate_map,
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(duplicate_reject.is_err(), "MessagePack duplicate general-map keys must reject by default");
+  imports::require_true(duplicate_reject.is_err(), "MessagePack duplicate general-map keys must reject by default");
 
   val DecodeOptions duplicate_first = new DecodeOptions(
     1, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> first_wins = decode(rt borrow duplicate_map, duplicate_first);
-  require_true(!first_wins.is_err(), "MessagePack first-wins duplicate policy must decode");
+  val Result<DecodedValue, DecodeError> first_wins = imports::decode(rt borrow duplicate_map, duplicate_first);
+  imports::require_true(!first_wins.is_err(), "MessagePack first-wins duplicate policy must decode");
   val DecodedValue first_value = first_wins.unwrap();
-  require_int(first_value.value.map_value.length, 1, "MessagePack first-wins must keep one entry");
-  require_int(first_value.value.map_value[0].value.number_lexeme[0], 50, "MessagePack first-wins must preserve first value");
+  imports::require_int(first_value.value.map_value.length, 1, "MessagePack first-wins must keep one entry");
+  imports::require_int(first_value.value.map_value[0].value.number_lexeme[0], 50, "MessagePack first-wins must preserve first value");
 
   val DecodeOptions duplicate_last = new DecodeOptions(
     2, false, 128, 64, 64, 64, 64, 16, 16
   );
-  val Result<DecodedValue, DecodeError> last_wins = decode(rt borrow duplicate_map, duplicate_last);
-  require_true(!last_wins.is_err(), "MessagePack last-wins duplicate policy must decode");
+  val Result<DecodedValue, DecodeError> last_wins = imports::decode(rt borrow duplicate_map, duplicate_last);
+  imports::require_true(!last_wins.is_err(), "MessagePack last-wins duplicate policy must decode");
   val DecodedValue last_value = last_wins.unwrap();
-  require_int(last_value.value.map_value.length, 1, "MessagePack last-wins must keep one entry");
-  require_int(last_value.value.map_value[0].value.number_lexeme[0], 51, "MessagePack last-wins must preserve last value");
+  imports::require_int(last_value.value.map_value.length, 1, "MessagePack last-wins must keep one entry");
+  imports::require_int(last_value.value.map_value[0].value.number_lexeme[0], 51, "MessagePack last-wins must preserve last value");
 
   val int min_int = -9223372036854775807 - 1;
   val int max_int = 9223372036854775807;
 
-  val Result<List<int>, EncodeError> min_encoded = encode(
-    value_int(min_int),
-    default_encode_options()
+  val Result<List<int>, EncodeError> min_encoded = imports::encode(
+    imports::value_int(min_int),
+    imports::default_encode_options()
   );
-  require_true(min_encoded.is_err() == false, "MessagePack int64 minimum must encode");
+  imports::require_true(min_encoded.is_err() == false, "MessagePack int64 minimum must encode");
 
-  val Result<DecodedValue, DecodeError> min_decoded = decode(
+  val Result<DecodedValue, DecodeError> min_decoded = imports::decode(
     min_encoded.unwrap(),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(min_decoded.is_err() == false, "MessagePack int64 minimum must decode");
-  require_true(
-    value_deep_equal(value_int(min_int), min_decoded.unwrap().value),
+  imports::require_true(min_decoded.is_err() == false, "MessagePack int64 minimum must decode");
+  imports::require_true(
+    imports::value_deep_equal(imports::value_int(min_int), min_decoded.unwrap().value),
     "MessagePack int64 minimum must round-trip"
   );
 
-  val Result<List<int>, EncodeError> max_encoded = encode(
-    value_int(max_int),
-    default_encode_options()
+  val Result<List<int>, EncodeError> max_encoded = imports::encode(
+    imports::value_int(max_int),
+    imports::default_encode_options()
   );
-  require_true(max_encoded.is_err() == false, "MessagePack int64 maximum must encode");
+  imports::require_true(max_encoded.is_err() == false, "MessagePack int64 maximum must encode");
 
-  val Result<DecodedValue, DecodeError> max_decoded = decode(
+  val Result<DecodedValue, DecodeError> max_decoded = imports::decode(
     max_encoded.unwrap(),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(max_decoded.is_err() == false, "MessagePack int64 maximum must decode");
-  require_true(
-    value_deep_equal(value_int(max_int), max_decoded.unwrap().value),
+  imports::require_true(max_decoded.is_err() == false, "MessagePack int64 maximum must decode");
+  imports::require_true(
+    imports::value_deep_equal(imports::value_int(max_int), max_decoded.unwrap().value),
     "MessagePack int64 maximum must round-trip"
   );
 
-  val Result<DecodedValue, DecodeError> truncated = decode(
+  val Result<DecodedValue, DecodeError> truncated = imports::decode(
     new List<int>(217, 2, 97),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(truncated.is_err(), "MessagePack truncated str8 must reject");
+  imports::require_true(truncated.is_err(), "MessagePack truncated str8 must reject");
 
-  val Result<DecodedValue, DecodeError> declared_length_bomb = decode(
+  val Result<DecodedValue, DecodeError> declared_length_bomb = imports::decode(
     new List<int>(219, 255, 255, 255, 255),
-    default_decode_options()
+    imports::default_decode_options()
   );
-  require_true(
+  imports::require_true(
     declared_length_bomb.is_err(),
     "MessagePack huge declared string length must reject before allocation"
   );
@@ -186,11 +186,11 @@ pub fnc run_messagepack_tests(): void {
   val DecodeOptions tiny_input = new DecodeOptions(
     0, false, 128, 1, 16, 16, 16, 16, 16
   );
-  val Result<DecodedValue, DecodeError> input_limited = decode(
+  val Result<DecodedValue, DecodeError> input_limited = imports::decode(
     new List<int>(146, 1, 2),
     tiny_input
   );
-  require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
+  imports::require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
 
   return;
 }

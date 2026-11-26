@@ -12,25 +12,25 @@ import fnc decode_json_object from '../src/schema/object_codec';
 pub fnc run_object_codec_tests(): void {
   val List<CodecFieldMeta> fields = new List<CodecFieldMeta>();
   fields.add(
-    codec_field(
+    imports::codec_field(
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 95, 110, 97, 109, 101)),
       new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
       1,
       true,
-      string_rule(1, 120, false, false, false, false)
+      imports::string_rule(1, 120, false, false, false, false)
     )
   );
   fields.add(
-    codec_field(
+    imports::codec_field(
       new Utf8Text(new List<int>(97, 103, 101)),
       new Utf8Text(new List<int>(97, 103, 101)),
       2,
       true,
-      any_rule()
+      imports::any_rule()
     )
   );
 
-  val CodecTypeMeta metadata = codec_type(
+  val CodecTypeMeta metadata = imports::codec_type(
     new Utf8Text(new List<int>(85, 115, 101, 114)),
     fields,
     1
@@ -48,16 +48,16 @@ pub fnc run_object_codec_tests(): void {
     125
   );
 
-  val Result<DecodedObject, ObjectCodecError> decoded = decode_json_object(
+  val Result<DecodedObject, ObjectCodecError> decoded = imports::decode_json_object(
     input,
-    default_decode_options(),
+    imports::default_decode_options(),
     rt borrow metadata,
-    default_validation_options()
+    imports::default_validation_options()
   );
-  require_true(decoded.is_err() == false, "metadata-driven JSON object must decode");
+  imports::require_true(decoded.is_err() == false, "metadata-driven JSON object must decode");
   val DecodedObject object = decoded.unwrap();
-  require_int(object.source_object.object_value.length, 2, "source object field count");
-  require_int(
+  imports::require_int(object.source_object.object_value.length, 2, "source object field count");
+  imports::require_int(
     object.source_object.object_value[0].key.bytes[7],
     95,
     "wire displayName must rewrite to source display_name"
@@ -79,12 +79,12 @@ pub fnc run_object_codec_tests(): void {
     125
   );
 
-  val Result<DecodedObject, ObjectCodecError> rejected = decode_json_object(
+  val Result<DecodedObject, ObjectCodecError> rejected = imports::decode_json_object(
     unknown,
-    default_decode_options(),
+    imports::default_decode_options(),
     rt borrow metadata,
-    default_validation_options()
+    imports::default_validation_options()
   );
-  require_true(rejected.is_err(), "reject-unknown metadata must reject unknown JSON fields");
+  imports::require_true(rejected.is_err(), "reject-unknown metadata must reject unknown JSON fields");
   return;
 }
