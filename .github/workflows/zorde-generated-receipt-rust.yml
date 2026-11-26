@@ -21,6 +21,8 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
           git rev-parse 'HEAD^{tree}'
+          bash scripts/test-zorde-isolated-rust.sh
+          bash scripts/test-verify-zorde-checkout-rust.sh
           cargo +1.88.0 test --locked --test native_receipt --test native_input_manifest --verbose
           cargo +1.88.0 test --locked --lib native_receipt:: --verbose
           cargo +1.88.0 build --locked --bin zorde-generated-receipt

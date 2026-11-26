@@ -188,6 +188,7 @@ mod tests{
 }
 
 // Stream executable bytes without materializing them in memory.
+#[allow(dead_code)] // Used by the combined receipt library, not the standalone CLI.
 pub(crate) fn executable_digest(p:&Path)->Result<String>{
     let mut f=leaf(p)?;let before=io(f.metadata())?;
     need(before.mode()&0o111!=0&&before.len()>0&&before.len()<=512*1024*1024,"invalid executable size or mode")?;
@@ -204,6 +205,7 @@ pub(crate) fn executable_digest(p:&Path)->Result<String>{
     need(hex(h,64)&&stamp(&io(f.metadata())?)==stamp(&before)&&stamp(&io(leaf(p)?.metadata())?)==stamp(&before),"executable changed or malformed digest")?;
     Ok(h.into())
 }
+#[allow(dead_code)] // Used by the combined receipt library, not the standalone CLI.
 pub(crate) fn private_output(directory:&Path,name:&str,bytes:&[u8])->Result<()>{
     need(name=="zorde-generated-smoke-native-receipt.json","unexpected receipt name")?;
     let d=dir(directory)?;let before=io(d.metadata())?;

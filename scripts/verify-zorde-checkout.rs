@@ -154,6 +154,7 @@ mod tests{
 // Generated artifacts are not tracked. This mode verifies all tracked
 // bytes, not the complete physical inventory; the native harness must
 // separately admit generated/untracked files.
+#[allow(dead_code)] // Used by the combined receipt library, not the standalone CLI.
 pub(crate) fn verify_tracked(root:&Path,commit:&str,tree:&str)->Result<usize>{
     require(io(fs::symlink_metadata(root.join(".git")))?.is_dir(),"Git metadata must be a real directory")?;
     identity(root,commit,tree)?;
