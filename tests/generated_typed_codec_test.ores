@@ -101,6 +101,19 @@ fnc user_json_bytes(): List<int> {
   );
 }
 
+fnc require_user_codec_bytes(List<int> actual, List<int> expected): void {
+  require_int(actual.length, expected.length, "generated typed JSON byte count");
+  let int i = 0;
+  loop do
+    if i >= expected.length then
+      break;
+    fi
+    require_int(actual[i], expected[i], "generated typed JSON byte mismatch");
+    i = i + 1;
+  done
+  return;
+}
+
 pub fnc run_generated_typed_codec_tests(): void {
   val List<int> input = user_json_bytes();
   val int expected_length = input.length;
@@ -109,6 +122,7 @@ pub fnc run_generated_typed_codec_tests(): void {
   require_true(typed.is_err() == false, "generated typed decoder must succeed");
   val User typed_user = typed.unwrap();
   require_int(typed_user.age, 42, "generated typed decoder age");
+  require_user_codec_bytes(typed_user.display_name.bytes, new List<int>(65, 108, 101, 120));
 
   let Result<DecodedObject, ObjectCodecError> projected = decode_json_object(
     input,
@@ -145,6 +159,26 @@ pub fnc run_generated_typed_codec_tests(): void {
   val User user = new User(new Utf8Text(new List<int>(65, 108, 101, 120)), age.value);
   val Result<List<int>, EncodeError> encoded = encode_user(user);
   require_true(encoded.is_err() == false, "generated typed encoder must succeed");
-  require_int(encoded.unwrap().length, expected_length, "generated typed JSON output length");
+  val List<int> encoded_bytes = encoded.unwrap();
+  require_int(encoded_bytes.length, expected_length, "generated typed JSON output length");
+  require_user_codec_bytes(encoded_bytes, user_json_bytes());
+
+  let Result<User, ObjectCodecError> roundtrip = decode_user(encoded_bytes);
+  require_true(roundtrip.is_err() == false, "typed encode/decode roundtrip must succeed");
+  val User restored = roundtrip.unwrap();
+  require_int(restored.age, 42, "typed roundtrip age");
+  require_user_codec_bytes(restored.display_name.bytes, new List<int>(65, 108, 101, 120));
+
+  // {"age":42} omits the required displayName field.
+  let Result<User, ObjectCodecError> missing = decode_user(new List<int>(123, 34, 97, 103, 101, 34, 58, 52, 50, 125));
+  require_true(missing.is_err(), "typed decoder must reject missing required field");
+
+  // {"displayName":"Alex","age":42,"x":0} violates unknown-field policy 1.
+  let Result<User, ObjectCodecError> extra = decode_user(new List<int>(
+    123, 34, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 34,
+    58, 34, 65, 108, 101, 120, 34, 44, 34, 97, 103, 101, 34,
+    58, 52, 50, 44, 34, 120, 34, 58, 48, 125
+  ));
+  require_true(extra.is_err(), "typed decoder must reject unknown field");
   return;
 }
