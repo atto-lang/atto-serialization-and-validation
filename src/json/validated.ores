@@ -51,7 +51,7 @@ pub fnc decode_and_validate_object(
     ));
   fi
 
-  let DecodeAttempt attempt = decode_attempt(input, decode_options);
+  let DecodeAttempt attempt = imports::decode_attempt(input, decode_options);
 
   if attempt.status != 0 then
     return Err(new JsonPayloadError(0, attempt.error, empty_validation_report()));
@@ -61,13 +61,13 @@ pub fnc decode_and_validate_object(
   // Preserve the consumed-byte count separately before moving the value.
   val Value decoded_payload = attempt.value;
   val int consumed = attempt.consumed;
-  let ValidationReport report = validate_object(
+  let ValidationReport report = imports::validate_object(
     rt borrow decoded_payload,
     schema,
     validation_options
   );
 
-  if !report_is_valid(rt borrow report) then
+  if !imports::report_is_valid(rt borrow report) then
     return Err(new JsonPayloadError(1, empty_decode_error(), report));
   fi
 

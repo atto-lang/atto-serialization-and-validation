@@ -37,7 +37,7 @@ fnc cursor_fail(
     return;
   fi
   cursor.failed = true;
-  cursor.error = decode_error(code, cursor.index, message);
+  cursor.error = imports::decode_error(code, cursor.index, message);
   return;
 }
 
@@ -50,7 +50,7 @@ fnc writer_fail(
     return;
   fi
   writer.failed = true;
-  writer.error = encode_error(code, message);
+  writer.error = imports::encode_error(code, message);
   return;
 }
 
@@ -166,7 +166,7 @@ fnc read_bytes(
     return output;
   fi
 
-  if !byte_range_fits(cursor.input.length, cursor.index, length) then
+  if !imports::byte_range_fits(cursor.input.length, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated CBOR payload");
     return output;
   fi
@@ -189,7 +189,7 @@ fnc map_entry_index(
   Map<int, List<int>> buckets,
   Value key
 ): int {
-  let int hash = value_hash(key);
+  let int hash = imports::value_hash(key);
 
   if !buckets.contains(hash) then
     return -1;
@@ -197,7 +197,7 @@ fnc map_entry_index(
 
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if value_deep_equal(entries[index].key, key) then
+    if imports::value_deep_equal(entries[index].key, key) then
       return index;
     fi
   done
@@ -210,7 +210,7 @@ fnc remember_map_entry(
   Value key,
   int index
 ): void {
-  let int hash = value_hash(key);
+  let int hash = imports::value_hash(key);
 
   if buckets.contains(hash) then
     val List<int> candidates = buckets.get(hash);
@@ -257,15 +257,15 @@ fnc decode_text(
   );
 
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
-  if !utf8_is_valid(bytes) then
+  if !imports::utf8_is_valid(bytes) then
     cursor_fail(cursor, "invalid_utf8", "CBOR text string contains invalid UTF-8");
-    return value_null();
+    return imports::value_null();
   fi
 
-  return value_string(new Utf8Text(bytes));
+  return imports::value_string(new Utf8Text(bytes));
 }
 
 fnc decode_array(
@@ -277,7 +277,7 @@ fnc decode_array(
 
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "CBOR array exceeds max_array_entries");
-    return value_array(values);
+    return imports::value_array(values);
   fi
 
   let int i = 0;
@@ -288,14 +288,14 @@ fnc decode_array(
 
     let Value value = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_array(values);
+      return imports::value_array(values);
     fi
 
     values.add(value);
     i = i + 1;
   done
 
-  return value_array(values);
+  return imports::value_array(values);
 }
 
 fnc decode_map(
@@ -309,7 +309,7 @@ fnc decode_map(
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "CBOR map exceeds max_map_entries");
-    return value_map(entries);
+    return imports::value_map(entries);
   fi
 
   let int i = 0;
@@ -320,12 +320,12 @@ fnc decode_map(
 
     let Value key = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_map(entries);
+      return imports::value_map(entries);
     fi
 
     let Value member_value = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_map(entries);
+      return imports::value_map(entries);
     fi
 
     if key.kind != 3 then
@@ -336,7 +336,7 @@ fnc decode_map(
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         cursor_fail(cursor, "duplicate_key", "duplicate CBOR map key");
-        return value_map(entries);
+        return imports::value_map(entries);
       elseif cursor.options.duplicate_key_policy == 2 then
         entries[existing] = new MapEntry(key, member_value);
       fi
@@ -354,10 +354,10 @@ fnc decode_map(
     for const entry of entries do
       members.add(new WireMember(entry.key.string_value, entry.value));
     done
-    return value_object(members);
+    return imports::value_object(members);
   fi
 
-  return value_map(entries);
+  return imports::value_map(entries);
 }
 
 fnc decode_value(
@@ -366,35 +366,35 @@ fnc decode_value(
 ): Value {
   if depth > cursor.options.max_depth then
     cursor_fail(cursor, "depth_limit", "CBOR nesting exceeds max_depth");
-    return value_null();
+    return imports::value_null();
   fi
 
   let int initial = read_u8(cursor);
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
-  let int major = wire_floor_div(initial, 32);
+  let int major = imports::wire_floor_div(initial, 32);
   let int additional = Integer.rem(initial, 32);
 
   if major == 0 then
-    return value_int(read_argument(cursor, additional));
+    return imports::value_int(read_argument(cursor, additional));
   fi
 
   if major == 1 then
     let int argument = read_argument(cursor, additional);
     if cursor.failed then
-      return value_null();
+      return imports::value_null();
     fi
-    return value_int(-1 - argument);
+    return imports::value_int(-1 - argument);
   fi
 
   if major == 2 then
     let int length = read_argument(cursor, additional);
     if cursor.failed then
-      return value_null();
+      return imports::value_null();
     fi
-    return value_bytes(
+    return imports::value_bytes(
       read_bytes(
         cursor,
         length,
@@ -407,7 +407,7 @@ fnc decode_value(
   if major == 3 then
     let int length = read_argument(cursor, additional);
     if cursor.failed then
-      return value_null();
+      return imports::value_null();
     fi
     return decode_text(cursor, length);
   fi
@@ -415,7 +415,7 @@ fnc decode_value(
   if major == 4 then
     let int count = read_argument(cursor, additional);
     if cursor.failed then
-      return value_null();
+      return imports::value_null();
     fi
     return decode_array(cursor, count, depth);
   fi
@@ -423,54 +423,54 @@ fnc decode_value(
   if major == 5 then
     let int count = read_argument(cursor, additional);
     if cursor.failed then
-      return value_null();
+      return imports::value_null();
     fi
     return decode_map(cursor, count, depth);
   fi
 
   if major == 6 then
     cursor_fail(cursor, "unsupported_tag", "CBOR tags require a finalized tagged Value representation");
-    return value_null();
+    return imports::value_null();
   fi
 
   if major == 7 then
     if additional == 20 then
-      return value_bool(false);
+      return imports::value_bool(false);
     fi
     if additional == 21 then
-      return value_bool(true);
+      return imports::value_bool(true);
     fi
     if additional == 22 then
-      return value_null();
+      return imports::value_null();
     fi
 
     if additional == 25 || additional == 26 || additional == 27 then
       cursor_fail(cursor, "unsupported_float", "CBOR floating point requires exact float-bit primitives");
-      return value_null();
+      return imports::value_null();
     fi
 
     cursor_fail(cursor, "unsupported_simple", "unsupported CBOR simple value");
-    return value_null();
+    return imports::value_null();
   fi
 
   cursor_fail(cursor, "invalid_major_type", "invalid CBOR major type");
-  return value_null();
+  return imports::value_null();
 }
 
 pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
-    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+  if !imports::decode_options_valid(options) then
+    return Err(imports::decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
   if input.length > options.max_input_bytes then
-    return Err(decode_error("input_limit", 0, "CBOR input exceeds max_input_bytes"));
+    return Err(imports::decode_error("input_limit", 0, "CBOR input exceeds max_input_bytes"));
   fi
 
-  if !byte_list_valid(input) then
-    return Err(decode_error("invalid_byte", 0, "CBOR input values must all be bytes 0..255"));
+  if !imports::byte_list_valid(input) then
+    return Err(imports::decode_error("invalid_byte", 0, "CBOR input values must all be bytes 0..255"));
   fi
 
   let CborCursor cursor = new CborCursor(
@@ -478,7 +478,7 @@ pub fnc decode(
     options,
     0,
     false,
-    empty_decode_error()
+    imports::empty_decode_error()
   );
 
   let Value value = decode_value(cursor, 0);
@@ -488,7 +488,7 @@ pub fnc decode(
   fi
 
   if !options.allow_trailing_data && cursor.index != input.length then
-    return Err(decode_error("trailing_data", cursor.index, "trailing bytes after CBOR value"));
+    return Err(imports::decode_error("trailing_data", cursor.index, "trailing bytes after CBOR value"));
   fi
 
   return Ok(new DecodedValue(value, cursor.index));
@@ -537,12 +537,12 @@ fnc append_uint_be(
       break;
     fi
 
-    let int byte = wire_floor_div(remaining, divisor);
+    let int byte = imports::wire_floor_div(remaining, divisor);
     append_byte(writer, byte);
     remaining = Integer.rem(remaining, divisor);
 
     if divisor > 1 then
-      divisor = wire_floor_div(divisor, 256);
+      divisor = imports::wire_floor_div(divisor, 256);
     fi
 
     j = j + 1;
@@ -627,7 +627,7 @@ fnc encode_value(
   fi
 
   if value.kind == 2 then
-    let IntParse parsed = parse_int(value);
+    let IntParse parsed = imports::parse_int(value);
     if !parsed.ok then
       writer_fail(
         writer,
@@ -646,7 +646,7 @@ fnc encode_value(
   fi
 
   if value.kind == 3 then
-    if !utf8_is_valid(value.string_value.bytes) then
+    if !imports::utf8_is_valid(value.string_value.bytes) then
       writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 as CBOR text");
       return;
     fi
@@ -675,7 +675,7 @@ fnc encode_value(
   if value.kind == 6 then
     val List<MapEntry> object_entries = new List<MapEntry>();
     for const member of value.object_value do
-      object_entries.add(new MapEntry(value_string(member.key), member.value));
+      object_entries.add(new MapEntry(imports::value_string(member.key), member.value));
     done
     if !map_keys_unique(object_entries) then
       writer_fail(writer, "duplicate_key", "cannot encode CBOR object with duplicate keys");
@@ -684,7 +684,7 @@ fnc encode_value(
 
     append_head(writer, 5, value.object_value.length);
     for const member of value.object_value do
-      if !utf8_is_valid(member.key.bytes) then
+      if !imports::utf8_is_valid(member.key.bytes) then
         writer_fail(writer, "invalid_utf8", "CBOR map key contains invalid UTF-8");
         return;
       fi
@@ -728,8 +728,8 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
-  if !encode_options_valid(options) then
-    return Err(encode_error("invalid_options", "invalid or unsafe encode options"));
+  if !imports::encode_options_valid(options) then
+    return Err(imports::encode_error("invalid_options", "invalid or unsafe encode options"));
   fi
 
   let CborWriter writer = new CborWriter(

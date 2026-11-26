@@ -92,11 +92,11 @@ pub fnc utf8_sequence_length(List<int> bytes, int index): int {
 // Canonical scalar measurement now lives in utf8_scalar.ores so core,
 // Zorde runtime checks and all codecs share one scanner implementation.
 pub fnc utf8_is_valid(List<int> bytes): bool {
-  return utf8_scalar_count(bytes) >= 0;
+  return imports::utf8_scalar_count(bytes) >= 0;
 }
 
 pub fnc utf8_codepoint_count(List<int> bytes): int {
-  return utf8_scalar_count(bytes);
+  return imports::utf8_scalar_count(bytes);
 }
 
 pub fnc utf8_append_codepoint(
@@ -117,21 +117,21 @@ pub fnc utf8_append_codepoint(
   fi
 
   if codepoint <= 2047 then
-    output.add(192 + wire_floor_div(codepoint, 64));
+    output.add(192 + imports::wire_floor_div(codepoint, 64));
     output.add(128 + Integer.rem(codepoint, 64));
     return true;
   fi
 
   if codepoint <= 65535 then
-    output.add(224 + wire_floor_div(codepoint, 4096));
-    output.add(128 + Integer.rem(wire_floor_div(codepoint, 64), 64));
+    output.add(224 + imports::wire_floor_div(codepoint, 4096));
+    output.add(128 + Integer.rem(imports::wire_floor_div(codepoint, 64), 64));
     output.add(128 + Integer.rem(codepoint, 64));
     return true;
   fi
 
-  output.add(240 + wire_floor_div(codepoint, 262144));
-  output.add(128 + Integer.rem(wire_floor_div(codepoint, 4096), 64));
-  output.add(128 + Integer.rem(wire_floor_div(codepoint, 64), 64));
+  output.add(240 + imports::wire_floor_div(codepoint, 262144));
+  output.add(128 + Integer.rem(imports::wire_floor_div(codepoint, 4096), 64));
+  output.add(128 + Integer.rem(imports::wire_floor_div(codepoint, 64), 64));
   output.add(128 + Integer.rem(codepoint, 64));
   return true;
 }

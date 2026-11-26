@@ -37,7 +37,7 @@ fnc cursor_fail(
     return;
   fi
   cursor.failed = true;
-  cursor.error = decode_error(code, cursor.index, message);
+  cursor.error = imports::decode_error(code, cursor.index, message);
   return;
 }
 
@@ -50,7 +50,7 @@ fnc writer_fail(
     return;
   fi
   writer.failed = true;
-  writer.error = encode_error(code, message);
+  writer.error = imports::encode_error(code, message);
   return;
 }
 
@@ -177,7 +177,7 @@ fnc read_bytes(
     return output;
   fi
 
-  if !byte_range_fits(cursor.input.length, cursor.index, length) then
+  if !imports::byte_range_fits(cursor.input.length, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated MessagePack payload");
     return output;
   fi
@@ -200,7 +200,7 @@ fnc map_entry_index(
   Map<int, List<int>> buckets,
   Value key
 ): int {
-  let int hash = value_hash(key);
+  let int hash = imports::value_hash(key);
 
   if !buckets.contains(hash) then
     return -1;
@@ -208,7 +208,7 @@ fnc map_entry_index(
 
   val List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if value_deep_equal(entries[index].key, key) then
+    if imports::value_deep_equal(entries[index].key, key) then
       return index;
     fi
   done
@@ -221,7 +221,7 @@ fnc remember_map_entry(
   Value key,
   int index
 ): void {
-  let int hash = value_hash(key);
+  let int hash = imports::value_hash(key);
 
   if buckets.contains(hash) then
     val List<int> candidates = buckets.get(hash);
@@ -268,15 +268,15 @@ fnc decode_string(
   );
 
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
-  if !utf8_is_valid(bytes) then
+  if !imports::utf8_is_valid(bytes) then
     cursor_fail(cursor, "invalid_utf8", "MessagePack string contains invalid UTF-8");
-    return value_null();
+    return imports::value_null();
   fi
 
-  return value_string(new Utf8Text(bytes));
+  return imports::value_string(new Utf8Text(bytes));
 }
 
 fnc decode_array(
@@ -288,7 +288,7 @@ fnc decode_array(
 
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
-    return value_array(values);
+    return imports::value_array(values);
   fi
 
   let int i = 0;
@@ -299,14 +299,14 @@ fnc decode_array(
 
     let Value value = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_array(values);
+      return imports::value_array(values);
     fi
 
     values.add(value);
     i = i + 1;
   done
 
-  return value_array(values);
+  return imports::value_array(values);
 }
 
 fnc decode_map(
@@ -320,7 +320,7 @@ fnc decode_map(
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
-    return value_map(entries);
+    return imports::value_map(entries);
   fi
 
   let int i = 0;
@@ -331,12 +331,12 @@ fnc decode_map(
 
     let Value key = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_map(entries);
+      return imports::value_map(entries);
     fi
 
     let Value member_value = decode_value(cursor, depth + 1);
     if cursor.failed then
-      return value_map(entries);
+      return imports::value_map(entries);
     fi
 
     if key.kind != 3 then
@@ -347,7 +347,7 @@ fnc decode_map(
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         cursor_fail(cursor, "duplicate_key", "duplicate MessagePack map key");
-        return value_map(entries);
+        return imports::value_map(entries);
       elseif cursor.options.duplicate_key_policy == 2 then
         entries[existing] = new MapEntry(key, member_value);
       fi
@@ -365,10 +365,10 @@ fnc decode_map(
     for const entry of entries do
       members.add(new WireMember(entry.key.string_value, entry.value));
     done
-    return value_object(members);
+    return imports::value_object(members);
   fi
 
-  return value_map(entries);
+  return imports::value_map(entries);
 }
 
 fnc decode_extension(
@@ -377,12 +377,12 @@ fnc decode_extension(
 ): Value {
   if length > cursor.options.max_binary_bytes then
     cursor_fail(cursor, "binary_limit", "MessagePack extension exceeds max_binary_bytes");
-    return value_null();
+    return imports::value_null();
   fi
 
   let int raw_type = read_u8(cursor);
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
   let int extension_type = raw_type >= 128 ? raw_type - 256 : raw_type;
@@ -394,10 +394,10 @@ fnc decode_extension(
   );
 
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
-  return value_extension(extension_type, payload);
+  return imports::value_extension(extension_type, payload);
 }
 
 fnc decode_value(
@@ -406,17 +406,17 @@ fnc decode_value(
 ): Value {
   if depth > cursor.options.max_depth then
     cursor_fail(cursor, "depth_limit", "MessagePack nesting exceeds max_depth");
-    return value_null();
+    return imports::value_null();
   fi
 
   let int marker = read_u8(cursor);
   if cursor.failed then
-    return value_null();
+    return imports::value_null();
   fi
 
   // Positive fixint.
   if marker <= 127 then
-    return value_int(marker);
+    return imports::value_int(marker);
   fi
 
   // Fixmap.
@@ -436,31 +436,31 @@ fnc decode_value(
 
   // Negative fixint.
   if marker >= 224 then
-    return value_int(marker - 256);
+    return imports::value_int(marker - 256);
   fi
 
   if marker == 192 then
-    return value_null();
+    return imports::value_null();
   fi
   if marker == 194 then
-    return value_bool(false);
+    return imports::value_bool(false);
   fi
   if marker == 195 then
-    return value_bool(true);
+    return imports::value_bool(true);
   fi
 
   // Binary.
   if marker == 196 then
     let int length = read_u8(cursor);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    return imports::value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
   if marker == 197 then
     let int length = read_uint_be(cursor, 2);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    return imports::value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
   if marker == 198 then
     let int length = read_uint_be(cursor, 4);
-    return value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
+    return imports::value_bytes(read_bytes(cursor, length, cursor.options.max_binary_bytes, "binary_limit"));
   fi
 
   // Ext.
@@ -481,35 +481,35 @@ fnc decode_value(
       "unsupported_float",
       "MessagePack float32/float64 require exact float-bit primitives"
     );
-    return value_null();
+    return imports::value_null();
   fi
 
   // Unsigned integer widths supported by an Oreslang signed int.
   if marker == 204 then
-    return value_int(read_u8(cursor));
+    return imports::value_int(read_u8(cursor));
   fi
   if marker == 205 then
-    return value_int(read_uint_be(cursor, 2));
+    return imports::value_int(read_uint_be(cursor, 2));
   fi
   if marker == 206 then
-    return value_int(read_uint_be(cursor, 4));
+    return imports::value_int(read_uint_be(cursor, 4));
   fi
   if marker == 207 then
-    return value_int(read_uint64_checked(cursor));
+    return imports::value_int(read_uint64_checked(cursor));
   fi
 
   // Signed integer widths.
   if marker == 208 then
-    return value_int(read_signed(cursor, 1));
+    return imports::value_int(read_signed(cursor, 1));
   fi
   if marker == 209 then
-    return value_int(read_signed(cursor, 2));
+    return imports::value_int(read_signed(cursor, 2));
   fi
   if marker == 210 then
-    return value_int(read_signed(cursor, 4));
+    return imports::value_int(read_signed(cursor, 4));
   fi
   if marker == 211 then
-    return value_int(read_signed(cursor, 8));
+    return imports::value_int(read_signed(cursor, 8));
   fi
 
   // Fixed extension widths.
@@ -555,23 +555,23 @@ fnc decode_value(
   fi
 
   cursor_fail(cursor, "reserved_marker", "reserved or unsupported MessagePack marker");
-  return value_null();
+  return imports::value_null();
 }
 
 pub fnc decode(
   List<int> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
-    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+  if !imports::decode_options_valid(options) then
+    return Err(imports::decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
   if input.length > options.max_input_bytes then
-    return Err(decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
+    return Err(imports::decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
   fi
 
-  if !byte_list_valid(input) then
-    return Err(decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
+  if !imports::byte_list_valid(input) then
+    return Err(imports::decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
   fi
 
   let MsgpackCursor cursor = new MsgpackCursor(
@@ -579,7 +579,7 @@ pub fnc decode(
     options,
     0,
     false,
-    empty_decode_error()
+    imports::empty_decode_error()
   );
 
   let Value value = decode_value(cursor, 0);
@@ -589,7 +589,7 @@ pub fnc decode(
   fi
 
   if !options.allow_trailing_data && cursor.index != input.length then
-    return Err(decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
+    return Err(imports::decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
   fi
 
   return Ok(new DecodedValue(value, cursor.index));
@@ -638,12 +638,12 @@ fnc append_uint_be(
       break;
     fi
 
-    let int byte = wire_floor_div(remaining, divisor);
+    let int byte = imports::wire_floor_div(remaining, divisor);
     append_byte(writer, byte);
     remaining = Integer.rem(remaining, divisor);
 
     if divisor > 1 then
-      divisor = wire_floor_div(divisor, 256);
+      divisor = imports::wire_floor_div(divisor, 256);
     fi
 
     j = j + 1;
@@ -668,7 +668,7 @@ fnc append_signed64(
     val int byte = Integer.mod(current, 256);
 
     reversed.add(byte);
-    current = wire_floor_div(current, 256);
+    current = imports::wire_floor_div(current, 256);
     i = i + 1;
   done
 
@@ -761,7 +761,7 @@ fnc encode_string(
   MsgpackWriter mut writer,
   Utf8Text text
 ): void {
-  if !utf8_is_valid(text.bytes) then
+  if !imports::utf8_is_valid(text.bytes) then
     writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 as MessagePack string");
     return;
   fi
@@ -871,7 +871,7 @@ fnc encode_value(
   fi
 
   if value.kind == 2 then
-    let IntParse parsed = parse_int(value);
+    let IntParse parsed = imports::parse_int(value);
     if !parsed.ok then
       writer_fail(
         writer,
@@ -919,7 +919,7 @@ fnc encode_value(
   if value.kind == 6 then
     val List<MapEntry> object_entries = new List<MapEntry>();
     for const member of value.object_value do
-      object_entries.add(new MapEntry(value_string(member.key), member.value));
+      object_entries.add(new MapEntry(imports::value_string(member.key), member.value));
     done
     if !map_keys_unique(object_entries) then
       writer_fail(writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
@@ -990,8 +990,8 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
-  if !encode_options_valid(options) then
-    return Err(encode_error("invalid_options", "invalid or unsafe encode options"));
+  if !imports::encode_options_valid(options) then
+    return Err(imports::encode_error("invalid_options", "invalid or unsafe encode options"));
   fi
 
   let MsgpackWriter writer = new MsgpackWriter(
