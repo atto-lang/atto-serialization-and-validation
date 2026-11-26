@@ -2,10 +2,10 @@ import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep, DecodeAttempt from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
+import fnc decode, decode_default, decode_attempt, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
 
 // Freshly decoded fixtures ensure no ownership transfer of one nested Value
@@ -23,6 +23,13 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  val DecodeAttempt incomplete_object = decode_attempt(new List<int>(123), default_decode_options());
+  require_int(incomplete_object.status, 1, "opening object requires more input, not resource failure");
+  val DecodeAttempt empty_object = decode_attempt(new List<int>(123,125), new DecodeOptions(0,false,128,64,64,64,64,16,0));
+  require_int(empty_object.status, 0, "empty object allowed with zero entry limit");
+  val DecodeAttempt forbidden_member = decode_attempt(new List<int>(123,34,97,34,58,49,125), new DecodeOptions(0,false,128,64,64,64,64,16,0));
+  require_int(forbidden_member.status, 2, "nonempty object rejected with zero entry limit");
+  require_true(forbidden_member.error.code == "map_limit", "zero map limit diagnostic preserved");
   // Ordinary nesting and duplicate detection must survive index migration.
   val Result<DecodedValue, DecodeError> nested_index = decode_default(
     new List<int>(123,34,97,34,58,123,34,98,34,58,49,125,44,34,99,34,58,123,34,100,34,58,50,125,125)

@@ -899,6 +899,15 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     cursor.index = cursor.index + 1;
     return value_object(members);
   fi
+  // Preserve the existing map-entry limit and incomplete-frame diagnostics.
+  if cursor.options.max_map_entries == 0 then
+    fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
+    return value_object(members);
+  fi
+  if cursor.index >= cursor.input.length then
+    need_more(cursor);
+    return value_object(members);
+  fi
   // Remaining bytes upper-bound possible entries even for the smallest
   // valid JSON pair, so avoid reserving large head tables for tiny frames.
   val int remaining_input = cursor.input.length - cursor.index;
