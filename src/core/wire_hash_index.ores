@@ -89,3 +89,35 @@ pub define class WireHashIndex as
     return -2;
   }
 end
+
+// Monotone operation budget. Storage is a conservative cumulative logical
+// count (not a physical allocation guarantee); exhaustion is sticky.
+pub define class WireWorkBudget as
+  let int work;
+  let int storage;
+  let bool exhausted;
+  pub constructor(int work, int storage) {
+    self.work = work < 0 ? 0 : work;
+    self.storage = storage < 0 ? 0 : storage;
+    self.exhausted = work < 0 || storage < 0;
+    return;
+  }
+  pub work_left(): int { return self.work; }
+  pub failed(): bool { return self.exhausted; }
+  pub charge(mut self)(int cost): bool {
+    if self.exhausted || cost < 0 || cost > self.work then
+      self.exhausted = true;
+      return false;
+    fi
+    self.work = self.work - cost;
+    return true;
+  }
+  pub reserve(mut self)(int count): bool {
+    if self.exhausted || count < 0 || count > self.storage then
+      self.exhausted = true;
+      return false;
+    fi
+    self.storage = self.storage - count;
+    return true;
+  }
+end

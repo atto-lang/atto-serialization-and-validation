@@ -4,6 +4,7 @@
 // No address-of, dereference, or pointer arithmetic is used in this library.
 
 import fnc wire_int_to_decimal_bytes from './bytes';
+import class WireHashIndex, WireWorkBudget from './wire_hash_index';
 
 pub define class Utf8Text as
   pub val List<int> bytes;
@@ -385,200 +386,201 @@ fnc value_hash_bounded(
   return hash;
 }
 
-pub fnc value_deep_equal(Value left, Value right): bool {
-  return value_deep_equal_bounded(left, right, 0, 128);
+// Checked key operations distinguish equality from resource exhaustion.
+// Status: 1 equal, 0 different, -1 budget/depth exhausted. A codec MUST
+// treat -1 as a terminal denial, never as a distinct key or an absent key.
+fnc checked_bytes_equal(borrow List<int> left, borrow List<int> right, borrow mut WireWorkBudget budget): int {
+  if !budget.charge(1) then return -1; fi
+  if left.length != right.length then return 0; fi
+  if !budget.charge(left.length) then return -1; fi
+  let int i = 0;
+  loop do
+    if i >= left.length then break; fi
+    if left[i] != right[i] then return 0; fi
+    i = i + 1;
+  done
+  return 1;
 }
 
-fnc value_deep_equal_bounded(
-  Value left,
-  Value right,
-  int depth,
-  int max_depth
-): bool {
-  if left == right then
-    return true;
-  fi
+fnc checked_bytes_hash(borrow List<int> bytes, borrow mut WireWorkBudget budget, int seed): int {
+  if !budget.charge(1) then return -1; fi
+  if !budget.charge(bytes.length) then return -1; fi
+  let int hash = seed;
+  let int i = 0;
+  loop do
+    if i >= bytes.length then break; fi
+    // Bounded modular arithmetic, including malformed caller-owned bytes.
+    hash = Integer.mod(hash * 257 + Integer.mod(bytes[i], 2147483647), 2147483647);
+    i = i + 1;
+  done
+  return hash;
+}
 
-  if depth > max_depth then
-    return false;
+// Shallow, equality-compatible hash for the bounded index. Composite keys
+// use kind and arity, never an unmetered recursive hash. Collisions always
+// invoke checked structural comparison; adversarial work fails closed.
+pub fnc value_index_hash(borrow Value value, borrow mut WireWorkBudget budget): int {
+  if !budget.charge(1) then return -1; fi
+  val int seed = Integer.mod(value.kind, 2147483647);
+  if value.kind == 0 then return seed; fi
+  if value.kind == 1 then return seed * 2 + (value.bool_value ? 1 : 0); fi
+  if value.kind == 2 then return checked_bytes_hash(rt borrow value.number_lexeme, rt mut borrow budget, seed); fi
+  if value.kind == 3 then return checked_bytes_hash(rt borrow value.string_value.bytes, rt mut borrow budget, seed); fi
+  if value.kind == 4 || value.kind == 7 then
+    return checked_bytes_hash(rt borrow value.bytes_value, rt mut borrow budget, seed);
   fi
+  if value.kind == 5 then return Integer.mod(value.array_value.length, 2147483647); fi
+  if value.kind == 6 then return Integer.mod(value.object_value.length, 2147483647); fi
+  if value.kind == 8 then return Integer.mod(value.map_value.length, 2147483647); fi
+  return seed;
+}
 
-  if left.kind != right.kind then
-    return false;
+pub fnc text_index_hash(borrow Utf8Text text, borrow mut WireWorkBudget budget): int {
+  return checked_bytes_hash(rt borrow text.bytes, rt mut borrow budget, 0);
+}
+
+pub fnc index_find_checked(borrow mut WireHashIndex buckets, borrow mut WireWorkBudget budget, int hash, int after): int {
+  val int before = budget.work_left();
+  buckets.limit_work(before);
+  val int index = buckets.find(hash, after);
+  if !budget.charge(before - buckets.work_left()) then return -2; fi
+  return index;
+}
+
+pub fnc value_deep_equal_checked(borrow Value left, borrow Value right, borrow mut WireWorkBudget budget): int {
+  return equal_bounded(rt borrow left, rt borrow right, rt mut borrow budget, 0);
+}
+
+// Compatibility bool API cannot silently turn exhausted comparisons into
+// inequality. Codec paths must migrate to the checked API before merge.
+pub fnc value_deep_equal(Value left, Value right): bool {
+  val WireWorkBudget budget = new WireWorkBudget(8000000, 8000000);
+  val int result = value_deep_equal_checked(rt borrow left, rt borrow right, rt mut borrow budget);
+  if result < 0 then
+    val Result<bool, String> denied = Err("value equality resource budget exhausted");
+    return denied.unwrap();
   fi
+  return result == 1;
+}
 
-  if left.kind == 0 then
-    return true;
+fnc equal_bounded(borrow Value left, borrow Value right, borrow mut WireWorkBudget budget, int depth): int {
+  if depth > 128 then return -1; fi
+  if !budget.charge(1) then return -1; fi
+  if left.kind != right.kind then return 0; fi
+  if left.kind == 0 then return 1; fi
+  if left.kind == 1 then return left.bool_value == right.bool_value ? 1 : 0; fi
+  if left.kind == 2 then return checked_bytes_equal(rt borrow left.number_lexeme, rt borrow right.number_lexeme, rt mut borrow budget); fi
+  if left.kind == 3 then return checked_bytes_equal(rt borrow left.string_value.bytes, rt borrow right.string_value.bytes, rt mut borrow budget); fi
+  if left.kind == 4 || left.kind == 7 then
+    if left.kind == 7 && left.extension_type != right.extension_type then return 0; fi
+    return checked_bytes_equal(rt borrow left.bytes_value, rt borrow right.bytes_value, rt mut borrow budget);
   fi
-
-  if left.kind == 1 then
-    return left.bool_value == right.bool_value;
-  fi
-
-  if left.kind == 2 then
-    return bytes_equal(left.number_lexeme, right.number_lexeme);
-  fi
-
-  if left.kind == 3 then
-    return text_equal(left.string_value, right.string_value);
-  fi
-
-  if left.kind == 4 then
-    return bytes_equal(left.bytes_value, right.bytes_value);
-  fi
-
   if left.kind == 5 then
-    if left.array_value.length != right.array_value.length then
-      return false;
-    fi
-
+    if left.array_value.length != right.array_value.length then return 0; fi
     let int i = 0;
     loop do
-      if i >= left.array_value.length then
-        break;
-      fi
-      if !value_deep_equal_bounded(
-        left.array_value[i],
-        right.array_value[i],
-        depth + 1,
-        max_depth
-      ) then
-        return false;
-      fi
+      if i >= left.array_value.length then break; fi
+      val int status = equal_bounded(rt borrow left.array_value[i], rt borrow right.array_value[i], rt mut borrow budget, depth + 1);
+      if status != 1 then return status; fi
       i = i + 1;
     done
-    return true;
+    return 1;
   fi
-
   if left.kind == 6 then
-    if left.object_value.length != right.object_value.length then
-      return false;
-    fi
-
-    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val int count = left.object_value.length;
+    if count != right.object_value.length then return 0; fi
+    if count == 0 then return 1; fi
+    if count > 1000000 then return -1; fi
+    val int slots = count > 256 ? 256 : count;
+    if !budget.reserve(slots + count * 3) || !budget.charge(count) then return -1; fi
+    val WireHashIndex buckets = new WireHashIndex(count, budget.work_left());
     val List<bool> used = new List<bool>();
     let int i = 0;
-
     loop do
-      if i >= right.object_value.length then
-        break;
-      fi
-
+      if i >= count then break; fi
+      val int hash = text_index_hash(rt borrow right.object_value[i].key, rt mut borrow budget);
+      if hash < 0 || buckets.insert(hash) != i then return -1; fi
       used.add(false);
-
-      let int hash = text_hash(right.object_value[i].key);
-      if buckets.contains(hash) then
-        val List<int> indices = buckets.get(hash);
-        indices.add(i);
-      else
-        val List<int> indices = new List<int>();
-        indices.add(i);
-        buckets.set(hash, indices);
-      fi
       i = i + 1;
     done
-
-    for const a of left.object_value do
-      let int hash = text_hash(a.key);
-      if !buckets.contains(hash) then
-        return false;
-      fi
-
+    let int li = 0;
+    loop do
+      if li >= count then break; fi
+      val int hash = text_index_hash(rt borrow left.object_value[li].key, rt mut borrow budget);
+      if hash < 0 then return -1; fi
+      let int after = -1;
       let bool matched = false;
-      val List<int> indices = buckets.get(hash);
-      for const index of indices do
-        if used[index] then
-          continue;
-        fi
-
-        let WireMember b = right.object_value[index];
-        if text_equal(a.key, b.key) &&
-           value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
-          used[index] = true;
-          matched = true;
-          break;
+      loop do
+        val int ri = index_find_checked(rt mut borrow buckets, rt mut borrow budget, hash, after);
+        if ri == -2 then return -1; fi
+        if ri == -1 then break; fi
+        after = ri;
+        if used[ri] then continue; fi
+        val int key_status = checked_bytes_equal(rt borrow left.object_value[li].key.bytes, rt borrow right.object_value[ri].key.bytes, rt mut borrow budget);
+        if key_status < 0 then return -1; fi
+        if key_status == 1 then
+          val int value_status = equal_bounded(rt borrow left.object_value[li].value, rt borrow right.object_value[ri].value, rt mut borrow budget, depth + 1);
+          if value_status < 0 then return -1; fi
+          if value_status == 1 then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
         fi
       done
-
-      if !matched then
-        return false;
-      fi
+      if !matched then return 0; fi
+      li = li + 1;
     done
-
-    return true;
+    return 1;
   fi
-
-  if left.kind == 7 then
-    if left.extension_type != right.extension_type then
-      return false;
-    fi
-    return bytes_equal(left.bytes_value, right.bytes_value);
-  fi
-
   if left.kind == 8 then
-    if left.map_value.length != right.map_value.length then
-      return false;
-    fi
-
-    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    val int count = left.map_value.length;
+    if count != right.map_value.length then return 0; fi
+    if count == 0 then return 1; fi
+    if count > 1000000 then return -1; fi
+    val int slots = count > 256 ? 256 : count;
+    if !budget.reserve(slots + count * 3) || !budget.charge(count) then return -1; fi
+    val WireHashIndex buckets = new WireHashIndex(count, budget.work_left());
     val List<bool> used = new List<bool>();
     let int i = 0;
-
     loop do
-      if i >= right.map_value.length then
-        break;
-      fi
-
+      if i >= count then break; fi
+      val int hash = value_index_hash(rt borrow right.map_value[i].key, rt mut borrow budget);
+      if hash < 0 || buckets.insert(hash) != i then return -1; fi
       used.add(false);
-
-      let int hash = value_hash_bounded(
-        right.map_value[i].key,
-        depth + 1,
-        max_depth
-      );
-
-      if buckets.contains(hash) then
-        val List<int> indices = buckets.get(hash);
-        indices.add(i);
-      else
-        val List<int> indices = new List<int>();
-        indices.add(i);
-        buckets.set(hash, indices);
-      fi
       i = i + 1;
     done
-
-    for const a of left.map_value do
-      let int hash = value_hash_bounded(a.key, depth + 1, max_depth);
-      if !buckets.contains(hash) then
-        return false;
-      fi
-
+    let int li = 0;
+    loop do
+      if li >= count then break; fi
+      val int hash = value_index_hash(rt borrow left.map_value[li].key, rt mut borrow budget);
+      if hash < 0 then return -1; fi
+      let int after = -1;
       let bool matched = false;
-      val List<int> indices = buckets.get(hash);
-      for const index of indices do
-        if used[index] then
-          continue;
-        fi
-
-        let MapEntry b = right.map_value[index];
-        if value_deep_equal_bounded(a.key, b.key, depth + 1, max_depth) &&
-           value_deep_equal_bounded(a.value, b.value, depth + 1, max_depth) then
-          used[index] = true;
-          matched = true;
-          break;
+      loop do
+        val int ri = index_find_checked(rt mut borrow buckets, rt mut borrow budget, hash, after);
+        if ri == -2 then return -1; fi
+        if ri == -1 then break; fi
+        after = ri;
+        if used[ri] then continue; fi
+        val int key_status = equal_bounded(rt borrow left.map_value[li].key, rt borrow right.map_value[ri].key, rt mut borrow budget, depth + 1);
+        if key_status < 0 then return -1; fi
+        if key_status == 1 then
+          val int value_status = equal_bounded(rt borrow left.map_value[li].value, rt borrow right.map_value[ri].value, rt mut borrow budget, depth + 1);
+          if value_status < 0 then return -1; fi
+          if value_status == 1 then
+            used[ri] = true;
+            matched = true;
+            break;
+          fi
         fi
       done
-
-      if !matched then
-        return false;
-      fi
+      if !matched then return 0; fi
+      li = li + 1;
     done
-
-    return true;
+    return 1;
   fi
-
-  return false;
+  return 0;
 }
 
 

@@ -1,4 +1,4 @@
-import class WireHashIndex from '../src/core/wire_hash_index';
+import class WireHashIndex, WireWorkBudget from '../src/core/wire_hash_index';
 import fnc require_int from './assert';
 
 pub fnc main(): void {
@@ -31,6 +31,11 @@ pub fnc main(): void {
   nested.limit_work(100);
   imports::require_int(nested.work_left(), 0, "operation budget cannot increase");
   imports::require_int(nested.find(7, -1), -2, "exhausted traversal fails closed");
+  val WireWorkBudget shared = new WireWorkBudget(4, 3);
+  imports::require_int(shared.charge(2) ? 1 : 0, 1, "shared work charge");
+  imports::require_int(shared.reserve(3) ? 1 : 0, 1, "shared storage charge");
+  imports::require_int(shared.reserve(1) ? 1 : 0, 0, "shared storage exhaustion");
+  imports::require_int(shared.charge(1) ? 1 : 0, 0, "sticky exhaustion");
   stdio.stdout.println("isolated wire hash index guest passed");
   return;
 }
