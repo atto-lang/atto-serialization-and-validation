@@ -2,11 +2,26 @@ import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc value_int, value_bool, value_string, value_array, value_object, value_deep_equal, value_lookup_path from '../src/core/value';
-import class DecodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
+import class DecodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
-import fnc encode, decode from '../src/messagepack/messagepack';
+import fnc encode, decode, decode_messagepack_attempt from '../src/messagepack/messagepack';
+
+fnc require_truncated_container(List<int> input): void {
+  let DecodeAttempt attempt = decode_messagepack_attempt(input, default_decode_options());
+  require_int(attempt.status, 2, "impossible container must fail");
+  require_true(attempt.error.code == "unexpected_eof", "impossible container diagnostic");
+  require_int(attempt.value.kind, 0, "failed container must not publish partial value");
+  return;
+}
 
 pub fnc run_messagepack_tests(): void {
+  require_truncated_container(new List<int>(147, 1, 2));
+  require_truncated_container(new List<int>(130, 1, 2, 3));
+  require_truncated_container(new List<int>(220, 0, 16, 1));
+  require_truncated_container(new List<int>(222, 0, 16, 1, 2));
+  require_true(!decode(new List<int>(146, 1, 2), default_decode_options()).is_err(), "exact array minimum frame must decode");
+  require_true(!decode(new List<int>(129, 1, 2), default_decode_options()).is_err(), "exact map minimum frame must decode");
+
 
   // Shared typed-method candidate vector; dynamic codec only, not typed lowering.
   val List<WireMember> user_members = new List<WireMember>();

@@ -23,6 +23,20 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  // Control octets on both sides of the hexadecimal nibble boundary.
+  val Result<List<int>, EncodeError> control_encoded = encode(
+    value_string(new Utf8Text(new List<int>(0, 15, 16, 31))),
+    default_encode_options()
+  );
+  require_true(control_encoded.is_err() == false, "control octets encode");
+  require_true(
+    bytes_equal(control_encoded.unwrap(), new List<int>(
+      34, 92, 117, 48, 48, 48, 48, 92, 117, 48, 48, 48, 102,
+      92, 117, 48, 48, 49, 48, 92, 117, 48, 48, 49, 102, 34
+    )),
+    "control escapes preserve exact hexadecimal nibbles"
+  );
+
   // Regression for three-way merge corruption in decimal integer emission.
   require_true(
     bytes_equal(int_to_decimal_bytes(0), new List<int>(48)),

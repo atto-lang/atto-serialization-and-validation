@@ -24,3 +24,34 @@ pub fnc byte_range_fits(
 
   return length <= total_length - offset;
 }
+
+// Exact floor quotient for wire arithmetic while legacy '/' returns float.
+// Divisor must be positive. Work is bounded by 63 doubling steps; all
+// intermediates stay in signed i64, including the minimum input value.
+pub fnc wire_floor_div(int value, int divisor): int {
+  if divisor <= 0 then
+    val Result<int, String> invalid = Err("wire divisor must be positive");
+    return invalid.unwrap();
+  fi
+  if divisor == 1 then return value; fi
+  val int negative_value = value > 0 ? -value : value;
+  let int chunk = -divisor;
+  let int weight = -1;
+  let int quotient = 0;
+  loop do
+    if negative_value > chunk then break; fi
+    if chunk < -4611686018427387904 then
+      quotient = quotient + weight;
+      break;
+    fi
+    val int doubled = chunk + chunk;
+    if Integer.rem(negative_value, doubled) <= chunk then
+      quotient = quotient + weight;
+    fi
+    chunk = doubled;
+    weight = weight + weight;
+  done
+  if value >= 0 then return -quotient; fi
+  if Integer.rem(value, divisor) != 0 then return quotient - 1; fi
+  return quotient;
+}
