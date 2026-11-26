@@ -1,4 +1,4 @@
-// Metadata-driven JSON object decode.
+// Metadata-driven JSON and MessagePack object decode.
 //
 // This is the generic bridge between wire bytes and generated typed
 // constructors. It resolves wire names, validates required/unknown fields, runs
@@ -10,6 +10,7 @@ import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_object from '../core/value';
 import class DecodeOptions, DecodeError, DecodeAttempt from '../core/options';
 import fnc decode_attempt from '../json/json';
+import fnc decode_messagepack_attempt from '../messagepack/messagepack';
 import class ValidationOptions, ValidationReport, ValidationError, PathSegment, FieldRule, ObjectSchema from '../validation/validation';
 import fnc field_rule, object_schema, validate_object, report_is_valid from '../validation/validation';
 import class CodecFieldMeta, CodecTypeMeta, MetadataError, MetadataCheck from './metadata';
@@ -113,11 +114,12 @@ fnc object_codec_error(
   return new ObjectCodecError(kind, metadata_error, decode_error, validation_report);
 }
 
-pub fnc decode_json_object_attempt(
+fnc decode_object_attempt(
   List<int> input,
   DecodeOptions decode_options,
   CodecTypeMeta metadata,
-  ValidationOptions validation_options
+  ValidationOptions validation_options,
+  bool messagepack
 ): ObjectDecodeAttempt {
   let MetadataCheck checked = check_metadata(rt borrow metadata);
 
@@ -131,7 +133,21 @@ pub fnc decode_json_object_attempt(
     return new ObjectDecodeAttempt(1, empty_decoded_object(), error);
   fi
 
+  if messagepack then
+    let DecodeAttempt attempt = decode_messagepack_attempt(input, decode_options);
+    return project_object_attempt(attempt, metadata, validation_options, true);
+  fi
   let DecodeAttempt attempt = decode_attempt(input, decode_options);
+  return project_object_attempt(attempt, metadata, validation_options, false);
+}
+
+// No caller can supply a raw Value to bypass complete-input codec admission.
+fnc project_object_attempt(
+  DecodeAttempt attempt,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options,
+  bool messagepack
+): ObjectDecodeAttempt {
   if attempt.status != 0 then
     let ObjectCodecError error = object_codec_error(
       1,
@@ -148,7 +164,7 @@ pub fnc decode_json_object_attempt(
         new ValidationError(
           "type",
           new List<PathSegment>(),
-          "metadata-driven JSON decode requires an object root",
+          messagepack ? "metadata-driven MessagePack decode requires an object root" : "metadata-driven JSON decode requires an object root",
           0
         )
       ),
@@ -201,6 +217,37 @@ pub fnc decode_json_object_attempt(
       empty_validation_report()
     )
   );
+}
+
+pub fnc decode_json_object_attempt(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): ObjectDecodeAttempt {
+  return decode_object_attempt(input, decode_options, metadata, validation_options, false);
+}
+
+pub fnc decode_messagepack_object_attempt(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): ObjectDecodeAttempt {
+  return decode_object_attempt(input, decode_options, metadata, validation_options, true);
+}
+
+pub fnc decode_messagepack_object(
+  List<int> input,
+  DecodeOptions decode_options,
+  CodecTypeMeta metadata,
+  ValidationOptions validation_options
+): Result<DecodedObject, ObjectCodecError> {
+  let ObjectDecodeAttempt attempt = decode_messagepack_object_attempt(input, decode_options, metadata, validation_options);
+  if attempt.status == 0 then
+    return Ok(attempt.decoded);
+  fi
+  return Err(attempt.error);
 }
 
 pub fnc decode_json_object(
