@@ -1,0 +1,24 @@
+name: Rust Zorde isolated launcher and log admission candidate
+on:
+  pull_request:
+    paths: ['scripts/zorde-isolated.rs','scripts/test-zorde-isolated-rust.sh','.github/workflows/zorde-isolated-rust.yml']
+permissions:
+  contents: read
+jobs:
+  isolated-host:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Exact-head Rust host tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          bash scripts/test-zorde-isolated-rust.sh
+          echo NATIVE_COMPILER_NOT_EXECUTED
