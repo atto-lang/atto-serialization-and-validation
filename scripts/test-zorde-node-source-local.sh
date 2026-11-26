@@ -8,7 +8,7 @@ umask 077
 export PATH=/usr/bin:/bin
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR \
   GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG_COUNT \
-  PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONINSPECT
+  PYTHONPATH PYTHONHOME PYTHONSTARTUP PYTHONINSPECT NODE_TEST_CONTEXT
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 die(){ printf 'ZORDE_NODE_QUALIFICATION_REFUSED: %s\n' "$*" >&2; exit 2; }
 for utility in git sha256sum timeout python3 env; do
@@ -89,7 +89,7 @@ receipt="$out/zorde-node-real-suite-receipt.json"
 set -C
 set +e
 timeout --signal=TERM --kill-after=5s 300s \
-  env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE -u NODE_EXTRA_CA_CERTS \
+  env -u NODE_OPTIONS -u NODE_PATH -u NODE_V8_COVERAGE -u NODE_EXTRA_CA_CERTS -u NODE_TEST_CONTEXT \
   "$NODE_BIN" --test --test-reporter=tap \
   tests/source_free/test_zorde_contract_ir.mjs \
   tests/source_free/test_zorde_native_guard.mjs >"$log" 2>&1
