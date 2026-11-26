@@ -23,6 +23,16 @@ fnc new_nested_json_root(): Value {
 }
 
 pub fnc run_json_tests(): void {
+  // Ordinary nesting and duplicate detection must survive index migration.
+  val Result<DecodedValue, DecodeError> nested_index = decode_default(
+    new List<int>(123,34,97,34,58,123,34,98,34,58,49,125,44,34,99,34,58,123,34,100,34,58,50,125,125)
+  );
+  require_true(!nested_index.is_err(), "ordinary nested JSON objects retain admission");
+  val Result<DecodedValue, DecodeError> nested_duplicate = decode_default(
+    new List<int>(123,34,97,34,58,123,34,98,34,58,49,44,34,98,34,58,50,125,125)
+  );
+  require_true(nested_duplicate.is_err(), "nested duplicate JSON key must reject");
+
   // Control octets on both sides of the hexadecimal nibble boundary.
   val Result<List<int>, EncodeError> control_encoded = encode(
     value_string(new Utf8Text(new List<int>(0, 15, 16, 31))),

@@ -899,7 +899,10 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     cursor.index = cursor.index + 1;
     return value_object(members);
   fi
-  val int capacity = cursor.options.max_map_entries;
+  // Remaining bytes upper-bound possible entries even for the smallest
+  // valid JSON pair, so avoid reserving large head tables for tiny frames.
+  val int remaining_input = cursor.input.length - cursor.index;
+  val int capacity = cursor.options.max_map_entries > remaining_input ? remaining_input : cursor.options.max_map_entries;
   val int slots = capacity > 256 ? 256 : capacity;
   if capacity == 0 || slots > cursor.key_storage_remaining then
     fail(cursor, "map_complexity_limit", "JSON key index storage budget exhausted");
@@ -1077,7 +1080,10 @@ pub fnc decode_attempt(
   // immutable scalar facts required by the trailing-data check.
   val int input_length = input.length;
   val bool allow_trailing_data = options.allow_trailing_data;
-  val int key_budget = input_length > 8000000 ? 8000000 : 256 + input_length * 8;
+  val int key_budget = input_length > 1000000 ? 8000000 : 256 + input_length * 8;
+  // Index slots have their own operation-wide ceiling; charging a head table
+  // must not consume the separate semantic comparison budget.
+  val int storage_budget = input_length > 125000 ? 8000000 : 256 + input_length * 64;
   let JsonCursor cursor = new JsonCursor(
     input,
     options,
@@ -1085,7 +1091,7 @@ pub fnc decode_attempt(
     false,
     false,
     key_budget > 8000000 ? 8000000 : key_budget,
-    key_budget > 8000000 ? 8000000 : key_budget,
+    storage_budget > 8000000 ? 8000000 : storage_budget,
     empty_decode_error()
   );
 
