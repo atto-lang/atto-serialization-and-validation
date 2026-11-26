@@ -11,7 +11,7 @@ import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
-import fnc byte_list_valid, byte_range_fits from '../core/bytes';
+import fnc byte_list_valid, byte_range_fits, wire_floor_div from '../core/bytes';
 
 define class CborCursor as
   pub val List<int> input;
@@ -374,8 +374,8 @@ fnc decode_value(
     return value_null();
   fi
 
-  let int major = initial / 32;
-  let int additional = initial % 32;
+  let int major = wire_floor_div(initial, 32);
+  let int additional = Integer.rem(initial, 32);
 
   if major == 0 then
     return value_int(read_argument(cursor, additional));
@@ -537,12 +537,12 @@ fnc append_uint_be(
       break;
     fi
 
-    let int byte = remaining / divisor;
+    let int byte = wire_floor_div(remaining, divisor);
     append_byte(writer, byte);
-    remaining = remaining % divisor;
+    remaining = Integer.rem(remaining, divisor);
 
     if divisor > 1 then
-      divisor = divisor / 256;
+      divisor = wire_floor_div(divisor, 256);
     fi
 
     j = j + 1;
