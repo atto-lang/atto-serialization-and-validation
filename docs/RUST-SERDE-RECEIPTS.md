@@ -11,5 +11,6 @@ including ancestor directories. Linux trusted system SHA-256 is used; no
 new dependency or network access is required. A synthetic receipt can pass:
 this is explicitly NOT authentication of execution, logs, artifacts, physical
 heap measurements or release readiness. Independent GitHub job and artifact
-verification remains mandatory. The old Python gate remains active pending
-exact-head test execution, compatibility review and atomic migration.
+verification remains mandatory. The existing structural workflow now runs the Rust gate for PRs and main pushes. The old Python CLI and duplicate synthetic suite are removed in this candidate. Invoke `cargo run --locked --bin verify-serde-receipts -- --receipts DIR --head SHA --tree SHA`; flags can appear in any order. This is not a native harness migration. Independent review and exact-head execution of the cutover are required.
+
+The cutover retains all legacy mutation scenarios and adds removed-field, malformed row, hardlink, CLI ordering/duplicate option and post-read inventory controls. Unknown optional fields remain compatible. Trusted isolated receipt directory required; no same-UID adversarial snapshot claim.

@@ -137,12 +137,12 @@ fn directory(path:&Path)->Result<PathBuf>{
     }
     Ok(full)
 }
-fn stamp(m:&fs::Metadata)->(u64,u64,u64,i64,i64,i64,i64){
-    (m.dev(),m.ino(),m.len(),m.mtime(),m.mtime_nsec(),m.ctime(),m.ctime_nsec())
+fn stamp(m:&fs::Metadata)->(u64,u64,u64,u64,u32,i64,i64,i64,i64){
+    (m.dev(),m.ino(),m.len(),m.nlink(),m.mode(),m.mtime(),m.mtime_nsec(),m.ctime(),m.ctime_nsec())
 }
 fn read_receipt(path:&Path)->Result<Vec<u8>>{
     let before=io(fs::symlink_metadata(path))?;
-    require(before.is_file()&&before.len()<=MAX_JSON as u64,"unsafe or oversized receipt")?;
+    require(before.is_file()&&before.nlink()==1&&before.len()<=MAX_JSON as u64,"unsafe or oversized receipt")?;
     // Linux O_NOFOLLOW|O_NONBLOCK, and metadata rechecks. Trusted isolated
     // directory remains required; this is not a hostile same-UID snapshot.
     let mut f=io(OpenOptions::new().read(true).custom_flags(0x20000|0x800).open(path))?;
@@ -161,6 +161,16 @@ pub fn verify(dir:&Path,head:&str,tree:&str)->Result<()>{
     require(hex(head,40)&&hex(tree,40),"invalid expected source identity")?;
     let dir=directory(dir)?;
     let names:BTreeSet<_>=BACKENDS.iter().map(|b|format!("{b}.json")).collect();
+    inventory(&dir,&names)?;
+    let (manifest,expected)=expected()?;let mut jobs=BTreeSet::new();
+    for backend in BACKENDS{
+        let v=object(&read_receipt(&dir.join(format!("{backend}.json")))?)?;
+        receipt(&v,backend,head,tree,&manifest,&expected,&mut jobs).map_err(|e|format!("{backend}: {e}"))?;
+    }
+    inventory(&dir,&names)?;
+    directory(&dir)?;Ok(())
+}
+fn inventory(dir:&Path,names:&BTreeSet<String>)->Result<()>{
     let mut actual=BTreeSet::new();
     for item in io(fs::read_dir(&dir))?{
         let item=io(item)?;
@@ -168,11 +178,5 @@ pub fn verify(dir:&Path,head:&str,tree:&str)->Result<()>{
         require(names.contains(&name)&&actual.insert(name),"unexpected receipt directory entry")?;
         require(io(item.file_type())?.is_file(),"unsafe receipt entry")?;
     }
-    require(actual==names,"missing backend receipt")?;
-    let (manifest,expected)=expected()?;let mut jobs=BTreeSet::new();
-    for backend in BACKENDS{
-        let v=object(&read_receipt(&dir.join(format!("{backend}.json")))?)?;
-        receipt(&v,backend,head,tree,&manifest,&expected,&mut jobs).map_err(|e|format!("{backend}: {e}"))?;
-    }
-    Ok(())
+    require(&actual==names,"missing backend receipt")
 }
