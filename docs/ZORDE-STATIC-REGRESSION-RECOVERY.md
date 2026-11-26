@@ -14,3 +14,5 @@ the real test runner. No TAP acceptance criteria, source approval conditions,
 or pilot descriptor checks are loosened. Synthetic tests remain host-only.
 The integrated workflow still must execute against the exact new head with
 pinned Node 22.18.0; only that run can establish static pipeline recovery.
+
+The first exact-head retry executed 94 cases with one failure (job 139601025411). The remaining synthetic checkout case failed in git commit after a previous symlink case. Reset test/module leaves between cases so writes cannot follow a previously installed symlink, and preserve Git stdout/stderr on fixture setup failure. The denial cases and production checks remain unchanged.

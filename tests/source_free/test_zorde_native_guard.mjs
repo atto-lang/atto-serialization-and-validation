@@ -174,10 +174,15 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
   const binaryDigest=createHash('sha256').update(readFileSync(bin)).digest('hex');
   function git(args){
     const proc=spawnSync('git',args,{cwd:repo,encoding:'utf8',timeout:12000});
-    assert.equal(proc.status,0,proc.stderr);
+    assert.equal(proc.status,0,JSON.stringify(args)+': '+proc.stdout+' '+proc.stderr);
     return proc.stdout.trim();
   }
   function runCase(mode){
+    // Each case must begin with regular files. A prior symlink-negative
+    // case otherwise makes writeFileSync mutate the outside target instead
+    // of staging a new checkout file, leaving no commit for the next case.
+    rmSync(checkoutFile,{force:true});
+    rmSync(bridgeFile,{force:true});
     // The same known-good suite must fail admission for TODO markers,
     // symlink-substituted logs, and oversized log bytes without producing
     // a receipt. Run the literal Bash script in a synthetic source checkout.
