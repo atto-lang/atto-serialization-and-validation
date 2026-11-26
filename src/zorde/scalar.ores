@@ -17,31 +17,31 @@ pub define class ZordeScalarRule as
 end
 
 pub fnc zorde_scalar_int(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  return new ZordeScalarRule(2, zorde_core_interval(minimum, maximum, excluded));
+  return new ZordeScalarRule(2, imports::zorde_core_interval(minimum, maximum, excluded));
 }
 
 pub fnc zorde_scalar_string(int minimum, int maximum, List<int> excluded): ZordeScalarRule {
-  return new ZordeScalarRule(3, zorde_core_interval(minimum, maximum, excluded));
+  return new ZordeScalarRule(3, imports::zorde_core_interval(minimum, maximum, excluded));
 }
 
 pub fnc zorde_scalar_rule_valid(ZordeScalarRule rule): bool {
   if rule.kind != 2 && rule.kind != 3 then return false; fi
-  return zorde_core_interval_valid(rt borrow rule.interval, rule.kind == 3);
+  return imports::zorde_core_interval_valid(rt borrow rule.interval, rule.kind == 3);
 }
 
 pub fnc zorde_scalar_contains(ZordeScalarRule rule, int metric): bool {
   if !zorde_scalar_rule_valid(rt borrow rule) then return false; fi
-  return zorde_core_interval_contains(
+  return imports::zorde_core_interval_contains(
     rt borrow rule.interval, rule.kind == 3, metric);
 }
 
 pub fnc zorde_scalar_metric(Value value, ZordeScalarRule rule): IntParse {
   if !zorde_scalar_rule_valid(rt borrow rule) then return new IntParse(false, 0); fi
   if value.kind != rule.kind then return new IntParse(false, 0); fi
-  if rule.kind == 2 then return parse_int(value); fi
+  if rule.kind == 2 then return imports::parse_int(value); fi
 
   // Unicode scalar length is shared with compiler refinements and codecs.
-  val int count = utf8_scalar_count(value.string_value.bytes);
+  val int count = imports::utf8_scalar_count(value.string_value.bytes);
   if count < 0 then return new IntParse(false, 0); fi
   return new IntParse(true, count);
 }

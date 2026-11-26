@@ -54,7 +54,7 @@ fnc is_lower_hex_digest(Utf8Text digest): bool {
 
 fnc contract_id_valid(Utf8Text id): bool {
   if id.bytes.length < 1 || id.bytes.length > contract_ir_max_id_bytes() ||
-     !utf8_is_valid(rt borrow id.bytes) then return false; fi
+     !imports::utf8_is_valid(rt borrow id.bytes) then return false; fi
   // Schema IDs are stable dotted identifiers, not arbitrary printable text.
   // Permit ASCII letters/digits plus '_', '.', ':', and '-'; require a letter
   // initially so path separators, whitespace, NUL and control bytes fail.
@@ -101,7 +101,7 @@ pub fnc check_static_contract_ir(
       "contract_ir_open_record", -1, "Contract IR v1 requires reject-unknown closed-record metadata"
     ));
   fi
-  let MetadataCheck checked = check_metadata(rt borrow ir.codec);
+  let MetadataCheck checked = imports::check_metadata(rt borrow ir.codec);
   if !checked.ok then
     return new ContractIRCheck(false, ir, new ContractIRError(
       "contract_ir_metadata",
@@ -124,9 +124,9 @@ end
 
 fnc empty_contract_decode_object(): DecodedObject {
   return new DecodedObject(
-    value_object(new List<WireMember>()),
-    value_object(new List<WireMember>()),
-    value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
     0
   );
 }
@@ -157,7 +157,7 @@ pub fnc decode_static_contract_json_attempt(
       empty_contract_codec_error()
     );
   fi
-  let ObjectDecodeAttempt attempt = decode_json_object_attempt(
+  let ObjectDecodeAttempt attempt = imports::decode_json_object_attempt(
     input,
     decode_options,
     rt borrow ir.codec,

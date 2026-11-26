@@ -28,7 +28,7 @@ pub fnc zorde_string(
   int max_length
 ): ZordeValueSchema {
   return new ZordeValueSchema(
-    string_rule(
+    imports::string_rule(
       min_length,
       max_length,
       false,
@@ -58,7 +58,7 @@ pub fnc zorde_ascii_string(
   int max_length
 ): ZordeValueSchema {
   return new ZordeValueSchema(
-    string_rule(
+    imports::string_rule(
       min_length,
       max_length,
       true,
@@ -71,7 +71,7 @@ pub fnc zorde_ascii_string(
 
 pub fnc zorde_email(): ZordeValueSchema {
   return new ZordeValueSchema(
-    string_rule(
+    imports::string_rule(
       3,
       254,
       true,
@@ -84,7 +84,7 @@ pub fnc zorde_email(): ZordeValueSchema {
 
 pub fnc zorde_uuid(): ZordeValueSchema {
   return new ZordeValueSchema(
-    string_rule(
+    imports::string_rule(
       36,
       36,
       true,
@@ -97,7 +97,7 @@ pub fnc zorde_uuid(): ZordeValueSchema {
 
 pub fnc zorde_url(): ZordeValueSchema {
   return new ZordeValueSchema(
-    string_rule(
+    imports::string_rule(
       1,
       -1,
       true,
@@ -117,7 +117,7 @@ pub fnc zorde_number(
   bool max_exclusive
 ): ZordeValueSchema {
   return new ZordeValueSchema(
-    number_rule(
+    imports::number_rule(
       has_min,
       min_value,
       min_exclusive,
@@ -134,7 +134,7 @@ pub fnc zorde_array(
   bool unique_items
 ): ZordeValueSchema {
   return new ZordeValueSchema(
-    array_rule(
+    imports::array_rule(
       min_items,
       max_items,
       unique_items
@@ -148,7 +148,7 @@ pub fnc zorde_field(
   bool forbidden,
   ZordeValueSchema schema
 ): FieldRule {
-  return field_rule(
+  return imports::field_rule(
     key,
     required,
     forbidden,
@@ -161,7 +161,7 @@ pub fnc zorde_object(
   bool reject_unknown_fields
 ): ZordeObjectSchema {
   return new ZordeObjectSchema(
-    object_schema(
+    imports::object_schema(
       fields,
       reject_unknown_fields
     )
@@ -172,10 +172,10 @@ pub fnc zorde_parse(
   Value value,
   ZordeValueSchema schema
 ): Result<Value, ValidationReport> {
-  return validate_value_checked(
+  return imports::validate_value_checked(
     value,
     schema.rule,
-    default_validation_options()
+    imports::default_validation_options()
   );
 }
 
@@ -184,7 +184,7 @@ pub fnc zorde_parse_with(
   ZordeValueSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
-  return validate_value_checked(
+  return imports::validate_value_checked(
     value,
     schema.rule,
     options
@@ -195,10 +195,10 @@ pub fnc zorde_parse_object(
   Value value,
   ZordeObjectSchema schema
 ): Result<Value, ValidationReport> {
-  return validate_object_checked(
+  return imports::validate_object_checked(
     value,
     schema.schema,
-    default_validation_options()
+    imports::default_validation_options()
   );
 }
 
@@ -207,7 +207,7 @@ pub fnc zorde_parse_object_with(
   ZordeObjectSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
-  return validate_object_checked(
+  return imports::validate_object_checked(
     value,
     schema.schema,
     options
@@ -255,14 +255,14 @@ pub fnc zorde_parse_scalar_metric(
   Value value,
   ZordeScalarRule rule
 ): Result<int, ValidationReport> {
-  if !zorde_scalar_rule_valid(rt borrow rule) then
+  if !imports::zorde_scalar_rule_valid(rt borrow rule) then
     return Err(zorde_int_error("invalid_rule", "noncanonical scalar schema"));
   fi
-  val IntParse metric = zorde_scalar_metric(rt borrow value, rt borrow rule);
+  val IntParse metric = imports::zorde_scalar_metric(rt borrow value, rt borrow rule);
   if !metric.ok then
     return Err(zorde_int_error("type", "input does not have the schema's exact scalar representation"));
   fi
-  if !zorde_scalar_contains(rt borrow rule, metric.value) then
+  if !imports::zorde_scalar_contains(rt borrow rule, metric.value) then
     return Err(zorde_int_error("constraint_violation", "scalar value is outside the accepted set"));
   fi
   return Ok(metric.value);
@@ -275,11 +275,11 @@ pub fnc zorde_parse_refinement(
   Value value,
   ZordeScalarDescriptor descriptor
 ): Result<int, ValidationReport> {
-  if !zorde_scalar_descriptor_valid(rt borrow descriptor) then
+  if !imports::zorde_scalar_descriptor_valid(rt borrow descriptor) then
     return Err(zorde_int_error(
       "invalid_descriptor", "unsupported/noncanonical refinement descriptor"));
   fi
-  val ZordeScalarRule rule = zorde_scalar_rule_from_descriptor(
+  val ZordeScalarRule rule = imports::zorde_scalar_rule_from_descriptor(
     rt borrow descriptor);
   return zorde_parse_scalar_metric(rt borrow value, rt borrow rule);
 }
@@ -292,7 +292,7 @@ pub fnc zorde_parse_int(
   let int maximum = 9223372036854775807;
   if schema.has_min then minimum = schema.min_value; fi
   if schema.has_max then maximum = schema.max_value; fi
-  val ZordeScalarRule rule = zorde_scalar_int(minimum, maximum, new List<int>());
+  val ZordeScalarRule rule = imports::zorde_scalar_int(minimum, maximum, new List<int>());
   // No duplicated min/max predicate: the canonical scalar kernel is the
   // authority. Preserve dedicated min/max error codes only as diagnostics.
   val Result<int, ValidationReport> checked = zorde_parse_scalar_metric(

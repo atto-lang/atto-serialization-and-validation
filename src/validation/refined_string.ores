@@ -104,7 +104,7 @@ pub fnc validate_refined_string(
   int policy,
   ValidationOptions options
 ): ValidationReport {
-  if !validation_options_valid(options) then
+  if !imports::validation_options_valid(options) then
     return string_refinement_failure(
       "invalid_options",
       "validation options are outside supported bounds",
@@ -137,7 +137,7 @@ pub fnc validate_refined_string(
   fi
 
   val Utf8Text text = value.string_value;
-  let int scalar_count = utf8_codepoint_count(text.bytes);
+  let int scalar_count = imports::utf8_codepoint_count(text.bytes);
   if scalar_count < 0 then
     return string_refinement_failure(
       "utf8", "string contains invalid UTF-8", options
@@ -158,7 +158,7 @@ pub fnc validate_refined_string(
     let int offset = 0;
     loop do
       if offset >= text.bytes.length then break; fi
-      let int width = utf8_expected_width(text.bytes[offset]);
+      let int width = imports::utf8_expected_width(text.bytes[offset]);
       // Width and continuation-byte validity were already checked by
       // utf8_codepoint_count. Retain defensive bounds admission here.
       if width < 1 || width > text.bytes.length - offset then
@@ -200,7 +200,7 @@ pub fnc refined_string_accepts(
   int maximum,
   int policy
 ): bool {
-  return report_is_valid(
+  return imports::report_is_valid(
     validate_refined_string(
       value, minimum, maximum, policy, new ValidationOptions(true, 1)
     )

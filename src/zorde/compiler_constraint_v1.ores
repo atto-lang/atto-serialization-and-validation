@@ -82,10 +82,10 @@ pub fnc zorde_compiler_i64_descriptor_valid(
   ZordeCompilerI64ConstraintV1 descriptor
 ): bool {
   if descriptor.schema_version != 1 then return false; fi
-  if !text_equal(rt borrow descriptor.schema_id, v1_schema_id()) then
+  if !imports::text_equal(rt borrow descriptor.schema_id, v1_schema_id()) then
     return false;
   fi
-  if !text_equal(rt borrow descriptor.representation, v1_i64()) then
+  if !imports::text_equal(rt borrow descriptor.representation, v1_i64()) then
     return false;
   fi
   if !descriptor.validation_required then return false; fi
@@ -145,18 +145,18 @@ fnc checked_compiler_i64_once_v1(
   fi
   if !valid_qualified_type(rt borrow expected_qualified_type) ||
      !valid_sha256_hex(rt borrow expected_fingerprint) ||
-     !text_equal(rt borrow descriptor.qualified_type,
+     !imports::text_equal(rt borrow descriptor.qualified_type,
         rt borrow expected_qualified_type) ||
-     !text_equal(rt borrow descriptor.fingerprint,
+     !imports::text_equal(rt borrow descriptor.fingerprint,
         rt borrow expected_fingerprint) then
     return v1_rejected("CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH");
   fi
   // Reject over-budget wire lexemes before scanning/conversion; no float.
   if value.kind != 2 ||
-     value.number_lexeme.length > zorde_registry_max_number_bytes() then
+     value.number_lexeme.length > imports::zorde_registry_max_number_bytes() then
     return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
   fi
-  val IntParse decoded = parse_int(rt borrow value);
+  val IntParse decoded = imports::parse_int(rt borrow value);
   if !decoded.ok then
     return v1_rejected("CONSTRAINT_I64_INPUT_INVALID");
   fi

@@ -42,7 +42,7 @@ end
 
 pub fnc zorde_registry_max_entries(): int { return 64; }
 pub fnc zorde_registry_max_id_bytes(): int { return 128; }
-pub fnc zorde_registry_max_exclusions(): int { return zorde_core_max_exclusions(); }
+pub fnc zorde_registry_max_exclusions(): int { return imports::zorde_core_max_exclusions(); }
 // Parsing work is bounded before handing untrusted bytes to the canonical
 // UTF-8 scalar scanner or exact integer parser.
 pub fnc zorde_registry_max_string_bytes(): int { return 65536; }
@@ -110,7 +110,7 @@ pub fnc zorde_compile_scalar_registry(
     val Utf8Text owned_id = zorde_registry_copy_id(
       rt borrow candidate.schema_id
     );
-    val ZordeScalarDescriptor owned_descriptor = zorde_scalar_descriptor(
+    val ZordeScalarDescriptor owned_descriptor = imports::zorde_scalar_descriptor(
       candidate.descriptor.version,
       candidate.descriptor.kind,
       candidate.descriptor.property,
@@ -131,24 +131,24 @@ pub fnc zorde_compile_scalar_registry(
         "registry_complexity", "snapshotted exclusion list exceeds the limit"
       ));
     fi
-    if !zorde_scalar_descriptor_valid(rt borrow owned_descriptor) then
+    if !imports::zorde_scalar_descriptor_valid(rt borrow owned_descriptor) then
       return Err(zorde_registry_error(
         "invalid_descriptor", "noncanonical or unsupported scalar descriptor"
       ));
     fi
 
     for const prior of compiled do
-      if text_equal(rt borrow prior.schema_id, rt borrow owned_id) then
+      if imports::text_equal(rt borrow prior.schema_id, rt borrow owned_id) then
         return Err(zorde_registry_error(
           "duplicate_schema_id", "schema identifier is present more than once"
         ));
       fi
     done
 
-    val ZordeScalarRule compiled_rule = zorde_scalar_rule_from_descriptor(
+    val ZordeScalarRule compiled_rule = imports::zorde_scalar_rule_from_descriptor(
       rt borrow owned_descriptor
     );
-    if !zorde_scalar_rule_valid(rt borrow compiled_rule) then
+    if !imports::zorde_scalar_rule_valid(rt borrow compiled_rule) then
       return Err(zorde_registry_error(
         "invalid_compiled_rule", "canonical scalar compilation was refused"
       ));
@@ -178,7 +178,7 @@ pub fnc zorde_registry_parse_scalar(
   // denial regardless of malicious payload size or representation. This
   // prevents unknown selectors from triggering unrelated work or diagnostics.
   for const entry of registry.entries do
-    if text_equal(rt borrow entry.schema_id, rt borrow schema_id) then
+    if imports::text_equal(rt borrow entry.schema_id, rt borrow schema_id) then
       // Only the selected registered scalar reaches the canonical kernel.
       // Bound untrusted byte scans before exact integer parsing or UTF-8
       // Unicode scalar counting. Do not recursively inspect child collections.
@@ -192,7 +192,7 @@ pub fnc zorde_registry_parse_scalar(
           "payload_limit", "UTF-8 scalar input exceeds the configured byte budget"
         ));
       fi
-      return zorde_parse_scalar_metric(rt borrow value, rt borrow entry.rule);
+      return imports::zorde_parse_scalar_metric(rt borrow value, rt borrow entry.rule);
     fi
   done
   return Err(zorde_registry_error(
