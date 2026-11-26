@@ -2,12 +2,23 @@
 // Deliberately independent of floating-point Zorde range comparison.
 import fnc require_true from './assert';
 import class Value, IntParse from '../src/core/value';
-import fnc value_int, value_number_lexeme, parse_int, int_to_decimal_bytes, bytes_equal from '../src/core/value';
+import fnc value_int, value_number_lexeme, parse_int, int_to_decimal_bytes from '../src/core/value';
 
 fnc check_round_trip(int n, List<int> expected): void {
   val List<int> bytes = imports::int_to_decimal_bytes(n);
-  imports::require_true(imports::bytes_equal(rt borrow bytes, rt borrow expected),
-    "signed integer must encode as exact canonical decimal bytes");
+  // Compare read-only elements directly: the legacy by-value bytes_equal ABI
+  // does not admit explicit Borrow<List<int>> on the current Java backend.
+  imports::require_true(bytes.length == expected.length,
+    "signed integer canonical decimal byte count");
+  let int i = 0;
+  loop do
+    if i >= expected.length then
+      break;
+    fi
+    imports::require_true(bytes[i] == expected[i],
+      "signed integer must encode as exact canonical decimal bytes");
+    i = i + 1;
+  done
   val IntParse parsed = imports::parse_int(imports::value_int(n));
   imports::require_true(parsed.ok, "encoded int64 must decode as exact integer");
   imports::require_true(parsed.value == n, "round-trip must preserve exact int64 bits");
