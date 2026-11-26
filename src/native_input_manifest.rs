@@ -36,7 +36,7 @@ fn dirs(p:&Path)->Result<()>{
 fn stamp(m:&fs::Metadata)->(u64,u64,u64,u64,u32,u32,i64,i64,i64,i64){
     (m.dev(),m.ino(),m.len(),m.nlink(),m.uid(),m.mode(),m.mtime(),m.mtime_nsec(),m.ctime(),m.ctime_nsec())
 }
-fn read(p:&Path,limit:usize)->Result<Vec<u8>>{
+pub(crate) fn read(p:&Path,limit:usize)->Result<Vec<u8>>{
     dirs(p.parent().ok_or("missing parent")?)?;
     let before=io(fs::symlink_metadata(p))?;
     need(before.is_file()&&before.nlink()==1&&before.uid()==uid()&&before.len()>0&&before.len()<=limit as u64,"unsafe or oversized input")?;
@@ -166,11 +166,14 @@ pub fn capture(root:&Path,out:&Path)->Result<String>{
 /// corpus membership and hashes. No caller-supplied path is dereferenced
 /// from JSON. Duplicate keys and trailing JSON are rejected.
 pub fn recheck(root:&Path,out:&Path,digest:&str)->Result<()>{
+    verified_manifest(root,out,digest).map(|_|())
+}
+pub(crate) fn verified_manifest(root:&Path,out:&Path,digest:&str)->Result<Value>{
     evidence_path(root,out)?;
     let raw=read(out,1024*1024)?;
     need(sha256_bounded(&raw,1024*1024)?==digest,"manifest digest mismatch")?;
     let mut d=serde_json::Deserializer::from_slice(&raw);
     let expected=Unique::deserialize(&mut d).map_err(|e|e.to_string())?.0;
     d.end().map_err(|e|e.to_string())?;
-    need(build(root)?==expected,"guest input or import closure changed")
+    need(build(root)?==expected,"guest input or import closure changed")?;Ok(expected)
 }

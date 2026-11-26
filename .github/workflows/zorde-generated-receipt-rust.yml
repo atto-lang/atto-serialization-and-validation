@@ -1,0 +1,27 @@
+name: Rust generated guest receipt candidate
+on:
+  pull_request:
+    paths: ['src/native_receipt.rs','src/bin/zorde-generated-receipt.rs','tests/native_receipt.rs','src/native_input_manifest.rs','scripts/zorde-isolated.rs','scripts/verify-zorde-checkout.rs','.github/workflows/zorde-generated-receipt-rust.yml']
+permissions:
+  contents: read
+jobs:
+  receipt-host-only:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Exact-head synthetic receipt and manifest tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          cargo +1.88.0 test --locked --test native_receipt --test native_input_manifest --verbose
+          cargo +1.88.0 test --locked --lib native_receipt:: --verbose
+          cargo +1.88.0 build --locked --bin zorde-generated-receipt
+          echo NATIVE_COMPILER_NOT_EXECUTED

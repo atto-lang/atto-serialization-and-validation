@@ -150,3 +150,15 @@ mod tests{
         for bad in [&[b'A';40][..],&[b'a';39],&[b'a';41],&[b'g';40]]{assert!(!sha(bad));}
     }
 }
+
+// Generated artifacts are not tracked. This mode verifies all tracked
+// bytes, not the complete physical inventory; the native harness must
+// separately admit generated/untracked files.
+pub(crate) fn verify_tracked(root:&Path,commit:&str,tree:&str)->Result<usize>{
+    require(io(fs::symlink_metadata(root.join(".git")))?.is_dir(),"Git metadata must be a real directory")?;
+    identity(root,commit,tree)?;
+    let list=git_bytes(root,&["ls-tree","-rz","--full-tree",tree],16*1024*1024)?;
+    let entries=entries(&list)?;let mut total=0;
+    for e in &entries{hash_file(root,e,&mut total)?;}
+    identity(root,commit,tree)?;Ok(entries.len())
+}
