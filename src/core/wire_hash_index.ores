@@ -2,12 +2,13 @@
 // No Map<int,List<int>>, no exposed mutable backing storage, no raw pointers.
 // The caller must charge storage for capacity before construction and charge
 // semantic key comparison separately; this index meters every chain step.
-// This is not yet wired into the production codecs.
+// JSON candidate uses this index; other dynamic codecs still require migration.
 pub define class WireHashIndex as
   let mut List<int> heads;
   let mut List<int> links;
   let mut List<int> hashes;
   val int capacity;
+  val int slots;
   let int remaining;
 
   pub constructor(int capacity, int work_budget) {
@@ -17,17 +18,37 @@ pub define class WireHashIndex as
       bounded = 0;
     fi
     self.capacity = bounded;
+    self.slots = bounded > 256 ? 256 : bounded;
     self.remaining = work_budget;
     self.heads = new List<int>();
     self.links = new List<int>();
     self.hashes = new List<int>();
     let int i = 0;
     loop do
-      if i >= bounded then break; fi
+      if i >= self.slots then break; fi
       self.heads.add(-1);
       i = i + 1;
     done
     return;
+  }
+
+  // Caller carries the remaining operation budget across nested indices.
+  pub work_left(): int { return self.remaining; }
+  pub limit_work(mut self)(int available): void {
+    if available < 0 then
+      self.remaining = 0;
+    elseif available < self.remaining then
+      self.remaining = available;
+    fi
+    return;
+  }
+  pub charge_work(mut self)(int cost): bool {
+    if cost < 0 || cost > self.remaining then
+      self.remaining = 0;
+      return false;
+    fi
+    self.remaining = self.remaining - cost;
+    return true;
   }
 
   // Each stored index is the next sequential member index. A failed
@@ -36,7 +57,7 @@ pub define class WireHashIndex as
     if self.capacity == 0 || self.links.length >= self.capacity then
       return -1;
     fi
-    val int slot = Integer.mod(hash, self.capacity);
+    val int slot = Integer.mod(hash, self.slots);
     val int index = self.links.length;
     self.links.add(self.heads[slot]);
     self.hashes.add(hash);
@@ -53,7 +74,7 @@ pub define class WireHashIndex as
     fi
     let int cursor = -1;
     if after == -1 then
-      cursor = self.heads[Integer.mod(hash, self.capacity)];
+      cursor = self.heads[Integer.mod(hash, self.slots)];
     else
       if self.hashes[after] != hash then return -2; fi
       cursor = self.links[after];

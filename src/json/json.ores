@@ -6,7 +6,7 @@
 
 import class Value, Utf8Text, WireMember from '../core/value';
 import fnc value_null, value_bool, value_number_lexeme, value_string, value_array, value_object from '../core/value';
-import fnc bytes_equal, text_hash from '../core/value';
+import class WireHashIndex from '../core/wire_hash_index';
 import fnc utf8_expected_width, utf8_prefix_status, utf8_sequence_length, utf8_is_valid, utf8_codepoint_count, utf8_append_codepoint from '../core/utf8';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt, DecodeStep from '../core/options';
 import fnc default_decode_options, empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
@@ -17,6 +17,8 @@ define class JsonCursor as
   pub let int index;
   pub let bool failed;
   pub let bool incomplete;
+  pub let int key_work_remaining;
+  pub let int key_storage_remaining;
   pub let DecodeError error;
 end
 
@@ -24,6 +26,8 @@ define class JsonWriter as
   pub let List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
+  pub let int key_work_remaining;
+  pub let int key_storage_remaining;
   pub let EncodeError error;
 end
 
@@ -759,65 +763,75 @@ fnc parse_number(JsonCursor mut cursor): Value {
   return value_number_lexeme(lexeme);
 }
 
-fnc member_index(
-  List<WireMember> members,
-  Map<int, List<int>> buckets,
-  Utf8Text key
-): int {
-  let int hash = text_hash(key);
-
-  if !buckets.contains(hash) then
-    return -1;
-  fi
-
-  val List<int> candidates = buckets.get(hash);
-  for const index of candidates do
-    if bytes_equal(members[index].key.bytes, key.bytes) then
-      return index;
-    fi
-  done
-
-  return -1;
-}
-
-fnc remember_member(
-  Map<int, List<int>> buckets,
-  Utf8Text key,
-  int index
-): void {
-  let int hash = text_hash(key);
-
-  if buckets.contains(hash) then
-    val List<int> candidates = buckets.get(hash);
-    candidates.add(index);
-    return;
-  fi
-
-  val List<int> candidates = new List<int>();
-  candidates.add(index);
-  buckets.set(hash, candidates);
-  return;
-}
-
-fnc object_keys_unique(List<WireMember> members): bool {
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
+// Collision work and logical index slots are cumulative per operation.
+// The polynomial uses bounded arithmetic; equality remains byte-exact.
+fnc json_key_hash(borrow Utf8Text key): int {
+  let int hash = 0;
   let int i = 0;
-
   loop do
-    if i >= members.length then
-      break;
-    fi
-
-    let WireMember member = members[i];
-    if member_index(members, buckets, member.key) >= 0 then
-      return false;
-    fi
-
-    remember_member(buckets, member.key, i);
+    if i >= key.bytes.length then break; fi
+    hash = Integer.mod(hash * 257 + key.bytes[i], 2147483647);
     i = i + 1;
   done
+  return hash;
+}
 
-  return true;
+fnc member_index(
+  borrow List<WireMember> members,
+  borrow mut WireHashIndex buckets,
+  borrow Utf8Text key,
+  int hash
+): int {
+  let int after = -1;
+  loop do
+    let int index = buckets.find(hash, after);
+    if index < 0 then return index; fi
+    // Charge conservative full byte comparison cost, before reading either key.
+    if !buckets.charge_work(1 + members[index].key.bytes.length + key.bytes.length) then
+      return -2;
+    fi
+    if members[index].key.bytes.length == key.bytes.length then
+      let bool equal = true;
+      let int n = 0;
+      loop do
+        if n >= key.bytes.length then break; fi
+        if members[index].key.bytes[n] != key.bytes[n] then
+          equal = false;
+          break;
+        fi
+        n = n + 1;
+      done
+      if equal then return index; fi
+    fi
+    after = index;
+  done
+  return -2;
+}
+
+// 1 unique, 0 duplicate, -1 resource budget exhausted.
+fnc object_keys_unique(JsonWriter mut writer, borrow List<WireMember> members): int {
+  val int count = members.length;
+  if count == 0 then return 1; fi
+  if count > 1000000 then return -1; fi
+  val int slots = count > 256 ? 256 : count;
+  if slots > writer.key_storage_remaining then return -1; fi
+  writer.key_storage_remaining = writer.key_storage_remaining - slots;
+  val WireHashIndex buckets = new WireHashIndex(count, writer.key_work_remaining);
+  let int i = 0;
+  loop do
+    if i >= count then break; fi
+    if !buckets.charge_work(1 + members[i].key.bytes.length) then return -1; fi
+    val int hash = json_key_hash(rt borrow members[i].key);
+    val int found = member_index(rt borrow members, rt mut borrow buckets, rt borrow members[i].key, hash);
+    if found == -2 then return -1; fi
+    if found >= 0 then return 0; fi
+    if writer.key_storage_remaining < 2 then return -1; fi
+    writer.key_storage_remaining = writer.key_storage_remaining - 2;
+    if buckets.insert(hash) != i then return -1; fi
+    i = i + 1;
+  done
+  writer.key_work_remaining = buckets.work_left();
+  return 1;
 }
 
 
@@ -874,8 +888,6 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
   val List<WireMember> members = new List<WireMember>();
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
-
   expect_byte(cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
     return value_object(members);
@@ -887,6 +899,14 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     cursor.index = cursor.index + 1;
     return value_object(members);
   fi
+  val int capacity = cursor.options.max_map_entries;
+  val int slots = capacity > 256 ? 256 : capacity;
+  if capacity == 0 || slots > cursor.key_storage_remaining then
+    fail(cursor, "map_complexity_limit", "JSON key index storage budget exhausted");
+    return value_object(members);
+  fi
+  cursor.key_storage_remaining = cursor.key_storage_remaining - slots;
+  val WireHashIndex buckets = new WireHashIndex(capacity, cursor.key_work_remaining);
 
   loop do
     if members.length >= cursor.options.max_map_entries then
@@ -918,7 +938,19 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       return value_object(members);
     fi
 
-    let int existing = member_index(members, buckets, key);
+    // Nested field decoding may have consumed the shared operation budget.
+    buckets.limit_work(cursor.key_work_remaining);
+    if !buckets.charge_work(1 + key.bytes.length) then
+      fail(cursor, "map_complexity_limit", "JSON key hashing budget exhausted");
+      return value_object(members);
+    fi
+    val int hash = json_key_hash(rt borrow key);
+    let int existing = member_index(rt borrow members, rt mut borrow buckets, rt borrow key, hash);
+    cursor.key_work_remaining = buckets.work_left();
+    if existing == -2 then
+      fail(cursor, "map_complexity_limit", "JSON key collision budget exhausted");
+      return value_object(members);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(cursor, "duplicate_key", "duplicate JSON object key");
@@ -929,8 +961,12 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       // first_wins intentionally does not append or replace.
     else
       let int index = members.length;
+      if cursor.key_storage_remaining < 2 || buckets.insert(hash) != index then
+        fail(cursor, "map_complexity_limit", "JSON key index storage budget exhausted");
+        return value_object(members);
+      fi
+      cursor.key_storage_remaining = cursor.key_storage_remaining - 2;
       members.add(new WireMember(key, field_value));
-      remember_member(buckets, key, index);
     fi
 
     skip_whitespace(cursor);
@@ -1041,12 +1077,15 @@ pub fnc decode_attempt(
   // immutable scalar facts required by the trailing-data check.
   val int input_length = input.length;
   val bool allow_trailing_data = options.allow_trailing_data;
+  val int key_budget = input_length > 8000000 ? 8000000 : 256 + input_length * 8;
   let JsonCursor cursor = new JsonCursor(
     input,
     options,
     0,
     false,
     false,
+    key_budget > 8000000 ? 8000000 : key_budget,
+    key_budget > 8000000 ? 8000000 : key_budget,
     empty_decode_error()
   );
 
@@ -1110,6 +1149,8 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     0,
     false,
     false,
+    0,
+    0,
     empty_decode_error()
   );
 
@@ -1298,7 +1339,12 @@ fnc encode_value(JsonWriter mut writer, Value value, int depth): void {
   fi
 
   if value.kind == 6 then
-    if !object_keys_unique(value.object_value) then
+    let int unique = object_keys_unique(writer, rt borrow value.object_value);
+    if unique < 0 then
+      writer_fail(writer, "map_complexity_limit", "JSON key index work or storage budget exhausted");
+      return;
+    fi
+    if unique == 0 then
       writer_fail(writer, "duplicate_key", "cannot encode JSON object with duplicate keys");
       return;
     fi
@@ -1341,10 +1387,13 @@ pub fnc encode(
     return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
   fi
 
+  val int key_budget = options.max_output_bytes > 1000000 ? 8000000 : 256 + options.max_output_bytes * 8;
   let JsonWriter writer = new JsonWriter(
     new List<int>(),
     options,
     false,
+    key_budget > 8000000 ? 8000000 : key_budget,
+    key_budget > 8000000 ? 8000000 : key_budget,
     new EncodeError("", "")
   );
 

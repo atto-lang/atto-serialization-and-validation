@@ -21,6 +21,16 @@ pub fnc main(): void {
   imports::require_int(limited.find(3, -1), -2, "budget cannot reset");
   val WireHashIndex disabled = new WireHashIndex(1000001, 1);
   imports::require_int(disabled.insert(0), -1, "invalid capacity disabled");
+  val WireHashIndex nested = new WireHashIndex(1024, 10);
+  imports::require_int(nested.insert(7), 0, "large capacity first");
+  imports::require_int(nested.insert(263), 1, "large capacity slot collision");
+  nested.limit_work(3);
+  imports::require_int(nested.find(7, -1), 0, "bounded head table collision");
+  imports::require_int(nested.work_left(), 1, "two steps charged");
+  imports::require_int(nested.charge_work(1) ? 1 : 0, 1, "semantic compare charge");
+  nested.limit_work(100);
+  imports::require_int(nested.work_left(), 0, "operation budget cannot increase");
+  imports::require_int(nested.find(7, -1), -2, "exhausted traversal fails closed");
   stdio.stdout.println("isolated wire hash index guest passed");
   return;
 }
