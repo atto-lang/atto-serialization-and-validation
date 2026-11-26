@@ -6,7 +6,7 @@ import fnc value_int, value_number_lexeme, parse_int, int_to_decimal_bytes, byte
 
 fnc check_round_trip(int n, List<int> expected): void {
   val List<int> bytes = imports::int_to_decimal_bytes(n);
-  imports::require_true(imports::bytes_equal(rt borrow bytes, rt borrow expected),
+  imports::require_true(imports::bytes_equal(bytes, expected),
     "signed integer must encode as exact canonical decimal bytes");
   val IntParse parsed = imports::parse_int(imports::value_int(n));
   imports::require_true(parsed.ok, "encoded int64 must decode as exact integer");
