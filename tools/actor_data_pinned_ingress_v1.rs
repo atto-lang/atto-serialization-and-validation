@@ -5,11 +5,12 @@
 #[path="actor_data_cbor_preflight_v1.rs"] pub mod cbor;
 #[path="actor_data_protobuf_recursive_v1.rs"] pub mod proto;
 #[path="actor_data_mailbox_credits_v1.rs"] pub mod mailbox;
+#[path="actor_data_flatbuffers_scalar_v1.rs"] pub mod flat;
 
 use std::sync::{Arc, Mutex, TryLockError};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation, Expansion, Session, Sequence, SequenceExhausted, Work }
+pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Flat(flat::Reject), Mailbox(mailbox::Reject), Allocation, Expansion, Session, Sequence, SequenceExhausted, Work }
 
 pub struct VerifiedMetadata<'a> {
     pub codec: &'a str, pub version: u32, pub schema: &'a str,
@@ -18,6 +19,7 @@ pub struct VerifiedMetadata<'a> {
 enum Decoder<'a> {
     Cbor(&'a cbor::Shape<'a>, cbor::Limits),
     Protobuf(&'a proto::Schema<'a>, proto::Limits),
+    Flat(&'a [flat::Kind], flat::Limits),
 }
 pub struct Endpoint<'a> {
     binding: policy::Binding<'a>, generation:u64,
@@ -25,7 +27,7 @@ pub struct Endpoint<'a> {
 }
 /// Owned host wire values only; not a nominal guest ADT or actor authority.
 #[derive(Debug, PartialEq)]
-pub enum MaterializedValue { Cbor(cbor::Value), Protobuf(Vec<proto::FieldValue>) }
+pub enum MaterializedValue { Cbor(cbor::Value), Protobuf(Vec<proto::FieldValue>), Flat(Vec<flat::Value>) }
 /// The value drops before the retained wire/expansion lease. No Clone or
 /// into_value API. Trusted consumers must separately account their own copies.
 pub struct MaterializedDelivery {
@@ -76,6 +78,17 @@ impl<'a> Endpoint<'a> {
                     mailbox:mailbox::Mailbox)->Result<Self,Reject>{
         Self::register("protobuf",2,schema,version,digest,allowed,generation,Decoder::Protobuf(shape,limits),mailbox)
     }
+    /// Restricted scalar-table profile; no borrowed zero-copy views.
+    /// Endpoint work cap covers both passes plus the owned wire copy.
+    pub fn flatbuffers_scalar(schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
+                              generation:u64,shape:&'a [flat::Kind],limits:flat::Limits,
+                              mailbox:mailbox::Mailbox)->Result<Self,Reject>{
+        // Validate wire, logical and descriptor caps using the per-pass
+        // profile. The endpoint's total cap may exceed the single-pass cap.
+        let work=pass_work_cap(limits.work,0)?.min(65536);
+        flat::validate_profile(shape,flat::Limits{work,..limits}).map_err(Reject::Flat)?;
+        Self::register("flatbuffers",8,schema,version,digest,allowed,generation,Decoder::Flat(shape,limits),mailbox)
+    }
     #[allow(clippy::too_many_arguments)]
     fn register(codec:&str,supported:u8,schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
                 generation:u64,decoder:Decoder<'a>,mailbox:mailbox::Mailbox)->Result<Self,Reject>{
@@ -101,6 +114,11 @@ impl<'a> Endpoint<'a> {
             Decoder::Protobuf(shape,mut limits)=>{
                 limits.work=pass_work_cap(limits.work,bytes.len())?;
                 let usage=proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?;
+                (usage.logical,usage.work)
+            }
+            Decoder::Flat(shape,mut limits)=>{
+                limits.work=pass_work_cap(limits.work,bytes.len())?.min(65536);
+                let usage=flat::preflight(bytes,shape,limits).map_err(Reject::Flat)?;
                 (usage.logical,usage.work)
             }
         };
@@ -164,6 +182,14 @@ impl<'a> Endpoint<'a> {
                 if usage.work!=planned_work { return Err(Reject::Work); }
                 MaterializedValue::Protobuf(value)
             }
+            Decoder::Flat(shape,mut limits)=>{
+                limits.logical=limits.logical.min(credit);
+                limits.work=limits.work.min(planned_work);
+                let (value,usage)=flat::decode(delivery.bytes(),shape,limits).map_err(Reject::Flat)?;
+                if usage.logical!=credit { return Err(Reject::Expansion); }
+                if usage.work!=planned_work { return Err(Reject::Work); }
+                MaterializedValue::Flat(value)
+            }
         };
         self.mailbox.check_generation(self.generation).map_err(Reject::Mailbox)?;
         Ok(Some(MaterializedDelivery{value,delivery,generation:self.generation}))
@@ -202,6 +228,13 @@ impl<'a> SequencedEndpoint<'a> {
                     generation:u64,shape:&'a proto::Schema<'a>,limits:proto::Limits,
                     mailbox:mailbox::Mailbox,session:[u8;32])->Result<Self,Reject> {
         Self::register(Endpoint::protobuf(schema,version,digest,allowed,generation,shape,limits,mailbox)?,session)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn flatbuffers_scalar(schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
+                             generation:u64,shape:&'a [flat::Kind],limits:flat::Limits,
+                             mailbox:mailbox::Mailbox,session:[u8;32])->Result<Self,Reject>{
+        Self::register(Endpoint::flatbuffers_scalar(schema,version,digest,allowed,generation,shape,limits,mailbox)?,session)
     }
 
     /// A sequence is consumed only after successful mailbox publication.
@@ -624,6 +657,98 @@ mod tests {
         assert!(matches!(e.receive_materialized(),Err(Reject::Work)));
         assert_eq!(t.usage().unwrap(),(0,0));
         assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+
+    const FB_SHAPE:[flat::Kind;1]=[flat::Kind::Bool];
+    const FB:[u8;20]=[12,0,0,0,6,0,8,0,4,0,0,0,8,0,0,0,1,0,0,0];
+    fn fl()->flat::Limits{flat::Limits{wire:64,logical:256,work:92}}
+    #[test] fn flatbuffers_exact_cumulative_work_and_expansion(){
+        let plan=flat::preflight(&FB,&FB_SHAPE,fl()).unwrap();
+        assert_eq!(plan,flat::Usage{logical:256,work:36});
+        assert_eq!(2*plan.work+FB.len(),92);
+        let t=mailbox::TenantBudget::new_with_expansion(64,4,256).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        for limits in [flat::Limits{work:91,..fl()},flat::Limits{logical:255,..fl()},flat::Limits{wire:19,..fl()}]{
+            let e=Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,limits,m.clone()).unwrap();
+            assert_eq!(e.admit_after_authentication(&meta("flatbuffers"),&FB),Err(Reject::Flat(flat::Reject::Budget)));
+            assert_eq!(t.usage().unwrap(),(0,0));
+            assert_eq!(t.expansion_usage().unwrap(),0);
+        }
+        let e=Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,fl(),m.clone()).unwrap();
+        let mut input=FB;
+        e.admit_after_authentication(&meta("flatbuffers"),&input).unwrap();
+        input[16]=0;
+        assert_ne!(input,FB);
+        let v=e.receive_materialized().unwrap().unwrap();
+        assert_eq!(v.value(),&MaterializedValue::Flat(vec![flat::Value::Bool(true)]));
+        assert_eq!(v.delivery.planned_work(),36);
+        assert_eq!(v.expansion_credit(),256);
+        assert_eq!(t.usage().unwrap(),(20,1));
+        assert_eq!(t.expansion_usage().unwrap(),256);
+        drop(v);
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn flatbuffers_sequence_rollback_cancel_and_generation_fence(){
+        let t=mailbox::TenantBudget::new_with_expansion(64,2,256).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let e=SequencedEndpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,fl(),m.clone(),SESSION).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",1),&FB),Err(Reject::Binding(policy::Reject::Mismatch)));
+        let mut bad=FB;bad[16]=2;
+        for _ in 0..2{
+            assert_eq!(e.admit_after_authentication(&seq_meta("flatbuffers",1),&bad),Err(Reject::Flat(flat::Reject::Scalar)));
+            assert_eq!(t.usage().unwrap(),(0,0));
+            assert_eq!(t.expansion_usage().unwrap(),0);
+        }
+        e.admit_after_authentication(&seq_meta("flatbuffers",1),&FB).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("flatbuffers",1),&FB),Err(Reject::Sequence));
+        let delivery=e.begin_suspended_receive().unwrap().unwrap();
+        assert_eq!(delivery.value().unwrap(),&MaterializedValue::Flat(vec![flat::Value::Bool(true)]));
+        assert_eq!(e.admit_after_authentication(&seq_meta("flatbuffers",2),&FB),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        delivery.cancellation().cancel();
+        assert!(matches!(delivery.value(),Err(Reject::Mailbox(mailbox::Reject::Cancelled))));
+        assert_eq!(m.restart(1),Err(mailbox::Reject::Busy));
+        assert_eq!(m.close(),Err(mailbox::Reject::Busy));
+        assert_eq!(t.expansion_usage().unwrap(),256);
+        drop(delivery);
+        e.admit_after_authentication(&seq_meta("flatbuffers",2),&FB).unwrap();
+        assert_eq!(e.dispatch_next(|v|{
+            assert_eq!(v,&MaterializedValue::Flat(vec![flat::Value::Bool(true)]));
+            assert_eq!(m.restart(1),Err(mailbox::Reject::Busy));
+        }),Ok(true));
+        assert_eq!(m.restart(1),Ok(2));
+        assert_eq!(e.admit_after_authentication(&seq_meta("flatbuffers",3),&FB),Err(Reject::Mailbox(mailbox::Reject::Stale)));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn flatbuffers_shares_tenant_expansion_and_endpoint_binding(){
+        let cshape=cbor::Shape::Bool;
+        let cc=cbor::preflight_materialization(&[0xf5],cl(),&cshape).unwrap().expanded;
+        let t=mailbox::TenantBudget::new_with_expansion(128,4,256+cc-1).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let other=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let e=Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,fl(),m.clone()).unwrap();
+        let impostor=Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,fl(),m.clone()).unwrap();
+        let c=Endpoint::cbor("order.v1",1,H,4,1,&cshape,cl(),other.clone()).unwrap();
+        e.admit_after_authentication(&meta("flatbuffers"),&FB).unwrap();
+        assert!(matches!(impostor.receive_materialized(),Err(Reject::Mailbox(mailbox::Reject::Binding))));
+        assert_eq!(m.usage().unwrap(),(20,1));
+        let d=e.receive_materialized().unwrap().unwrap();
+        assert_eq!(c.admit_after_authentication(&meta("cbor"),&[0xf5]),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        assert_eq!(other.usage().unwrap(),(0,0));
+        drop(d);
+        c.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap();
+        other.close().unwrap();
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn flatbuffers_registration_refuses_invalid_profiles(){
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        assert!(matches!(Endpoint::flatbuffers_scalar("order.v1",1,H,4,1,&FB_SHAPE,fl(),m.clone()),Err(Reject::Binding(policy::Reject::Denied))));
+        for shape in [&[][..],&[flat::Kind::Bool;65][..]]{
+            assert!(matches!(Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,shape,fl(),m.clone()),Err(Reject::Flat(flat::Reject::Limits))));
+        }
+        assert!(matches!(Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,flat::Limits{work:usize::MAX,..fl()},m.clone()),Err(Reject::Work)));
+        assert!(matches!(SequencedEndpoint::flatbuffers_scalar("order.v1",1,H,8,1,&FB_SHAPE,fl(),m.clone(),[0;32]),Err(Reject::Session)));
     }
 
 }
