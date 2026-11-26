@@ -7,6 +7,51 @@ import fnc default_decode_options, default_encode_options from '../src/core/opti
 import fnc encode, decode from '../src/messagepack/messagepack';
 
 pub fnc run_messagepack_tests(): void {
+
+  // Shared typed-method candidate vector; dynamic codec only, not typed lowering.
+  val List<WireMember> user_members = new List<WireMember>();
+  user_members.add(new WireMember(
+    new Utf8Text(new List<int>(100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101)),
+    value_string(new Utf8Text(new List<int>(65, 108, 101, 120)))
+  ));
+  user_members.add(new WireMember(new Utf8Text(new List<int>(97, 103, 101)), value_int(42)));
+  val Value user_wire = value_object(user_members);
+  val List<int> user_golden = new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42);
+  val Result<List<int>, EncodeError> user_encoded = encode(rt borrow user_wire, default_encode_options());
+  require_true(!user_encoded.is_err(), "User MessagePack object must encode");
+  val List<int> user_bytes = user_encoded.unwrap();
+  require_int(user_bytes.length, user_golden.length, "User MessagePack golden length");
+  let int user_index = 0;
+  loop do
+    if user_index >= user_golden.length then
+      break;
+    fi
+    require_int(user_bytes[user_index], user_golden[user_index], "User MessagePack golden byte");
+    user_index = user_index + 1;
+  done
+  val Result<DecodedValue, DecodeError> user_decoded = decode(user_bytes, default_decode_options());
+  require_true(!user_decoded.is_err(), "User MessagePack golden must decode");
+  val DecodedValue user_value = user_decoded.unwrap();
+  require_int(user_value.consumed, user_golden.length, "User MessagePack full frame");
+  require_true(value_deep_equal(user_wire, user_value.value), "User MessagePack exact logical roundtrip");
+
+  val Result<DecodedValue, DecodeError> user_duplicate = decode(
+    new List<int>(131, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42, 163, 97, 103, 101, 43),
+    default_decode_options()
+  );
+  require_true(user_duplicate.is_err(), "User MessagePack duplicate age must reject");
+  val Result<DecodedValue, DecodeError> user_trailing = decode(
+    new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42, 0),
+    default_decode_options()
+  );
+  require_true(user_trailing.is_err(), "User MessagePack suffix must reject");
+  val Result<DecodedValue, DecodeError> user_truncated = decode(
+    new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101),
+    default_decode_options()
+  );
+  require_true(user_truncated.is_err(), "User MessagePack truncated field must reject");
+
+
   val List<Value> values = new List<Value>();
   values.add(value_int(7));
   values.add(value_bool(true));
