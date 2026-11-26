@@ -11,7 +11,7 @@ import fnc bytes_equal from '../core/value';
 import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
-import fnc byte_list_valid, byte_range_fits from '../core/bytes';
+import fnc byte_list_valid, byte_range_fits, wire_floor_div from '../core/bytes';
 
 define class MsgpackCursor as
   pub val List<int> input;
@@ -638,12 +638,12 @@ fnc append_uint_be(
       break;
     fi
 
-    let int byte = remaining / divisor;
+    let int byte = wire_floor_div(remaining, divisor);
     append_byte(writer, byte);
-    remaining = remaining % divisor;
+    remaining = Integer.rem(remaining, divisor);
 
     if divisor > 1 then
-      divisor = divisor / 256;
+      divisor = wire_floor_div(divisor, 256);
     fi
 
     j = j + 1;
@@ -665,13 +665,10 @@ fnc append_signed64(
       break;
     fi
 
-    let int byte = current % 256;
-    if byte < 0 then
-      byte = byte + 256;
-    fi
+    val int byte = Integer.mod(current, 256);
 
     reversed.add(byte);
-    current = (current - byte) / 256;
+    current = wire_floor_div(current, 256);
     i = i + 1;
   done
 

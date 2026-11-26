@@ -4,6 +4,7 @@
 // to host/JVM strings. These helpers are format-neutral.
 
 import fnc utf8_scalar_count from './utf8_scalar';
+import fnc wire_floor_div from './bytes';
 
 pub fnc utf8_expected_width(int first): int {
   if first >= 0 && first < 128 then
@@ -116,21 +117,21 @@ pub fnc utf8_append_codepoint(
   fi
 
   if codepoint <= 2047 then
-    output.add(192 + (codepoint / 64));
-    output.add(128 + (codepoint % 64));
+    output.add(192 + wire_floor_div(codepoint, 64));
+    output.add(128 + Integer.rem(codepoint, 64));
     return true;
   fi
 
   if codepoint <= 65535 then
-    output.add(224 + (codepoint / 4096));
-    output.add(128 + ((codepoint / 64) % 64));
-    output.add(128 + (codepoint % 64));
+    output.add(224 + wire_floor_div(codepoint, 4096));
+    output.add(128 + Integer.rem(wire_floor_div(codepoint, 64), 64));
+    output.add(128 + Integer.rem(codepoint, 64));
     return true;
   fi
 
-  output.add(240 + (codepoint / 262144));
-  output.add(128 + ((codepoint / 4096) % 64));
-  output.add(128 + ((codepoint / 64) % 64));
-  output.add(128 + (codepoint % 64));
+  output.add(240 + wire_floor_div(codepoint, 262144));
+  output.add(128 + Integer.rem(wire_floor_div(codepoint, 4096), 64));
+  output.add(128 + Integer.rem(wire_floor_div(codepoint, 64), 64));
+  output.add(128 + Integer.rem(codepoint, 64));
   return true;
 }
