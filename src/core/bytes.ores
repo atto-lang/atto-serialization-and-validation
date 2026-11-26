@@ -55,3 +55,37 @@ pub fnc wire_floor_div(int value, int divisor): int {
   if Integer.rem(value, divisor) != 0 then return quotient - 1; fi
   return quotient;
 }
+
+// Exact signed-int64 decimal bytes, shared by every dynamic wire codec.
+// A single output list: no temporary power-of-ten list, float conversion,
+// or absolute value of INT64_MIN. At most 19 places and 9 subtractions per place.
+pub fnc wire_int_to_decimal_bytes(int value): List<int> {
+  let mut List<int> output = new List<int>();
+  if value == 0 then
+    output.add(48);
+    return output;
+  fi
+  let int remaining = value;
+  if value < 0 then
+    output.add(45);
+  else
+    remaining = -value;
+  fi
+  let int place = 1000000000000000000;
+  let bool started = false;
+  loop do
+    let int digit = 0;
+    loop do
+      if remaining > -place then break; fi
+      remaining = remaining + place;
+      digit = digit + 1;
+    done
+    if digit != 0 || started then
+      started = true;
+      output.add(48 + digit);
+    fi
+    if place == 1 then break; fi
+    place = wire_floor_div(place, 10);
+  done
+  return output;
+}
