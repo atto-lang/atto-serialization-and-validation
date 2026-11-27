@@ -21,6 +21,38 @@ Each validation error should carry:
 
 Do not retain entire untrusted payloads in error objects.
 
+## Restricted email shape admission
+
+`is_email` and `zorde_email()` recognize a conservative ASCII dot-atom
+local part and DNS-like hostname labels, each limited to 63 bytes. Dot atoms
+must not contain unsupported punctuation or leading, trailing or repeated
+dots. Quoted local parts, internationalized mailboxes and complete RFC email
+syntax are out of scope. Validation is **not** proof of mailbox ownership,
+deliverability or authorization.
+
+## Direct validator request-work budgets
+
+Standalone `is_email` and `is_url` calls first reject over-budget byte
+sequences (**254** and **8,192 bytes** respectively), before any full-buffer
+ASCII scan. This is required even for caller-created dynamic values that
+have bypassed document decoder/graph preflight budgets. Checks are deliberately
+sequential, not dependent on compiler short-circuit evaluation.
+The limits are request-work bounds, not sender identity, URL destination
+authorization, DNS validation, or immutable type proofs.
+
+## Restricted HTTP(S) URL authority admission
+
+The `is_url`/`zorde_url` checker recognizes only an explicitly
+restricted ASCII absolute HTTP(S) URL shape. It rejects userinfo,
+backslashes, ambiguous/empty authority, malformed DNS-like host labels,
+noncanonical bracketed IPv6, unsupported IPv6 zone or dotted tails, and
+non-numeric/zero/out-of-range ports. Host labels have a 63-byte limit,
+DNS-like hostnames a 253-byte limit, and total input a 8,192-byte limit.
+Any syntactically accepted URL remains untrusted: this is not a complete
+RFC 3986/WHATWG parser, IP address authorization, DNS pinning, or SSRF
+protection. Consumers must apply separate URL normalization, destination
+allowlists and post-DNS resolution IP/routing policies.
+
 ## Core rules
 
 Presence:
