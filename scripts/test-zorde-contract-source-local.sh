@@ -28,8 +28,8 @@ done
 [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$EXPECTED_SOURCE_TREE" =~ ^[0-9a-f]{40}$ ]] || refuse 'invalid source SHA/tree'
 [[ "$EXPECTED_NODE_SHA256" =~ ^[0-9a-f]{64}$ ]] || refuse 'invalid approved Node SHA-256'
 # Exactly the same public TJSV version as the existing Zorde workflow.
-tjsv_sha=a9aa7e0a258a0514b433178842288ab798b0947c
-tjsv_tree=414047074b9358b81e79b5995a1dc4c1c5596a48
+tjsv_sha=f386c78e44c93309029e186799d926c652cb0d96
+tjsv_tree=643ebaf392a0585c18e5ad564e50471f087ae10b
 [[ "$NODE_BIN" == /* && -f "$NODE_BIN" && -x "$NODE_BIN" && ! -L "$NODE_BIN" ]] || refuse 'Node must be an absolute non-symlink executable'
 [[ "$TJSV_ROOT" == /* && -d "$TJSV_ROOT" && ! -L "$TJSV_ROOT" ]] || refuse 'TJSV must be an absolute directory, not a link'
 [[ "$ZORDE_EVIDENCE_DIR" == /* && -d "$ZORDE_EVIDENCE_DIR" && ! -L "$ZORDE_EVIDENCE_DIR" ]] || refuse 'private evidence directory must exist and be absolute'

@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 22.18.0
       - name: Admit two independent scalar authorities using locked TJSV
-        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: contracts/zorde/scalars.tsp
           schema: contracts/zorde/scalars.schema.json
@@ -80,7 +80,7 @@ jobs:
           console.log('TJSV_SCALAR_IR_PARITY_AND_INVENTORY_CONFIRMED (not native runtime proof)');
           JS
       - name: Independently rebuild and verify current Contract IR from the exact sources
-        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator/actions/verify-contract-ir@f386c78e44c93309029e186799d926c652cb0d96
         with:
           contract_ir: artifacts/zorde-scalars-contract-ir.json
           report: artifacts/zorde-scalars-parity.json
@@ -118,7 +118,7 @@ jobs:
       - name: Force semantic refusal and IR tombstone on mutated schema
         id: drift
         continue-on-error: true
-        uses: ORESoftware/typespec-json-schema-validator@a9aa7e0a258a0514b433178842288ab798b0947c
+        uses: ORESoftware/typespec-json-schema-validator@f386c78e44c93309029e186799d926c652cb0d96
         with:
           typespec: contracts/zorde/scalars.tsp
           schema: artifacts/zorde-scalars-mutant.schema.json

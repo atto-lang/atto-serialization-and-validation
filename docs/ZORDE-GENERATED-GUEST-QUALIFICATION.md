@@ -491,8 +491,8 @@ certify Graal/LLVM parity.
 
 The validator must be present in a separate, reviewed **public** Git
 checkout of `ORESoftware/typespec-json-schema-validator`, with commit
-`a9aa7e0a258a0514b433178842288ab798b0947c` and root tree
-`414047074b9358b81e79b5995a1dc4c1c5596a48`, identical to the
+`f386c78e44c93309029e186799d926c652cb0d96` and root tree
+`643ebaf392a0585c18e5ad564e50471f087ae10b`, identical to the
 pinned GitHub integration action. Dependencies must have been installed
 independently in that checkout using its locked package manager before
 execution. The driver requires Node **22.18+** (Node 22) and confirms the
