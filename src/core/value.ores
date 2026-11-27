@@ -233,36 +233,25 @@ pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
 }
 
 fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
-  if object.kind != 6 then
-    return -1;
-  fi
-
-  // The lookup key is owned by this function: never transfer it repeatedly
-  // to a by-value equality callable from inside a loop.
-  val List<int> search_bytes = key.bytes;
+  if object.kind != 6 then return -1; fi
   let int i = 0;
-  for const member of object.object_value do
-    val List<int> current_bytes = member.key.bytes;
-    if current_bytes.length == search_bytes.length then
+  loop do
+    if i >= object.object_value.length then break; fi
+    if object.object_value[i].key.bytes.length == key.bytes.length then
       let bool equal = true;
       let int j = 0;
       loop do
-        if j >= search_bytes.length then
-          break;
-        fi
-        if current_bytes[j] != search_bytes[j] then
+        if j >= key.bytes.length then break; fi
+        if object.object_value[i].key.bytes[j] != key.bytes[j] then
           equal = false;
           break;
         fi
         j = j + 1;
       done
-      if equal then
-        return i;
-      fi
+      if equal then return i; fi
     fi
     i = i + 1;
   done
-
   return -1;
 }
 
@@ -653,25 +642,25 @@ pub fnc parse_int(Value value): IntParse {
     return new IntParse(false, 0);
   fi
 
-  val List<int> bytes = value.number_lexeme;
+  // Inspect scalar bytes directly; do not project a mutable list alias.
   // Signed int64 has at most 19 digits plus an optional leading minus.
-  if bytes.length == 0 || bytes.length > 20 then
+  if value.number_lexeme.length == 0 || value.number_lexeme.length > 20 then
     return new IntParse(false, 0);
   fi
 
   let int i = 0;
   let bool negative = false;
-  if bytes[0] == 45 then
+  if value.number_lexeme[0] == 45 then
     negative = true;
     i = 1;
-    if i >= bytes.length then
+    if i >= value.number_lexeme.length then
       return new IntParse(false, 0);
     fi
   fi
 
   // Do not accept ambiguous integer spellings such as 01 or -01.
   // JSON's -0 is valid and is represented by the integer zero.
-  if bytes[i] == 48 && i + 1 < bytes.length then
+  if value.number_lexeme[i] == 48 && i + 1 < value.number_lexeme.length then
     return new IntParse(false, 0);
   fi
 
@@ -684,8 +673,8 @@ pub fnc parse_int(Value value): IntParse {
   let int result = 0;
 
   loop do
-    if i >= bytes.length then break; fi
-    let int byte = bytes[i];
+    if i >= value.number_lexeme.length then break; fi
+    let int byte = value.number_lexeme[i];
     if byte < 48 || byte > 57 then
       return new IntParse(false, 0);
     fi
