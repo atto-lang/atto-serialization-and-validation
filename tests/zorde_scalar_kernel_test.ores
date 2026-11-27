@@ -5,6 +5,7 @@ import fnc require_true from './assert';
 import class Value, Utf8Text, IntParse from '../src/core/value';
 import fnc value_int, value_string, value_number_lexeme, parse_int from '../src/core/value';
 import class ZordeScalarRule from '../src/zorde/scalar';
+import fnc zorde_core_max_scalar_number_bytes, zorde_core_max_scalar_string_bytes from '../src/zorde/scalar_core';
 import fnc zorde_scalar_int, zorde_scalar_string, zorde_scalar_rule_valid, zorde_scalar_accepts from '../src/zorde/scalar';
 
 pub fnc main(): void {
@@ -83,6 +84,55 @@ pub fnc main(): void {
     new List<int>(237,160,128))), rt borrow one_scalar), "encoded surrogate rejected");
   require_true(!zorde_scalar_rule_valid(zorde_scalar_string(-1,3,new List<int>())),
     "negative string length rejected");
+
+  // Public direct acceptance is not allowed to evade compiled-registry limits.
+  val ZordeScalarRule generous = zorde_scalar_string(0, 65537, new List<int>());
+  val List<int> large_text = new List<int>();
+  let int i = 0;
+  loop do
+    if i >= 65537 then break; fi
+    large_text.add(97);
+    i = i + 1;
+  done
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(large_text)), rt borrow generous),
+    "direct scalar adapter must reject over-budget UTF-8 before counting");
+
+  // Additional boundary regressions reconciled from #41. Shared limits
+  // are defined by the freestanding core, not duplicated per adapter.
+  require_true(zorde_core_max_scalar_number_bytes() == 20,
+    "signed int64 scalar lexeme budget");
+  require_true(zorde_core_max_scalar_string_bytes() == 65536,
+    "UTF-8 scalar input budget");
+  require_true(zorde_scalar_accepts(value_int(minimum),
+    zorde_scalar_int(minimum, maximum, new List<int>())),
+    "20-byte signed int64 minimum remains accepted");
+  val List<int> too_long_int = new List<int>();
+  let int budget_index = 0;
+  loop do
+    if budget_index >= 21 then break; fi
+    too_long_int.add(49);
+    budget_index = budget_index + 1;
+  done
+  require_true(!zorde_scalar_accepts(value_number_lexeme(too_long_int),
+    zorde_scalar_int(minimum, maximum, new List<int>())),
+    "21-byte signed int64 wire lexeme rejected by public adapter");
+
+  val List<int> text_at_limit = new List<int>();
+  budget_index = 0;
+  loop do
+    if budget_index >= 65536 then break; fi
+    text_at_limit.add(97);
+    budget_index = budget_index + 1;
+  done
+  val ZordeScalarRule full_text = zorde_scalar_string(65536, 65536, new List<int>());
+  require_true(zorde_scalar_accepts(
+    value_string(new Utf8Text(text_at_limit)), rt borrow full_text),
+    "exactly 65536 ASCII bytes allowed by direct scalar validation");
+  text_at_limit.add(97);
+  require_true(!zorde_scalar_accepts(
+    value_string(new Utf8Text(text_at_limit)), rt borrow full_text),
+    "65537 valid ASCII bytes refused before Unicode scan");
 
   stdio.stdout.println("native scalar ConstraintIR validation passed");
   return;

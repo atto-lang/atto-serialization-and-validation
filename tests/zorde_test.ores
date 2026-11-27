@@ -252,5 +252,41 @@ pub fnc run_zorde_tests(): void {
   require_true(zorde_parse_refinement(value_int(258),
     rt borrow forged_descriptor).is_err(),
     "public descriptor construction cannot bypass exclusion validation");
+  // A registry is optional: standalone Zorde parsing still has to bound
+  // attacker-controlled wire bytes and return a denial, never a metric.
+  val List<int> oversized_string = new List<int>();
+  let int payload_index = 0;
+  loop do
+    if payload_index >= 65537 then break; fi
+    oversized_string.add(97);
+    payload_index = payload_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_string(new Utf8Text(oversized_string)),
+    zorde_scalar_string(0, 65537, new List<int>())
+  ).is_err(), "direct Zorde parse must reject a 65537-byte string");
+
+  val List<int> oversized_number = new List<int>();
+  payload_index = 0;
+  loop do
+    if payload_index >= 21 then break; fi
+    oversized_number.add(49);
+    payload_index = payload_index + 1;
+  done
+  require_true(zorde_parse_scalar_metric(
+    value_number_lexeme(oversized_number),
+    zorde_scalar_int(-9223372036854775807 - 1,
+      9223372036854775807, new List<int>())
+  ).is_err(), "direct Zorde parse must reject a 21-byte int64 lexeme");
+  // Exact-int and compiler descriptor entrypoints must not evade the
+  // shared direct scalar budget even when registry lookup is bypassed.
+  require_true(zorde_parse_int(
+    value_number_lexeme(oversized_number),
+    zorde_int_range(-9223372036854775807 - 1, 9223372036854775807)
+  ).is_err(), "zorde_parse_int refuses over-budget scalar input");
+  require_true(zorde_parse_refinement(
+    value_string(new Utf8Text(oversized_string)),
+    zorde_scalar_descriptor(1, 3, 2, 0, 65537, new List<int>())
+  ).is_err(), "compiler descriptor runtime adapter refuses over-budget UTF8");
   return;
 }

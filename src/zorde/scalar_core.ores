@@ -8,6 +8,12 @@
 
 import fnc utf8_scalar_count from '../core/utf8_scalar';
 
+// Shared freestanding byte budgets. Even a direct public scalar call must
+// reject oversized wire input before integer parsing or Unicode scanning.
+// The compiled registry and dynamic facade must not define looser policies.
+pub fnc zorde_core_max_scalar_string_bytes(): int { return 65536; }
+pub fnc zorde_core_max_scalar_number_bytes(): int { return 20; }
+
 // A consistent work limit across direct dynamic rules and compiled registry.
 // Check before cloning to avoid allocating on untrusted oversized exclusions.
 pub fnc zorde_core_max_exclusions(): int { return 256; }
@@ -80,6 +86,11 @@ pub fnc zorde_core_utf8_accepts(
   List<int> bytes,
   ZordeCoreInterval interval
 ): bool {
+  // Fail closed on both caller-owned length and unsupported rule metadata
+  // before running an O(n) Unicode scan. This includes invalid public
+  // ZordeCoreInterval instances that bypass the bounded builder.
+  if bytes.length > zorde_core_max_scalar_string_bytes() then return false; fi
+  if !zorde_core_interval_valid(rt borrow interval, true) then return false; fi
   val int scalar_count = utf8_scalar_count(bytes);
   if scalar_count < 0 then return false; fi
   return zorde_core_interval_contains(rt borrow interval, true, scalar_count);
