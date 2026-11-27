@@ -9,56 +9,56 @@ pub fnc run_refined_int_zorde_tests(): void {
   val List<int> empty = new List<int>();
   // "with min 0 and max 5" and "with value gte 0 and value lte 5"
   // lower to this exact same normalized inclusive interval.
-  require_true(refined_int_accepts(value_int(0), 0, 5, empty), "inclusive lower bound");
-  require_true(refined_int_accepts(value_int(5), 0, 5, empty), "inclusive upper bound");
-  require_true(refined_int_accepts(value_int(3), 0, 5, empty), "middle value");
-  require_true(!refined_int_accepts(value_int(-1), 0, 5, empty), "below bound");
-  require_true(!refined_int_accepts(value_int(6), 0, 5, empty), "above bound");
-  require_true(!refined_int_accepts(value_bool(true), 0, 5, empty), "bool is not an int");
+  imports::require_true(imports::refined_int_accepts(imports::value_int(0), 0, 5, empty), "inclusive lower bound");
+  imports::require_true(imports::refined_int_accepts(imports::value_int(5), 0, 5, empty), "inclusive upper bound");
+  imports::require_true(imports::refined_int_accepts(imports::value_int(3), 0, 5, empty), "middle value");
+  imports::require_true(!imports::refined_int_accepts(imports::value_int(-1), 0, 5, empty), "below bound");
+  imports::require_true(!imports::refined_int_accepts(imports::value_int(6), 0, 5, empty), "above bound");
+  imports::require_true(!imports::refined_int_accepts(imports::value_bool(true), 0, 5, empty), "bool is not an int");
 
   val List<int> omitted_two = new List<int>(2);
-  require_true(refined_int_accepts(value_int(1), 0, 5, omitted_two), "allowed after exclusion");
-  require_true(!refined_int_accepts(value_int(2), 0, 5, omitted_two), "excluded integer");
-  require_true(!refined_int_schema_valid(5, 0, empty), "contradictory bounds");
-  require_true(!refined_int_schema_valid(0, 1, new List<int>(0, 1)), "empty range");
-  require_true(!refined_int_schema_valid(0, 5, new List<int>(2, 2)), "duplicate exclusions");
-  require_true(!refined_int_schema_valid(0, 5, new List<int>(5, 2)), "unsorted exclusions");
-  require_true(!refined_int_schema_valid(0, 5, new List<int>(6)), "out-of-bounds exclusion");
+  imports::require_true(imports::refined_int_accepts(imports::value_int(1), 0, 5, omitted_two), "allowed after exclusion");
+  imports::require_true(!imports::refined_int_accepts(imports::value_int(2), 0, 5, omitted_two), "excluded integer");
+  imports::require_true(!imports::refined_int_schema_valid(5, 0, empty), "contradictory bounds");
+  imports::require_true(!imports::refined_int_schema_valid(0, 1, new List<int>(0, 1)), "empty range");
+  imports::require_true(!imports::refined_int_schema_valid(0, 5, new List<int>(2, 2)), "duplicate exclusions");
+  imports::require_true(!imports::refined_int_schema_valid(0, 5, new List<int>(5, 2)), "unsorted exclusions");
+  imports::require_true(!imports::refined_int_schema_valid(0, 5, new List<int>(6)), "out-of-bounds exclusion");
 
   // Validate signed-64 edge cases without any float coercion.
-  require_true(
-    refined_int_accepts(value_int(9223372036854775807), 9223372036854775807, 9223372036854775807, empty),
+  imports::require_true(
+    imports::refined_int_accepts(imports::value_int(9223372036854775807), 9223372036854775807, 9223372036854775807, empty),
     "max i64 must validate exactly"
   );
-  require_true(
-    !refined_int_accepts(value_int(9223372036854775806), 9223372036854775807, 9223372036854775807, empty),
+  imports::require_true(
+    !imports::refined_int_accepts(imports::value_int(9223372036854775806), 9223372036854775807, 9223372036854775807, empty),
     "max i64-1 rejected exactly"
   );
-  require_true(
-    refined_int_accepts(value_int(-9223372036854775808), -9223372036854775808, -9223372036854775808, empty),
+  imports::require_true(
+    imports::refined_int_accepts(imports::value_int(-9223372036854775808), -9223372036854775808, -9223372036854775808, empty),
     "min i64 must validate exactly"
   );
-  require_true(
-    !refined_int_accepts(value_int(-9223372036854775807), -9223372036854775808, -9223372036854775808, empty),
+  imports::require_true(
+    !imports::refined_int_accepts(imports::value_int(-9223372036854775807), -9223372036854775808, -9223372036854775808, empty),
     "min i64+1 rejected exactly"
   );
 
   // Lexically non-integer encodings may not borrow a numeric refinement.
-  require_true(
-    !refined_int_accepts(value_number_lexeme(new List<int>(49, 46, 48)), 0, 5, empty),
+  imports::require_true(
+    !imports::refined_int_accepts(imports::value_number_lexeme(new List<int>(49, 46, 48)), 0, 5, empty),
     "1.0 may not masquerade as int"
   );
-  require_true(
-    !refined_int_accepts(
-      value_number_lexeme(new List<int>(57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 56)),
+  imports::require_true(
+    !imports::refined_int_accepts(
+      imports::value_number_lexeme(new List<int>(57, 50, 50, 51, 51, 55, 50, 48, 51, 54, 56, 53, 52, 55, 55, 53, 56, 48, 56)),
       0, 9223372036854775807, empty
     ),
     "out-of-range int lexeme rejected"
   );
-  val ValidationReport zero_budget = validate_refined_int(
-    value_int(6), 0, 5, empty, new ValidationOptions(true, 0)
+  val ValidationReport zero_budget = imports::validate_refined_int(
+    imports::value_int(6), 0, 5, empty, new ValidationOptions(true, 0)
   );
-  require_true(!report_is_valid(zero_budget), "zero error budget still fails closed");
-  require_true(zero_budget.truncated, "zero error budget signals truncated failure");
+  imports::require_true(!imports::report_is_valid(zero_budget), "zero error budget still fails closed");
+  imports::require_true(zero_budget.truncated, "zero error budget signals truncated failure");
   return;
 }

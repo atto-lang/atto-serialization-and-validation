@@ -65,7 +65,7 @@ pub async fnc collect_bytes_from_channel(
       );
     fi
 
-    if !byte_list_valid(chunk) then
+    if !imports::byte_list_valid(chunk) then
       let int i = 0;
       loop do
         if i >= chunk.length then

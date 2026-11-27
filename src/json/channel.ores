@@ -24,15 +24,15 @@ pub async fnc decode_one_from_channel(
   Channel<Option<List<int>>> input,
   DecodeOptions options
 ): Result<DecodedValue, DecodeError> {
-  if !decode_options_valid(options) then
-    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+  if !imports::decode_options_valid(options) then
+    return Err(imports::decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
 
   if options.allow_trailing_data then
-    return Err(decode_error("framing_required", 0, "one-value channel decode cannot allow trailing data; use an explicit framed/sequence decoder"));
+    return Err(imports::decode_error("framing_required", 0, "one-value channel decode cannot allow trailing data; use an explicit framed/sequence decoder"));
   fi
 
-  let JsonIncrementalDecoder decoder = new_incremental_decoder(options);
+  let JsonIncrementalDecoder decoder = imports::new_incremental_decoder(options);
 
   loop do
     val Future<Option<List<int>>> pending = nb readch input;
@@ -62,7 +62,7 @@ pub async fnc decode_one_from_channel(
 
         val List<int> bytes = tail.unwrap();
         if bytes.length > options.max_input_bytes - received then
-          return Err(decode_error(
+          return Err(imports::decode_error(
             "input_limit",
             received,
             "JSON channel input exceeds max_input_bytes"
@@ -76,7 +76,7 @@ pub async fnc decode_one_from_channel(
           fi
           let int byte = bytes[i];
           if byte != 32 && byte != 9 && byte != 10 && byte != 13 then
-            return Err(decode_error(
+            return Err(imports::decode_error(
               "trailing_data",
               received + i,
               "non-whitespace after the completed JSON value"

@@ -345,7 +345,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     let FieldRule field = schema.fields[i];
 
     if field.key.bytes.length > max_schema_key_bytes() ||
-       !utf8_is_valid(field.key.bytes) then
+       !imports::utf8_is_valid(field.key.bytes) then
       return false;
     fi
 
@@ -357,11 +357,11 @@ fnc object_schema_valid(ObjectSchema schema): bool {
       return false;
     fi
 
-    let int hash = text_hash(field.key);
+    let int hash = imports::text_hash(field.key);
     if buckets.contains(hash) then
       val List<int> candidates = buckets.get(hash);
       for const index of candidates do
-        if text_equal(schema.fields[index].key, field.key) then
+        if imports::text_equal(schema.fields[index].key, field.key) then
           return false;
         fi
       done
@@ -864,12 +864,12 @@ fnc validate_unique(
   val Map<int, List<Value>> buckets = new Map<int, List<Value>>();
 
   for const item of value.array_value do
-    let int hash = value_hash(item);
+    let int hash = imports::value_hash(item);
 
     if buckets.contains(hash) then
       val List<Value> candidates = buckets.get(hash);
       for const candidate of candidates do
-        if value_deep_equal(candidate, item) then
+        if imports::value_deep_equal(candidate, item) then
           add_error(
             report,
             options,
@@ -908,12 +908,12 @@ fnc validate_rule_at(
   fi
 
   if value.kind == 3 then
-    if !utf8_is_valid(value.string_value.bytes) then
+    if !imports::utf8_is_valid(value.string_value.bytes) then
       add_error(report, options, "utf8", path, "string contains invalid UTF-8");
       return;
     fi
 
-    let int length = utf8_codepoint_count(value.string_value.bytes);
+    let int length = imports::utf8_codepoint_count(value.string_value.bytes);
 
     if rule.min_length >= 0 && length < rule.min_length then
       add_error(report, options, "min_length", path, "string is shorter than min_length");
@@ -1067,7 +1067,7 @@ fnc remember_text_index(
   Utf8Text key,
   int index
 ): void {
-  let int hash = text_hash(key);
+  let int hash = imports::text_hash(key);
   if buckets.contains(hash) then
     let List<int> candidates = buckets.get(hash);
     candidates.push(index);
@@ -1085,14 +1085,14 @@ fnc schema_field_index(
   Map<int, List<int>> buckets,
   Utf8Text key
 ): int {
-  let int hash = text_hash(key);
+  let int hash = imports::text_hash(key);
   if !buckets.contains(hash) then
     return -1;
   fi
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if text_equal(schema.fields[index].key, key) then
+    if imports::text_equal(schema.fields[index].key, key) then
       return index;
     fi
   done
@@ -1104,14 +1104,14 @@ fnc object_field_index(
   Map<int, List<int>> buckets,
   Utf8Text key
 ): int {
-  let int hash = text_hash(key);
+  let int hash = imports::text_hash(key);
   if !buckets.contains(hash) then
     return -1;
   fi
 
   let List<int> candidates = buckets.get(hash);
   for const index of candidates do
-    if text_equal(object.object_value[index].key, key) then
+    if imports::text_equal(object.object_value[index].key, key) then
       return index;
     fi
   done
@@ -1181,7 +1181,7 @@ pub fnc validate_object(
   // are allowed. Unknown-schema keys would otherwise evade field rules.
   for const member of value.object_value do
     if member.key.bytes.length > max_schema_key_bytes() ||
-       !utf8_is_valid(member.key.bytes) then
+       !imports::utf8_is_valid(member.key.bytes) then
       add_error(report, options, "invalid_object_key", new List<PathSegment>(),
         "input object key is oversized or is not valid UTF-8");
       return report;

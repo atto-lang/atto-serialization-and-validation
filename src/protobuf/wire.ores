@@ -259,7 +259,7 @@ fnc read_payload(
     return output;
   fi
 
-  if !byte_range_fits(cursor.input.length, cursor.index, length) then
+  if !imports::byte_range_fits(cursor.input.length, cursor.index, length) then
     cursor_fail(cursor, "unexpected_eof", "truncated Protobuf field payload");
     return output;
   fi
@@ -289,7 +289,7 @@ pub fnc decode_message(
     return Err(new ProtoError("input_limit", 0, "Protobuf input exceeds max_input_bytes"));
   fi
 
-  if !byte_list_valid(input) then
+  if !imports::byte_list_valid(input) then
     return Err(new ProtoError("invalid_byte", 0, "Protobuf input values must all be bytes 0..255"));
   fi
 
@@ -320,7 +320,7 @@ pub fnc decode_message(
       return Err(new ProtoError("field_key_range", cursor.index, "Protobuf field key exceeds signed int range"));
     fi
 
-    let int field_number = wire_floor_div(key.value, 8);
+    let int field_number = imports::wire_floor_div(key.value, 8);
     let int wire_type = Integer.rem(key.value, 8);
 
     if field_number <= 0 || field_number > 536870911 then
@@ -430,7 +430,7 @@ fnc append_varint(
     fi
 
     append_byte(writer, Integer.rem(remaining, 128) + 128);
-    remaining = wire_floor_div(remaining, 128);
+    remaining = imports::wire_floor_div(remaining, 128);
   done
 
   return;

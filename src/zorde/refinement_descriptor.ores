@@ -33,7 +33,7 @@ pub fnc zorde_scalar_descriptor(
   List<int> excluded
 ): ZordeScalarDescriptor {
   // Construct an invalid descriptor instead of cloning attacker-sized lists.
-  if excluded.length > zorde_core_max_exclusions() then
+  if excluded.length > imports::zorde_core_max_exclusions() then
     return new ZordeScalarDescriptor(0, kind, property, minimum, maximum,
       new List<int>());
   fi
@@ -48,7 +48,7 @@ pub fnc zorde_scalar_descriptor_valid(
 ): bool {
   if descriptor.version != 1 then return false; fi
   // Public class constructors can bypass the bounded helper above.
-  if descriptor.excluded.length > zorde_core_max_exclusions() then return false; fi
+  if descriptor.excluded.length > imports::zorde_core_max_exclusions() then return false; fi
   if descriptor.kind == 2 then
     if descriptor.property != 1 then return false; fi
   elif descriptor.kind == 3 then
@@ -56,9 +56,9 @@ pub fnc zorde_scalar_descriptor_valid(
   else
     return false;
   fi
-  val ZordeCoreInterval interval = zorde_core_interval(
+  val ZordeCoreInterval interval = imports::zorde_core_interval(
     descriptor.minimum, descriptor.maximum, descriptor.excluded);
-  return zorde_core_interval_valid(
+  return imports::zorde_core_interval_valid(
     rt borrow interval, descriptor.kind == 3);
 }
 
@@ -68,13 +68,13 @@ pub fnc zorde_scalar_rule_from_descriptor(
   if !zorde_scalar_descriptor_valid(rt borrow descriptor) then
     // Deliberately invalid interval sentinel. Callers must re-check validity
     // before use; this cannot accidentally become an unbounded rule.
-    return zorde_scalar_int(1, 0, new List<int>());
+    return imports::zorde_scalar_int(1, 0, new List<int>());
   fi
   if descriptor.kind == 2 then
-    return zorde_scalar_int(
+    return imports::zorde_scalar_int(
       descriptor.minimum, descriptor.maximum, descriptor.excluded);
   fi
-  return zorde_scalar_string(
+  return imports::zorde_scalar_string(
     descriptor.minimum, descriptor.maximum, descriptor.excluded);
 }
 
@@ -85,5 +85,5 @@ pub fnc zorde_scalar_descriptor_accepts(
   if !zorde_scalar_descriptor_valid(rt borrow descriptor) then return false; fi
   val ZordeScalarRule rule = zorde_scalar_rule_from_descriptor(
     rt borrow descriptor);
-  return zorde_scalar_accepts(rt borrow value, rt borrow rule);
+  return imports::zorde_scalar_accepts(rt borrow value, rt borrow rule);
 }

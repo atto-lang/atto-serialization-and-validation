@@ -80,7 +80,7 @@ pub fnc zorde_core_utf8_accepts(
   List<int> bytes,
   ZordeCoreInterval interval
 ): bool {
-  val int scalar_count = utf8_scalar_count(bytes);
+  val int scalar_count = imports::utf8_scalar_count(bytes);
   if scalar_count < 0 then return false; fi
   return zorde_core_interval_contains(rt borrow interval, true, scalar_count);
 }

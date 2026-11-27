@@ -46,17 +46,17 @@ fnc code_descriptor(): ZordeCompilerI64ConstraintV1 {
   );
 }
 fnc accepted(Value value, ZordeCompilerI64ConstraintV1 descriptor): bool {
-  val ValidationReport report = zorde_check_compiler_i64_v1(
+  val ValidationReport report = imports::zorde_check_compiler_i64_v1(
     rt borrow value, rt borrow descriptor,
     code_name(), canonical_fingerprint());
-  return report_is_valid(report);
+  return imports::report_is_valid(report);
 }
 fnc denied_with_code(
   Value value, ZordeCompilerI64ConstraintV1 descriptor,
   Utf8Text expected_type, Utf8Text expected_fingerprint,
   String expected_error
 ): bool {
-  val ValidationReport report = zorde_check_compiler_i64_v1(
+  val ValidationReport report = imports::zorde_check_compiler_i64_v1(
     rt borrow value, rt borrow descriptor,
     rt borrow expected_type, rt borrow expected_fingerprint);
   return report.errors.length == 1 &&
@@ -66,26 +66,26 @@ fnc denied_with_code(
 
 pub fnc run_zorde_compiler_constraint_v1_tests(): void {
   val ZordeCompilerI64ConstraintV1 code = code_descriptor();
-  require_true(zorde_compiler_i64_descriptor_valid(rt borrow code),
+  imports::require_true(imports::zorde_compiler_i64_descriptor_valid(rt borrow code),
     "compiler v1 i64 descriptor projection is structurally valid");
-  require_true(accepted(value_int(0), rt borrow code),
+  imports::require_true(accepted(imports::value_int(0), rt borrow code),
     "inclusive min 0 accepted");
-  require_true(accepted(value_int(5), rt borrow code),
+  imports::require_true(accepted(imports::value_int(5), rt borrow code),
     "inclusive max 5 accepted");
-  require_true(accepted(value_int(3), rt borrow code),
+  imports::require_true(accepted(imports::value_int(3), rt borrow code),
     "in-range i64 accepted");
-  require_true(denied_with_code(value_int(-1), rt borrow code,
+  imports::require_true(denied_with_code(imports::value_int(-1), rt borrow code,
     code_name(), canonical_fingerprint(), "ORES_CONSTRAINT_MIN_INCLUSIVE_I64"),
     "below minimum uses compiler-owned deterministic min error ID");
-  require_true(denied_with_code(value_int(6), rt borrow code,
+  imports::require_true(denied_with_code(imports::value_int(6), rt borrow code,
     code_name(), canonical_fingerprint(), "ORES_CONSTRAINT_MAX_INCLUSIVE_I64"),
     "above maximum uses compiler-owned deterministic max error ID");
 
-  require_true(denied_with_code(value_int(3), rt borrow code,
+  imports::require_true(denied_with_code(imports::value_int(3), rt borrow code,
     other_name(), canonical_fingerprint(),
     "CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH"),
     "same representation with unrelated nominal type must be refused");
-  require_true(denied_with_code(value_int(3), rt borrow code,
+  imports::require_true(denied_with_code(imports::value_int(3), rt borrow code,
     code_name(), other_fingerprint(),
     "CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH"),
     "same name with stale or wrong SHA256 fingerprint must be refused");
@@ -93,89 +93,89 @@ pub fnc run_zorde_compiler_constraint_v1_tests(): void {
   val ZordeCompilerI64ConstraintV1 wrong_schema = new ZordeCompilerI64ConstraintV1(
     2, schema_name(), code_name(), i64_name(), canonical_fingerprint(),
     true, true, 0, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(wrong_schema),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(wrong_schema),
     "future descriptor version cannot silently become v1");
   val ZordeCompilerI64ConstraintV1 no_predicates = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), canonical_fingerprint(),
     true, false, 0, false, 0);
-  require_true(!zorde_compiler_i64_descriptor_valid(no_predicates),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(no_predicates),
     "unconstrained descriptor must be refused");
   val ZordeCompilerI64ConstraintV1 contradictory = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), canonical_fingerprint(),
     true, true, 6, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(contradictory),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(contradictory),
     "contradictory min/max never become an accepted interval");
   val ZordeCompilerI64ConstraintV1 not_required = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), canonical_fingerprint(),
     false, true, 0, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(not_required),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(not_required),
     "validation-required bit is mandatory");
   val ZordeCompilerI64ConstraintV1 wrong_repr = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), new Utf8Text(new List<int>(102,54,52)),
     canonical_fingerprint(), true, true, 0, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(wrong_repr),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(wrong_repr),
     "binary64 representation must not be admitted as exact i64");
   val ZordeCompilerI64ConstraintV1 malformed_digest = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(),
     new Utf8Text(new List<int>(48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,48,71)),
     true, true, 0, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(malformed_digest),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(malformed_digest),
     "uppercase and non-hex descriptor fingerprint fails closed");
   val ZordeCompilerI64ConstraintV1 noncanonical_inactive = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), min_only_fingerprint(),
     true, true, 0, false, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(noncanonical_inactive),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(noncanonical_inactive),
     "disabled max predicate cannot carry ignored nonzero operand");
   val ZordeCompilerI64ConstraintV1 min_only = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), min_only_fingerprint(),
     true, true, 0, false, 0);
-  require_true(zorde_compiler_i64_descriptor_valid(min_only),
+  imports::require_true(imports::zorde_compiler_i64_descriptor_valid(min_only),
     "canonical min-only v1 descriptor admitted");
-  require_true(report_is_valid(zorde_check_compiler_i64_v1(
-    value_int(9223372036854775807), min_only, code_name(),
+  imports::require_true(imports::report_is_valid(imports::zorde_check_compiler_i64_v1(
+    imports::value_int(9223372036854775807), min_only, code_name(),
     min_only_fingerprint())),
     "unbounded upper endpoint retains exact signed i64 maximum");
-  require_true(denied_with_code(value_int(-1), min_only,
+  imports::require_true(denied_with_code(imports::value_int(-1), min_only,
     code_name(), min_only_fingerprint(), "ORES_CONSTRAINT_MIN_INCLUSIVE_I64"),
     "min-only lower error remains deterministic");
 
   val ZordeCompilerI64ConstraintV1 max_only = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), code_name(), i64_name(), max_only_fingerprint(),
     true, false, 0, true, 5);
-  require_true(zorde_compiler_i64_descriptor_valid(max_only),
+  imports::require_true(imports::zorde_compiler_i64_descriptor_valid(max_only),
     "canonical max-only v1 descriptor admitted");
-  require_true(report_is_valid(zorde_check_compiler_i64_v1(
-    value_int(-9223372036854775807 - 1), max_only,
+  imports::require_true(imports::report_is_valid(imports::zorde_check_compiler_i64_v1(
+    imports::value_int(-9223372036854775807 - 1), max_only,
     code_name(), max_only_fingerprint())),
     "unbounded lower endpoint retains exact signed i64 minimum");
-  require_true(denied_with_code(value_int(6), max_only,
+  imports::require_true(denied_with_code(imports::value_int(6), max_only,
     code_name(), max_only_fingerprint(), "ORES_CONSTRAINT_MAX_INCLUSIVE_I64"),
     "max-only upper error remains deterministic");
 
   val ZordeCompilerI64ConstraintV1 invalid_qualified = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), new Utf8Text(new List<int>(97,46,46,98)),
     i64_name(), canonical_fingerprint(), true, true, 0, true, 5);
-  require_true(!zorde_compiler_i64_descriptor_valid(invalid_qualified),
+  imports::require_true(!imports::zorde_compiler_i64_descriptor_valid(invalid_qualified),
     "empty qualified name segments cannot alias another schema");
 
   val ZordeCompilerI64ConstraintV1 wrong_type = new ZordeCompilerI64ConstraintV1(
     1, schema_name(), other_name(), i64_name(), canonical_fingerprint(),
     true, true, 0, true, 5);
-  require_true(denied_with_code(value_int(3), wrong_type,
+  imports::require_true(denied_with_code(imports::value_int(3), wrong_type,
     code_name(), canonical_fingerprint(),
     "CONSTRAINT_IMPORT_FINGERPRINT_OR_IDENTITY_MISMATCH"),
     "descriptor-qualified alias identity cannot be substituted");
 
-  require_true(denied_with_code(
-    value_number_lexeme(new List<int>(48,49)), rt borrow code,
+  imports::require_true(denied_with_code(
+    imports::value_number_lexeme(new List<int>(48,49)), rt borrow code,
     code_name(), canonical_fingerprint(), "CONSTRAINT_I64_INPUT_INVALID"),
     "direct wire lexeme 01 refused");
-  require_true(denied_with_code(
-    value_number_lexeme(new List<int>(49,46,48)), rt borrow code,
+  imports::require_true(denied_with_code(
+    imports::value_number_lexeme(new List<int>(49,46,48)), rt borrow code,
     code_name(), canonical_fingerprint(), "CONSTRAINT_I64_INPUT_INVALID"),
     "float lexeme 1.0 refused");
-  require_true(denied_with_code(
-    value_string(new Utf8Text(new List<int>(51))), rt borrow code,
+  imports::require_true(denied_with_code(
+    imports::value_string(new Utf8Text(new List<int>(51))), rt borrow code,
     code_name(), canonical_fingerprint(), "CONSTRAINT_I64_INPUT_INVALID"),
     "numeric-looking UTF8 must not coerce to int");
   val List<int> overbudget = new List<int>();
@@ -185,16 +185,16 @@ pub fnc run_zorde_compiler_constraint_v1_tests(): void {
     overbudget.add(49);
     idx = idx + 1;
   done
-  require_true(denied_with_code(
-    value_number_lexeme(overbudget), rt borrow code,
+  imports::require_true(denied_with_code(
+    imports::value_number_lexeme(overbudget), rt borrow code,
     code_name(), canonical_fingerprint(), "CONSTRAINT_I64_INPUT_INVALID"),
     "21-byte lexeme rejected before numeric parsing");
-  val Result<int, ValidationReport> parsed = zorde_parse_compiler_i64_v1(
-    value_int(3), code, code_name(), canonical_fingerprint());
-  require_true(!parsed.is_err() && parsed.unwrap() == 3,
+  val Result<int, ValidationReport> parsed = imports::zorde_parse_compiler_i64_v1(
+    imports::value_int(3), code, code_name(), canonical_fingerprint());
+  imports::require_true(!parsed.is_err() && parsed.unwrap() == 3,
     "successful projection returns plain owned int, not Valid<Code>");
-  require_true(zorde_parse_compiler_i64_v1(
-    value_int(6), code, code_name(), canonical_fingerprint()).is_err(),
+  imports::require_true(imports::zorde_parse_compiler_i64_v1(
+    imports::value_int(6), code, code_name(), canonical_fingerprint()).is_err(),
     "out-of-range Result cannot mint scalar value");
 
   // A caller can mutate its wire buffer after validation. The returned
@@ -202,19 +202,19 @@ pub fnc run_zorde_compiler_constraint_v1_tests(): void {
   // the aliased dynamic Value is NOT a frozen/nominal proof and must be
   // checked again against its new source contents.
   val List<int> mutable_wire = new List<int>(51);
-  val Value raw_alias = value_number_lexeme(mutable_wire);
-  val Result<int, ValidationReport> stable_metric = zorde_parse_compiler_i64_v1(
+  val Value raw_alias = imports::value_number_lexeme(mutable_wire);
+  val Result<int, ValidationReport> stable_metric = imports::zorde_parse_compiler_i64_v1(
     rt borrow raw_alias, rt borrow code,
     code_name(), canonical_fingerprint());
-  require_true(!stable_metric.is_err(),
+  imports::require_true(!stable_metric.is_err(),
     "single-parse checked primitive is accepted before source mutation");
   val int captured_metric = stable_metric.unwrap();
-  require_true(captured_metric == 3,
+  imports::require_true(captured_metric == 3,
     "single-parse checked metric equals the originally parsed integer");
   mutable_wire.add(54);
-  require_true(captured_metric == 3,
+  imports::require_true(captured_metric == 3,
     "post-check wire alias mutation cannot change captured int metric");
-  require_true(zorde_parse_compiler_i64_v1(
+  imports::require_true(imports::zorde_parse_compiler_i64_v1(
     raw_alias, code, code_name(), canonical_fingerprint()).is_err(),
     "a changed mutable wire buffer requires new validation");
   stdio.stdout.println("zorde compiler i64 descriptor v1 report-only tests passed");
