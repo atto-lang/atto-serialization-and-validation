@@ -584,6 +584,70 @@ fnc equal_bounded(borrow Value left, borrow Value right, borrow mut WireWorkBudg
 }
 
 
+// Shared duplicate detection for binary codec maps. -2 means terminal
+// resource denial, never absence. Entries use semantic, not hash, equality.
+pub fnc map_index_lookup_checked(borrow List<MapEntry> entries, borrow mut WireHashIndex buckets, borrow Value key, int hash, borrow mut WireWorkBudget budget): int {
+  let int after = -1;
+  loop do
+    val int found = index_find_checked(rt mut borrow buckets, rt mut borrow budget, hash, after);
+    if found < 0 then return found; fi
+    val int status = value_deep_equal_checked(rt borrow entries[found].key, rt borrow key, rt mut borrow budget);
+    if status < 0 then return -2; fi
+    if status == 1 then return found; fi
+    after = found;
+  done
+  return -2;
+}
+
+pub fnc map_keys_checked(borrow List<MapEntry> entries, borrow mut WireWorkBudget budget): int {
+  val int count = entries.length;
+  if count == 0 then return 1; fi
+  if count > 1000000 then return -1; fi
+  val int slots = count > 256 ? 256 : count;
+  if !budget.reserve(slots + count * 2) || !budget.charge(count) then return -1; fi
+  val WireHashIndex buckets = new WireHashIndex(count, budget.work_left());
+  let int i = 0;
+  loop do
+    if i >= count then break; fi
+    val int hash = value_index_hash(rt borrow entries[i].key, rt mut borrow budget);
+    if hash < 0 then return -1; fi
+    val int found = map_index_lookup_checked(rt borrow entries, rt mut borrow buckets, rt borrow entries[i].key, hash, rt mut borrow budget);
+    if found == -2 then return -1; fi
+    if found >= 0 then return 0; fi
+    if buckets.insert(hash) != i then return -1; fi
+    i = i + 1;
+  done
+  return 1;
+}
+
+pub fnc object_keys_checked(borrow List<WireMember> members, borrow mut WireWorkBudget budget): int {
+  val int count = members.length;
+  if count == 0 then return 1; fi
+  if count > 1000000 then return -1; fi
+  val int slots = count > 256 ? 256 : count;
+  if !budget.reserve(slots + count * 2) || !budget.charge(count) then return -1; fi
+  val WireHashIndex buckets = new WireHashIndex(count, budget.work_left());
+  let int i = 0;
+  loop do
+    if i >= count then break; fi
+    val int hash = text_index_hash(rt borrow members[i].key, rt mut borrow budget);
+    if hash < 0 then return -1; fi
+    let int after = -1;
+    loop do
+      val int found = index_find_checked(rt mut borrow buckets, rt mut borrow budget, hash, after);
+      if found == -2 then return -1; fi
+      if found == -1 then break; fi
+      val int status = checked_bytes_equal(rt borrow members[i].key.bytes, rt borrow members[found].key.bytes, rt mut borrow budget);
+      if status < 0 then return -1; fi
+      if status == 1 then return 0; fi
+      after = found;
+    done
+    if buckets.insert(hash) != i then return -1; fi
+    i = i + 1;
+  done
+  return 1;
+}
+
 pub fnc parse_int(Value value): IntParse {
   if value.kind != 2 then
     return new IntParse(false, 0);

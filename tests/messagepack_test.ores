@@ -15,6 +15,12 @@ fnc require_truncated_container(List<int> input): void {
 }
 
 pub fnc run_messagepack_tests(): void {
+  val Result<DecodedValue, DecodeError> composite_dup = decode(new List<int>(130,145,1,2,145,1,3), default_decode_options());
+  require_true(composite_dup.is_err(), "equal composite keys must reject");
+  require_true(composite_dup.unwrap_err().code == "duplicate_key", "composite duplicate diagnostic");
+  val Result<DecodedValue, DecodeError> composite_distinct = decode(new List<int>(130,145,1,2,145,4,3), default_decode_options());
+  require_true(!composite_distinct.is_err(), "distinct same-arity composite keys must decode");
+
   require_truncated_container(new List<int>(147, 1, 2));
   require_truncated_container(new List<int>(130, 1, 2, 3));
   require_truncated_container(new List<int>(220, 0, 16, 1));

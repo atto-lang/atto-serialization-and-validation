@@ -7,6 +7,12 @@ import fnc default_decode_options, default_encode_options from '../src/core/opti
 import fnc encode, decode from '../src/cbor/cbor';
 
 pub fnc run_cbor_tests(): void {
+  val Result<DecodedValue, DecodeError> composite_dup = decode(new List<int>(162,129,1,2,129,1,3), default_decode_options());
+  require_true(composite_dup.is_err(), "equal composite keys must reject");
+  require_true(composite_dup.unwrap_err().code == "duplicate_key", "composite duplicate diagnostic");
+  val Result<DecodedValue, DecodeError> composite_distinct = decode(new List<int>(162,129,1,2,129,4,3), default_decode_options());
+  require_true(!composite_distinct.is_err(), "distinct same-arity composite keys must decode");
+
   val List<WireMember> members = new List<WireMember>();
   members.add(
     new WireMember(
