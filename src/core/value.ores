@@ -621,6 +621,317 @@ fnc value_deep_equal_bounded(
 }
 
 
+
+// Metered structural hash/equality for security-sensitive validation paths.
+// Unlike the ordinary compatibility helpers above, an exhausted operation
+// returns completed=false; callers MUST NOT treat that as unequal or use a
+// partially calculated hash. Each recursive node, byte and candidate probe
+// charges the same caller-owned fuel. No global mutable counter is involved.
+pub define class ValueWorkFuel as
+  pub let int remaining;
+end
+
+pub define class ValueHashAttempt as
+  pub val bool completed;
+  pub val int hash;
+end
+
+pub define class ValueEqualAttempt as
+  pub val bool completed;
+  pub val bool equal;
+end
+
+fnc value_fuel_charge(ValueWorkFuel mut fuel, int amount): bool {
+  if amount < 0 || fuel.remaining < 0 || amount > fuel.remaining then
+    fuel.remaining = 0;
+    return false;
+  fi
+  fuel.remaining = fuel.remaining - amount;
+  return true;
+}
+
+fnc fuel_hash_bytes(
+  List<int> bytes,
+  ValueWorkFuel mut fuel
+): ValueHashAttempt {
+  let int hash = 1469598103934665603;
+  for const byte of bytes do
+    if !value_fuel_charge(fuel, 1) then
+      return new ValueHashAttempt(false, 0);
+    fi
+    hash = hash_mix(hash, byte);
+  done
+  return new ValueHashAttempt(true, hash);
+}
+
+fnc fuel_equal_bytes(
+  List<int> left,
+  List<int> right,
+  ValueWorkFuel mut fuel
+): ValueEqualAttempt {
+  if left.length != right.length then
+    return new ValueEqualAttempt(true, false);
+  fi
+  let int i = 0;
+  loop do
+    if i >= left.length then break; fi
+    if !value_fuel_charge(fuel, 1) then
+      return new ValueEqualAttempt(false, false);
+    fi
+    if left[i] != right[i] then
+      return new ValueEqualAttempt(true, false);
+    fi
+    i = i + 1;
+  done
+  return new ValueEqualAttempt(true, true);
+}
+
+fnc value_hash_fuel_depth(
+  Value value,
+  int depth,
+  ValueWorkFuel mut fuel
+): ValueHashAttempt {
+  // A structural refusal consumes the caller-owned budget just like an
+  // exhausted attempt. An incomplete result must not leave reusable fuel.
+  if depth > 64 then
+    fuel.remaining = 0;
+    return new ValueHashAttempt(false, 0);
+  fi
+  if !value_fuel_charge(fuel, 1) then
+    return new ValueHashAttempt(false, 0);
+  fi
+  if value.kind < 0 || value.kind > 8 then
+    fuel.remaining = 0;
+    return new ValueHashAttempt(false, 0);
+  fi
+  let int hash = hash_mix(1469598103934665603, value.kind);
+  if value.kind == 0 then return new ValueHashAttempt(true, hash); fi
+  if value.kind == 1 then
+    return new ValueHashAttempt(true,
+      hash_mix(hash, value.bool_value ? 1 : 0));
+  fi
+  if value.kind == 2 || value.kind == 3 ||
+     value.kind == 4 || value.kind == 7 then
+    let ValueHashAttempt payload = new ValueHashAttempt(false, 0);
+    if value.kind == 2 then
+      payload = fuel_hash_bytes(value.number_lexeme, fuel);
+    elseif value.kind == 3 then
+      payload = fuel_hash_bytes(value.string_value.bytes, fuel);
+    else
+      payload = fuel_hash_bytes(value.bytes_value, fuel);
+    fi
+    if !payload.completed then return payload; fi
+    if value.kind == 7 then hash = hash_mix(hash, value.extension_type); fi
+    return new ValueHashAttempt(true, hash_mix(hash, payload.hash));
+  fi
+  if value.kind == 5 then
+    for const item of value.array_value do
+      val ValueHashAttempt child = value_hash_fuel_depth(
+        rt borrow item, depth + 1, fuel);
+      if !child.completed then return child; fi
+      hash = hash_mix(hash, child.hash);
+    done
+    return new ValueHashAttempt(true, hash_mix(hash, value.array_value.length));
+  fi
+  let int aggregate_xor = 0;
+  let int aggregate_sum = 0;
+  if value.kind == 6 then
+    for const member of value.object_value do
+      val ValueHashAttempt key_hash = fuel_hash_bytes(
+        member.key.bytes, fuel);
+      if !key_hash.completed then return key_hash; fi
+      val ValueHashAttempt child = value_hash_fuel_depth(
+        rt borrow member.value, depth + 1, fuel);
+      if !child.completed then return child; fi
+      val int pair_hash = hash_mix(key_hash.hash, child.hash);
+      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_sum = aggregate_sum + pair_hash;
+    done
+    hash = hash_mix(hash, aggregate_xor);
+    hash = hash_mix(hash, aggregate_sum);
+    return new ValueHashAttempt(true, hash_mix(hash, value.object_value.length));
+  fi
+  if value.kind == 8 then
+    for const entry of value.map_value do
+      val ValueHashAttempt key_hash = value_hash_fuel_depth(
+        rt borrow entry.key, depth + 1, fuel);
+      if !key_hash.completed then return key_hash; fi
+      val ValueHashAttempt child = value_hash_fuel_depth(
+        rt borrow entry.value, depth + 1, fuel);
+      if !child.completed then return child; fi
+      val int pair_hash = hash_mix(key_hash.hash, child.hash);
+      aggregate_xor = aggregate_xor ^ pair_hash;
+      aggregate_sum = aggregate_sum + pair_hash;
+    done
+    hash = hash_mix(hash, aggregate_xor);
+    hash = hash_mix(hash, aggregate_sum);
+    return new ValueHashAttempt(true, hash_mix(hash, value.map_value.length));
+  fi
+  fuel.remaining = 0;
+  return new ValueHashAttempt(false, 0);
+}
+
+// Validate the graph and select an operation-local budget before invoking
+// this from a trust boundary. This helper does not freeze caller-owned data.
+pub fnc value_hash_with_fuel(
+  Value value,
+  ValueWorkFuel mut fuel
+): ValueHashAttempt {
+  return value_hash_fuel_depth(rt borrow value, 0, fuel);
+}
+
+fnc value_equal_fuel_depth(
+  Value left,
+  Value right,
+  int depth,
+  ValueWorkFuel mut fuel
+): ValueEqualAttempt {
+  if depth > 64 then
+    fuel.remaining = 0;
+    return new ValueEqualAttempt(false, false);
+  fi
+  if !value_fuel_charge(fuel, 1) then
+    return new ValueEqualAttempt(false, false);
+  fi
+  if left.kind < 0 || left.kind > 8 ||
+     right.kind < 0 || right.kind > 8 then
+    fuel.remaining = 0;
+    return new ValueEqualAttempt(false, false);
+  fi
+  if left.kind != right.kind then
+    return new ValueEqualAttempt(true, false);
+  fi
+  if left.kind == 0 then return new ValueEqualAttempt(true, true); fi
+  if left.kind == 1 then
+    return new ValueEqualAttempt(true,
+      left.bool_value == right.bool_value);
+  fi
+  if left.kind == 2 then
+    return fuel_equal_bytes(left.number_lexeme, right.number_lexeme, fuel);
+  fi
+  if left.kind == 3 then
+    return fuel_equal_bytes(left.string_value.bytes, right.string_value.bytes, fuel);
+  fi
+  if left.kind == 4 then
+    return fuel_equal_bytes(left.bytes_value, right.bytes_value, fuel);
+  fi
+  if left.kind == 7 then
+    if left.extension_type != right.extension_type then
+      return new ValueEqualAttempt(true, false);
+    fi
+    return fuel_equal_bytes(left.bytes_value, right.bytes_value, fuel);
+  fi
+  if left.kind == 5 then
+    if left.array_value.length != right.array_value.length then
+      return new ValueEqualAttempt(true, false);
+    fi
+    let int index = 0;
+    loop do
+      if index >= left.array_value.length then break; fi
+      val ValueEqualAttempt child = value_equal_fuel_depth(
+        rt borrow left.array_value[index],
+        rt borrow right.array_value[index],
+        depth + 1, fuel);
+      if !child.completed || !child.equal then return child; fi
+      index = index + 1;
+    done
+    return new ValueEqualAttempt(true, true);
+  fi
+  if left.kind == 6 then
+    if left.object_value.length != right.object_value.length then
+      return new ValueEqualAttempt(true, false);
+    fi
+    val List<bool> used = new List<bool>();
+    for const member of right.object_value do
+      if !value_fuel_charge(fuel, 1) then
+        return new ValueEqualAttempt(false, false);
+      fi
+      used.add(false);
+    done
+    for const a of left.object_value do
+      let bool matched = false;
+      let int index = 0;
+      loop do
+        if index >= right.object_value.length then break; fi
+        // Charge every attempted candidate, including already used slots.
+        if !value_fuel_charge(fuel, 1) then
+          return new ValueEqualAttempt(false, false);
+        fi
+        if !used[index] then
+          val WireMember b = right.object_value[index];
+          val ValueEqualAttempt key_equal = fuel_equal_bytes(
+            a.key.bytes, b.key.bytes, fuel);
+          if !key_equal.completed then return key_equal; fi
+          if key_equal.equal then
+            val ValueEqualAttempt value_equal = value_equal_fuel_depth(
+              rt borrow a.value, rt borrow b.value, depth + 1, fuel);
+            if !value_equal.completed then return value_equal; fi
+            if value_equal.equal then
+              used[index] = true;
+              matched = true;
+              break;
+            fi
+          fi
+        fi
+        index = index + 1;
+      done
+      if !matched then return new ValueEqualAttempt(true, false); fi
+    done
+    return new ValueEqualAttempt(true, true);
+  fi
+  if left.kind == 8 then
+    if left.map_value.length != right.map_value.length then
+      return new ValueEqualAttempt(true, false);
+    fi
+    val List<bool> used = new List<bool>();
+    for const entry of right.map_value do
+      if !value_fuel_charge(fuel, 1) then
+        return new ValueEqualAttempt(false, false);
+      fi
+      used.add(false);
+    done
+    for const a of left.map_value do
+      let bool matched = false;
+      let int index = 0;
+      loop do
+        if index >= right.map_value.length then break; fi
+        if !value_fuel_charge(fuel, 1) then
+          return new ValueEqualAttempt(false, false);
+        fi
+        if !used[index] then
+          val MapEntry b = right.map_value[index];
+          val ValueEqualAttempt key_equal = value_equal_fuel_depth(
+            rt borrow a.key, rt borrow b.key, depth + 1, fuel);
+          if !key_equal.completed then return key_equal; fi
+          if key_equal.equal then
+            val ValueEqualAttempt value_equal = value_equal_fuel_depth(
+              rt borrow a.value, rt borrow b.value, depth + 1, fuel);
+            if !value_equal.completed then return value_equal; fi
+            if value_equal.equal then
+              used[index] = true;
+              matched = true;
+              break;
+            fi
+          fi
+        fi
+        index = index + 1;
+      done
+      if !matched then return new ValueEqualAttempt(true, false); fi
+    done
+    return new ValueEqualAttempt(true, true);
+  fi
+  fuel.remaining = 0;
+  return new ValueEqualAttempt(false, false);
+}
+
+pub fnc value_deep_equal_with_fuel(
+  Value left,
+  Value right,
+  ValueWorkFuel mut fuel
+): ValueEqualAttempt {
+  return value_equal_fuel_depth(rt borrow left, rt borrow right, 0, fuel);
+}
+
 pub fnc parse_int(Value value): IntParse {
   if value.kind != 2 then
     return new IntParse(false, 0);

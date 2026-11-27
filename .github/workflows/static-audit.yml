@@ -14,12 +14,33 @@ permissions:
 jobs:
   source-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          # Avoid silently testing a synthetic pull_request merge commit.
+          # A passed check applies only to this exact checked-out PR head.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Build and test Rust audit
-        run: cargo test --all-targets
+      - name: Verify exact source revision
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
+          printf 'tested_source_sha=%s\n' "$EXPECTED_HEAD" >> "$GITHUB_STEP_SUMMARY"
+          printf 'tested_tree_sha=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_STEP_SUMMARY"
+          test -f Cargo.lock
+          sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
+      - name: Resolve locked Rust dependency graph
+        run: cargo metadata --locked --format-version 1 > /dev/null
+      - name: Verify Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Strict Rust Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Execute Rust native source-contract tests
+        run: cargo test --locked --all-targets
       - name: Audit Oreslang source invariants
-        run: cargo run --quiet --bin audit
+        run: cargo run --locked --quiet --bin audit

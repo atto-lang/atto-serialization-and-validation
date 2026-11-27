@@ -132,6 +132,66 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
 
+## Unified dynamic Value graph and uniqueness budgets
+
+All dynamic validation entrypoints (`validate_value`, `validate_object`,
+and their checked `Result` counterparts) perform **one source-level bounded
+graph preflight before rule evaluation**, even for `any_rule()`, open objects,
+and arrays with no declared `max_items`. This is a runtime-input guard, not a
+compiler-issued proof of `Valid<T, SchemaId>`.
+
+The graph walk is iterative, permits **65,536 visited Value nodes**, up to
+**64 nested container edges**, and at most **16 MiB aggregate active
+payload/key bytes**. It rejects unknown `Value.kind`, noncanonical JSON
+number lexemes, malformed UTF-8 strings or keys, out-of-octet binary or
+extension payloads, duplicate nested object keys, and over-budget trees.
+Shared subgraphs count on each traversal, so aliases do not exempt work from
+the budget. Refusal returns an `invalid_value_tree` report; neither a
+report-only call nor a checked call returns success on a malformed graph.
+
+Object schema admission additionally caps aggregate schema-key bytes at
+16 MiB. Schema collision checks, nested object duplicate-key checks, and
+object field lookups each have a **16,384 candidate / 1 MiB compared-byte**
+budget for their respective operation. A lookup work refusal is
+`schema_lookup_work_limit`; it cannot be treated as an absent optional
+field. A schema admission failure remains `invalid_schema`.
+
+For a `unique_items=true` array the validator additionally enforces:
+
+- at most **4,096 elements**, including when schema `max_items` is unset;
+- at most **16,384 outer hash-bucket candidate comparisons**;
+- **1,000,000 estimated structural-work units** across item hashing and
+  equality, charged *before* each operation, including active bytes, nodes,
+  and pessimistic multipliers for nested object/map collision scans.
+
+The validation path now additionally passes **one shared operation-local
+`ValueWorkFuel` with 1,000,000 units** into `value_hash_with_fuel` and
+`value_deep_equal_with_fuel`. Those metered native routines charge each
+visited node, byte hashed/compared, and unordered object/map candidate probe;
+candidate storage initialization is charged too. Both return explicit
+`completed=false` on budget exhaustion rather than treating an incomplete
+hash as a real bucket or an unfinished comparison as inequality. An
+exhaustion is always `unique_items_work_limit`, never a valid result.
+Canonical hash identity and unordered object/map equality should match the
+existing unmetered semantics; native parity tests are authored, but have not
+yet executed.
+
+Failures are `unique_items_limit`, `unique_items_complexity_limit`,
+or `unique_items_work_limit`, respectively. If
+`ValidationOptions.max_errors=0`, `report.truncated=true` still makes
+`report_is_valid` false. Errors never retain untrusted payload values.
+
+**Boundaries:** these are conservative admission/fuel estimates, not actual
+instruction-count, CPU, memory or cancellation enforcement. The ordinary compatibility
+`value_hash`/`value_deep_equal` routines remain unmetered for non-Zorde
+callers. Only the new metered variants have explicit work charging; neither
+variant enforces wall-clock CPU time, cancellation deadlines or actor
+stack/arena quotas, which remain separate runtime/compiler gates.
+No proof of arbitrary sharing, cycles, TOCTOU freedom, compiler parity,
+schema authority or immutable validated typestate follows from these guards.
+They require compiled guest tests before release, including worst-case
+collision mutants and exact backend evidence.
+
 ## Oreslang `with` numeric refinement integration (staged exact-int kernel)
 
 The compiler/shared contract normalizes all three spellings to the **same**
@@ -216,3 +276,89 @@ The validator does not mint typed `Valid<T,S>`, dispatch automatically from
 guest `with` syntax, or claim verified runtime/compiler acceptance.
 Compiler-generated schema-identity admission and end-to-end Java/LLVM
 refined type checking remain separate release gates.
+
+## Fail-closed metered Value refusal (PR #75)
+
+The `ValueWorkFuel` budget is operation-local and shared by hash/equality
+attempts in uniqueness admission. All `completed=false` refusals must
+leave `fuel.remaining == 0`—not just ordinary numeric exhaustion.
+Invalid value discriminants and structural depth overflow now poison
+that same meter before returning an incomplete result. This prevents
+callers from reusing a budget after any incomplete hash/equality attempt.
+
+The full Atto guest suite checks invalid-kind poisoning, failed-budget
+reuse, and 65-level structural refusals for both metered hashing and
+metered equality (including a same-reference graph). The Rust
+source-contract test requires those negative guest fixtures and the
+poison-on-refusal guards. These are **authored, not compiled execution
+evidence** until the protected private runner admits a job and
+the Java and LLVM backends run the exact-head source.
+
+## Numeric hash parity and metering reference vectors (PR #75)
+
+The guest validation suite now pins the documented signed 64-bit wrapping
+`hash_mix(hash, value) = (hash * 1099511628211) XOR value` semantics for
+`Value` kind 2 (canonical decimal lexeme). The independently authored
+Rust source-contract oracle uses `i64::wrapping_mul` and charges one unit
+for the root value plus one unit for each decimal byte.
+
+| Value | Required fuel | Expected signed 64-bit hash |
+| --- | ---: | ---: |
+| `value_int(1)` | 2 | `-2390216418910778423` |
+| `value_int(12)` | 3 | `60473139555883` |
+
+A budget one unit below the threshold must return an incomplete attempt,
+zero the remaining fuel, and never produce a partially admitted hash.
+Subsequent hashing with the same exhausted fuel must fail. These vectors
+are specifically intended to detect Java/LLVM differences in wrapping
+integer arithmetic or byte-ordering; passing an isolated hash/equality
+fixture on one backend does not imply cross-backend correctness.
+
+**Verification boundary:** The reference calculations were independently
+checked using 64-bit BigInt arithmetic, but Cargo, the Rust oracle test and
+Java/LLVM guest fixtures have not yet executed on the final PR head.
+No hash parity or runtime performance guarantee is certified before
+exact-head compiled evidence from both compilers.
+
+## Exact-head source-local test and release evidence (PR #75)
+
+The `static-audit` workflow checks out `github.event.pull_request.head.sha`
+on pull requests rather than testing only GitHub's synthetic merge commit.
+It verifies `git rev-parse HEAD`, records the source commit/tree in the
+workflow summary, and requires `cargo fmt --all -- --check`, strict
+`cargo clippy --locked --all-targets -- -D warnings`, `cargo test --locked --all-targets`
+and the Rust `audit` executable. These are **Rust source/audit gates**,
+not native AttoLang guest/compiler proof.
+
+For source-local compiler proof, `runner.yml` still requires a protected
+`zorde-source-local-trusted` environment, an approved ephemeral runner and
+administrator-supplied exact source SHA, root Git tree, compiler path and
+compiler SHA-256. The approved native suite runs first with the existing
+privacy-preserving receipt script. The same job then invokes offline Cargo
+formatting, strict Clippy, source-contract tests and audit, with Cargo build
+output placed outside the checkout.
+
+**Locked Rust dependency closure (provisional):** `Cargo.toml` now
+pins `regex = "=1.13.1"`, and `Cargo.lock` names six packages (the local
+audit plus five registry dependencies: regex 1.13.1, regex-automata 0.4.18,
+regex-syntax 0.8.11, aho-corasick 1.1.5 and memchr 2.8.3) with registry
+SHA-256 checksums cross-checked against a published Rust project lockfile.
+Hosted Cargo calls use `--locked`; source-local calls use `--locked --offline`.
+The workflows record the lockfile digest alongside the exact source identity.
+The lockfile was assembled from independently published registry entries
+because no Rust toolchain is available in this inspection environment; it
+**has not been verified by Cargo or tested with actual crate archives**.
+An approved runner must confirm `cargo metadata --locked`, that Cargo
+accepts the closure without modification, and that checked crate archives
+match the lock before release. Offline Cargo still requires an independently
+provisioned, reviewed local dependency cache. Do not fetch unreviewed crates
+from the network on the private source-local runner. A lockfile alone is not
+a proof of the compiler or its transitive runtime/build dependencies.
+
+**Admission is not execution:** Jobs with `steps=null`, skipped native jobs,
+a checked-in test file or source-only structural assertions are never a
+successful Rust, Java or LLVM test receipt. Keep PR #75 draft until exact-head
+native tests execute, negative controls pass, provenance is reviewed and an
+independent reviewer approves. No private source is to be copied to another
+organization without authorization.
+

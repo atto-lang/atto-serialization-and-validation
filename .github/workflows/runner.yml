@@ -23,7 +23,16 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Verify exact runner-contract source head
+        shell: bash
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test -z "$(git status --porcelain --untracked-files=all)"
       - name: Check shell syntax
         run: |
           while IFS= read -r -d '' script; do
@@ -102,3 +111,32 @@ jobs:
           bash scripts/test-zorde-registry-source-local.sh
           sha256sum "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json"
           cat "$ZORDE_EVIDENCE_DIR/zorde-registry-native-receipt.json" >> "$GITHUB_STEP_SUMMARY"
+
+      # Rust tests must execute on the same source-local job when the hosted
+      # organization cannot admit any runners. Keep Cargo's build artifacts
+      # outside the verified source checkout and forbid network dependency
+      # fetches from this confidentiality-controlled runner. This is still
+      # NOT a reproducible dependency receipt until Cargo.lock and registry
+      # artifacts are independently checked and the cache is reviewed.
+      - name: Execute Rust format, strict Clippy, source-contract tests and audit
+        shell: bash
+        env:
+          CARGO_NET_OFFLINE: "true"
+          CARGO_TARGET_DIR: ${{ runner.temp }}/zorde-rust-target
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          command -v cargo >/dev/null
+          test -f Cargo.lock
+          sha256sum Cargo.lock >> "$GITHUB_STEP_SUMMARY"
+          cargo metadata --locked --offline --format-version 1 > /dev/null
+          cargo fmt --all -- --check
+          cargo clippy --locked --all-targets --offline -- -D warnings
+          cargo test --locked --all-targets --offline
+          cargo run --locked --offline --quiet --bin audit
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(git diff --name-only)"
+          test -z "$(git diff --cached --name-only)"
+          printf 'rust_source_head=%s\n' "$GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+          printf 'rust_source_tree=%s\n' "$(git rev-parse 'HEAD^{tree}')" >> "$GITHUB_STEP_SUMMARY"
