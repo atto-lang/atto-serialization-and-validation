@@ -1,0 +1,24 @@
+name: Rust canonical shape digest
+on:
+  pull_request:
+    paths: ['src/shape_digest.rs', 'src/lib.rs', 'tests/shape_digest.rs', 'tools/actor_data_shape_digest_vectors_v1.json', '.github/workflows/actor-data-shape-digest-rust.yml']
+permissions:
+  contents: read
+jobs:
+  rust-shape-digest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Exact head and golden vector tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          cargo +1.88.0 test --locked --test shape_digest --verbose
