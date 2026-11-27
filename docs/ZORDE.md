@@ -18,14 +18,14 @@ Oreslang refinements have two enforcement phases:
    command-line input, FFI, dynamic maps, deserialization, and other dynamic
    or untrusted values.
 
-The long-term goal is sound validated typestate. **The current ValidValue
-facade is not yet a proof-carrying immutable refinement**: a Value tree may
-contain mutable arrays, maps, or nested objects, and a schema holds mutable
-field collections. Until the ownership/borrow checker prevents post-validation
-mutation through all aliases (or the validator returns an owned, deeply frozen
-snapshot), do not use ValidValue to bypass validation at later trust boundaries.
-Revalidate dynamically sourced or mutable values at each relevant boundary.
-Immutable values with a proven invariant need not be repeatedly checked.
+The long-term goal is sound validated typestate. **The current checked
+dynamic API returns ordinary `Result<Value, ValidationReport>`, not an
+immutable compiler-authenticated proof.** A Value tree may contain mutable
+arrays, maps, or nested objects, and a schema holds mutable field collections.
+Even after a complete bounded wire-graph preflight, post-validation aliases can
+change the value. Do not reuse a dynamic success as nominal `Valid<T>` at
+later trust boundaries. Revalidate mutable values; reserve authoritative
+proofs for a future compiler-owned, deeply frozen checked-construction path.
 
     type NonEmpty = string with length gt 0;
     type Username = string with length gte 3 and length lte 32;
@@ -34,7 +34,7 @@ Immutable values with a proven invariant need not be repeatedly checked.
     const NonEmpty b = "";       // compile-time error
 
     val ZordeValueSchema schema = zorde_nonempty_string();
-    val Result<ValidValue, ValidationReport> checked =
+    val Result<Value, ValidationReport> checked =
       zorde_parse(raw_value, schema);
 
 The compiler integration should generate the Zorde schema from the normalized
@@ -173,25 +173,11 @@ validator:
 The existing validation engine remains the implementation underneath. This
 initial facade does not claim compiler-generated zorde.schema<T>(), arbitrary
 where execution, regex/pattern validation, cross-field predicates, or full
-typed-object construction.
-
-## Compiler-owned constrained aliases: i64 v1 projection
-
-A report-only Oreslang adapter for the Java/LLVM
-`ores.type-constraint.v1` catalog now lives in
-[`src/zorde/compiler_constraint_v1.ores`](../src/zorde/compiler_constraint_v1.ores).
-It checks qualified alias identity and caller-provided fingerprint agreement,
-canonical one/two-sided inclusive i64 predicates and deterministic compiler
-error IDs, with exact bounded wire-int parsing. It returns a diagnostic
-`ValidationReport` or an ordinary `Result<int,ValidationReport>`.
-
-**This does not authenticate the caller-provided fingerprint or issue
-`Valid<T>` provenance.** Compiler-owned catalog admission, cryptographic
-fingerprint verification, opaque checked construction and transitive immutable
-ownership remain mandatory. Constrained-alias runtime use must keep failing
-closed with `CONSTRAINT_VALIDATION_BRIDGE_REQUIRED` until those compiler
-gates have executed successfully. See
-[`ZORDE-COMPILER-CONSTRAINT-V1.md`](ZORDE-COMPILER-CONSTRAINT-V1.md).
+typed-object construction. The dynamic checked `Result<Value,ValidationReport>`
+entry points additionally enforce a bounded active-kind wire-tree preflight
+(65,536 nodes, depth 64, 16 MiB inspected bytes, including nested map keys,
+object values and Unicode validity); this is *not* schema-recursive typestate
+or a freezing operation. See [VALIDATION.md](VALIDATION.md).
 
 ## Refinement-to-Zorde normalization
 

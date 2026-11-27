@@ -1,8 +1,8 @@
 import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember, MapEntry from '../src/core/value';
-import fnc value_int, value_number_lexeme, value_string, value_array, value_object, value_map, value_deep_equal, int_to_decimal_bytes from '../src/core/value';
-import class ValidationOptions, ValidationReport, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
+import fnc value_int, value_number_lexeme, value_string, value_bytes, value_extension, value_array, value_object, value_map, value_deep_equal, int_to_decimal_bytes from '../src/core/value';
+import class ValidationOptions, ValidationReport, ValidationError, ValueRule, FieldRule, ObjectSchema from '../src/validation/validation';
 import class DecodeOptions from '../src/core/options';
 import fnc default_decode_options from '../src/core/options';
 import class JsonPayloadError, ValidatedDecodedValue from '../src/json/validated';
@@ -412,5 +412,122 @@ pub fnc run_validation_tests(): void {
     value_object(duplicate_members), rt borrow schema, default_validation_options()
   );
   require_true(denied_duplicate.is_err(), "dynamic checked object rejects duplicate keys");
+
+  // Programmatic Values bypass JSON parser well-formedness. A checked
+  // Result may not admit malformed *nested* payloads under any_rule(),
+  // an unconstrained array, or an open object schema.
+  val Value invalid_discriminant = new Value(
+    9, false, new List<int>(), new Utf8Text(new List<int>()),
+    new List<int>(), new List<Value>(), new List<WireMember>(),
+    new List<MapEntry>(), 0
+  );
+  require_true(validate_value_checked(
+    invalid_discriminant, any_rule(), default_validation_options()
+  ).is_err(), "checked any_rule rejects unknown public Value kind");
+  require_true(!report_is_valid(validate_value(
+    invalid_discriminant, any_rule(), default_validation_options()
+  )), "report-only any_rule also rejects a forged wire discriminant");
+
+  val List<Value> invalid_nested_items = new List<Value>();
+  invalid_nested_items.add(value_int(1));
+  invalid_nested_items.add(invalid_discriminant);
+  require_true(validate_value_checked(
+    value_array(invalid_nested_items), any_rule(), default_validation_options()
+  ).is_err(), "checked array rejects an unknown nested Value kind");
+
+  val List<Value> invalid_number_items = new List<Value>();
+  invalid_number_items.add(value_number_lexeme(new List<int>(48,49)));
+  require_true(validate_value_checked(
+    value_array(invalid_number_items), any_rule(), default_validation_options()
+  ).is_err(), "checked array rejects nested noncanonical numeric lexemes");
+
+  val List<Value> invalid_string_items = new List<Value>();
+  invalid_string_items.add(value_string(
+    new Utf8Text(new List<int>(192,175))
+  ));
+  require_true(validate_value_checked(
+    value_array(invalid_string_items), any_rule(), default_validation_options()
+  ).is_err(), "checked array rejects nested malformed UTF-8");
+
+  val List<WireMember> nested_unknown_members = new List<WireMember>();
+  nested_unknown_members.add(new WireMember(
+    new Utf8Text(new List<int>(111,112,101,110)),
+    value_array(invalid_number_items)
+  ));
+  require_true(validate_object_checked(
+    value_object(nested_unknown_members), rt borrow open_schema,
+    default_validation_options()
+  ).is_err(), "checked open object cannot hide malformed nested unknown field");
+
+  val List<WireMember> duplicate_inner_members = new List<WireMember>();
+  duplicate_inner_members.add(new WireMember(
+    new Utf8Text(new List<int>(120)), value_int(1)));
+  duplicate_inner_members.add(new WireMember(
+    new Utf8Text(new List<int>(120)), value_int(2)));
+  val List<Value> nested_duplicate_items = new List<Value>();
+  nested_duplicate_items.add(value_object(duplicate_inner_members));
+  require_true(validate_value_checked(
+    value_array(nested_duplicate_items), any_rule(), default_validation_options()
+  ).is_err(), "checked arrays reject duplicate object keys at nested depth");
+
+  // Binary and extension payload lists are List<int>, so bypassing a
+  // decoder can inject negative or >255 octets. Both must fail closed.
+  val List<Value> invalid_binary_items = new List<Value>();
+  invalid_binary_items.add(value_bytes(new List<int>(-1)));
+  require_true(validate_value_checked(
+    value_array(invalid_binary_items), any_rule(), default_validation_options()
+  ).is_err(), "checked binary byte payload rejects a negative octet");
+  val List<Value> invalid_extension_items = new List<Value>();
+  invalid_extension_items.add(value_extension(1, new List<int>(256)));
+  require_true(validate_value_checked(
+    value_array(invalid_extension_items), any_rule(), default_validation_options()
+  ).is_err(), "checked extension byte payload rejects an octet above 255");
+  require_true(!validate_value_checked(
+    value_bytes(new List<int>(0,127,128,255)), any_rule(),
+    default_validation_options()
+  ).is_err(), "valid byte octet boundaries remain admitted");
+
+  val List<MapEntry> invalid_map_entries = new List<MapEntry>();
+  invalid_map_entries.add(new MapEntry(
+    value_number_lexeme(new List<int>(48,49)), value_int(1)
+  ));
+  require_true(validate_value_checked(
+    value_map(invalid_map_entries), any_rule(), default_validation_options()
+  ).is_err(), "checked arbitrary map keys also receive lexical preflight");
+
+  // A 64-level nested tree is admitted, one extra level must fail before
+  // stack exhaustion. Native compiler execution is still required.
+  let Value at_depth_limit = value_int(7);
+  let int depth_index = 0;
+  loop do
+    if depth_index >= 64 then break; fi
+    val List<Value> one_child = new List<Value>();
+    one_child.add(at_depth_limit);
+    at_depth_limit = value_array(one_child);
+    depth_index = depth_index + 1;
+  done
+  require_true(!validate_value_checked(
+    rt borrow at_depth_limit, any_rule(), default_validation_options()
+  ).is_err(), "checked dynamic tree accepts its inclusive depth boundary");
+  val List<Value> extra_depth = new List<Value>();
+  extra_depth.add(at_depth_limit);
+  require_true(validate_value_checked(
+    value_array(extra_depth), any_rule(), default_validation_options()
+  ).is_err(), "checked dynamic tree rejects 65 nested array levels");
+
+  val List<Value> canonical_nested_items = new List<Value>();
+  canonical_nested_items.add(value_int(1));
+  canonical_nested_items.add(value_string(
+    new Utf8Text(new List<int>(111,107))));
+  require_true(!validate_value_checked(
+    value_array(canonical_nested_items), any_rule(), default_validation_options()
+  ).is_err(), "canonical nested values remain accepted");
+
+  // ValidationReport is a caller-constructible diagnostic container. Even
+  // this deliberately fabricated empty report cannot mint Valid<T>.
+  val ValidationReport forged_empty_report = new ValidationReport(
+    new List<ValidationError>(), false);
+  require_true(report_is_valid(forged_empty_report),
+    "report_is_valid means no reported errors, never proof provenance");
   return;
 }
