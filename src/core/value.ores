@@ -709,18 +709,20 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
       return Err("string-key object requires a UTF-8 string key");
     fi
     return object_get(container, key.string_value);
-  fi
-
-  if container.kind == 8 then
-    for const entry of container.map_value do
-      if value_deep_equal(entry.key, key) then
-        return Ok(entry.value);
-      fi
+  elseif container.kind == 8 then
+    val WireWorkBudget budget = new WireWorkBudget(8000000, 8000000);
+    let int i = 0;
+    loop do
+      if i >= container.map_value.length then break; fi
+      val int status = value_deep_equal_checked(
+        rt borrow container.map_value[i].key, rt borrow key, rt mut borrow budget
+      );
+      if status < 0 then return Err("map key comparison budget exhausted"); fi
+      if status == 1 then return Ok(container.map_value[i].value); fi
+      i = i + 1;
     done
     return Err("general map key not found");
-  fi
-
-  if container.kind == 5 then
+  elseif container.kind == 5 then
     let IntParse index = parse_int(key);
     if !index.ok || index.value < 0 ||
        index.value >= container.array_value.length then
@@ -728,7 +730,6 @@ pub fnc value_lookup(Value container, Value key): Result<Value, String> {
     fi
     return Ok(container.array_value[index.value]);
   fi
-
   return Err("dynamic lookup requires an object, map, or array");
 }
 
