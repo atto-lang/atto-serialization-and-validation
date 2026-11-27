@@ -53,20 +53,20 @@ fnc empty_validation_report(): ValidationReport {
 fnc metadata_schema(CodecTypeMeta metadata): ObjectSchema {
   val List<FieldRule> fields = new List<FieldRule>();
   for const field of metadata.fields do
-    fields.push(field_rule(
+    fields.push(imports::field_rule(
       field.wire_name,
       field.required,
       false,
       field.validation
     ));
   done
-  return object_schema(fields, metadata.unknown_field_policy == 1);
+  return imports::object_schema(fields, metadata.unknown_field_policy == 1);
 }
 
 fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
   val List<WireMember> output = new List<WireMember>();
   for const member of wire_object.object_value do
-    let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
+    let Result<CodecFieldMeta, MetadataError> selected = imports::field_by_wire_name(
       rt borrow metadata,
       rt borrow member.key
     );
@@ -76,16 +76,16 @@ fnc source_object(Value wire_object, CodecTypeMeta metadata): Value {
     let CodecFieldMeta field = selected.unwrap();
     output.push(new WireMember(field.source_name, member.value));
   done
-  return value_object(output);
+  return imports::value_object(output);
 }
 
 fnc unknown_object(Value wire_object, CodecTypeMeta metadata): Value {
   val List<WireMember> output = new List<WireMember>();
   if metadata.unknown_field_policy != 2 then
-    return value_object(output);
+    return imports::value_object(output);
   fi
   for const member of wire_object.object_value do
-    let Result<CodecFieldMeta, MetadataError> selected = field_by_wire_name(
+    let Result<CodecFieldMeta, MetadataError> selected = imports::field_by_wire_name(
       rt borrow metadata,
       rt borrow member.key
     );
@@ -93,14 +93,14 @@ fnc unknown_object(Value wire_object, CodecTypeMeta metadata): Value {
       output.add(member);
     fi
   done
-  return value_object(output);
+  return imports::value_object(output);
 }
 
 fnc empty_decoded_object(): DecodedObject {
   return new DecodedObject(
-    value_object(new List<WireMember>()),
-    value_object(new List<WireMember>()),
-    value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
+    imports::value_object(new List<WireMember>()),
     0
   );
 }
@@ -121,7 +121,7 @@ fnc decode_object_attempt(
   ValidationOptions validation_options,
   bool messagepack
 ): ObjectDecodeAttempt {
-  let MetadataCheck checked = check_metadata(rt borrow metadata);
+  let MetadataCheck checked = imports::check_metadata(rt borrow metadata);
 
   if !checked.ok then
     let ObjectCodecError error = object_codec_error(
@@ -149,10 +149,10 @@ fnc decode_object_attempt(
   fi
 
   if messagepack then
-    let DecodeAttempt attempt = decode_messagepack_attempt(input, decode_options);
+    let DecodeAttempt attempt = imports::decode_messagepack_attempt(input, decode_options);
     return project_object_attempt(attempt, metadata, validation_options, true);
   fi
-  let DecodeAttempt attempt = decode_attempt(input, decode_options);
+  let DecodeAttempt attempt = imports::decode_attempt(input, decode_options);
   return project_object_attempt(attempt, metadata, validation_options, false);
 }
 
@@ -195,13 +195,13 @@ fnc project_object_attempt(
   fi
 
   let ObjectSchema schema = metadata_schema(rt borrow metadata);
-  let ValidationReport report = validate_object(
+  let ValidationReport report = imports::validate_object(
     rt borrow attempt.value,
     schema,
     validation_options
   );
 
-  if !report_is_valid(rt borrow report) then
+  if !imports::report_is_valid(rt borrow report) then
     let ObjectCodecError error = object_codec_error(
       2,
       empty_metadata_error(),

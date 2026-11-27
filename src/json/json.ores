@@ -187,27 +187,27 @@ pub define class JsonIncrementalDecoder as
     if self.complete then
       return new DecodeStep(
         2,
-        value_null(),
+        imports::value_null(),
         0,
-        decode_error("decoder_complete", 0, "incremental decoder already completed a value")
+        imports::decode_error("decoder_complete", 0, "incremental decoder already completed a value")
       );
     fi
   
-    if !decode_options_valid(self.options) then
+    if !imports::decode_options_valid(self.options) then
       return new DecodeStep(
         2,
-        value_null(),
+        imports::value_null(),
         self.buffer.length,
-        decode_error("invalid_options", self.buffer.length, "invalid or unsafe JSON decode options")
+        imports::decode_error("invalid_options", self.buffer.length, "invalid or unsafe JSON decode options")
       );
     fi
   
     if chunk.length > self.options.max_input_bytes - self.buffer.length then
       return new DecodeStep(
         2,
-        value_null(),
+        imports::value_null(),
         self.buffer.length,
-        decode_error("input_limit", self.buffer.length, "JSON input exceeds max_input_bytes")
+        imports::decode_error("input_limit", self.buffer.length, "JSON input exceeds max_input_bytes")
       );
     fi
   
@@ -216,9 +216,9 @@ pub define class JsonIncrementalDecoder as
       if byte < 0 || byte > 255 then
         return new DecodeStep(
           2,
-          value_null(),
+          imports::value_null(),
           self.buffer.length,
-          decode_error(
+          imports::decode_error(
             "invalid_byte",
             self.buffer.length + chunk_index,
             "JSON input bytes must be 0..255"
@@ -237,9 +237,9 @@ pub define class JsonIncrementalDecoder as
     if scan_status == 0 then
       return new DecodeStep(
         0,
-        value_null(),
+        imports::value_null(),
         self.buffer.length,
-        decode_error("need_more", self.buffer.length, "incomplete JSON value")
+        imports::decode_error("need_more", self.buffer.length, "incomplete JSON value")
       );
     fi
   
@@ -251,17 +251,17 @@ pub define class JsonIncrementalDecoder as
         1,
         attempt.value,
         attempt.consumed,
-        empty_decode_error()
+        imports::empty_decode_error()
       );
     fi
   
     if attempt.status == 2 then
-      return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
+      return new DecodeStep(2, imports::value_null(), attempt.consumed, attempt.error);
     fi
   
     return new DecodeStep(
       0,
-      value_null(),
+      imports::value_null(),
       attempt.consumed,
       attempt.error
     );
@@ -271,20 +271,20 @@ pub define class JsonIncrementalDecoder as
     if self.complete then
       return new DecodeStep(
         2,
-        value_null(),
+        imports::value_null(),
         0,
-        decode_error("decoder_complete", 0, "incremental decoder already completed a value")
+        imports::decode_error("decoder_complete", 0, "incremental decoder already completed a value")
       );
     fi
   
     let DecodeAttempt attempt = decode_attempt(self.buffer, self.options);
   
     if attempt.status != 0 then
-      return new DecodeStep(2, value_null(), attempt.consumed, attempt.error);
+      return new DecodeStep(2, imports::value_null(), attempt.consumed, attempt.error);
     fi
   
     self.complete = true;
-    return new DecodeStep(1, attempt.value, attempt.consumed, empty_decode_error());
+    return new DecodeStep(1, attempt.value, attempt.consumed, imports::empty_decode_error());
   }
 end
 
@@ -293,7 +293,7 @@ fnc fail(JsonCursor mut cursor, String code, String message): void {
     return;
   fi
   cursor.failed = true;
-  cursor.error = decode_error(code, cursor.index, message);
+  cursor.error = imports::decode_error(code, cursor.index, message);
   return;
 }
 
@@ -302,7 +302,7 @@ fnc need_more(JsonCursor mut cursor): void {
     return;
   fi
   cursor.incomplete = true;
-  cursor.error = decode_error("unexpected_eof", cursor.index, "incomplete JSON value");
+  cursor.error = imports::decode_error("unexpected_eof", cursor.index, "incomplete JSON value");
   return;
 }
 
@@ -311,7 +311,7 @@ fnc writer_fail(JsonWriter mut writer, String code, String message): void {
     return;
   fi
   writer.failed = true;
-  writer.error = encode_error(code, message);
+  writer.error = imports::encode_error(code, message);
   return;
 }
 
@@ -528,7 +528,7 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
           return new Utf8Text(output);
         fi
 
-        if !utf8_append_codepoint(output, codepoint) then
+        if !imports::utf8_append_codepoint(output, codepoint) then
           fail(cursor, "invalid_unicode_escape", "unicode escape is outside the Unicode scalar range");
           return new Utf8Text(output);
         fi
@@ -542,14 +542,14 @@ fnc parse_string(JsonCursor mut cursor): Utf8Text {
       // consume() already advanced over the first byte; validate against the
       // original source starting one byte earlier and copy the remaining bytes.
       let int start = cursor.index - 1;
-      let int expected_width = utf8_expected_width(byte);
+      let int expected_width = imports::utf8_expected_width(byte);
 
       if expected_width < 2 then
         fail(cursor, "invalid_utf8", "invalid UTF-8 lead byte in JSON string");
         return new Utf8Text(output);
       fi
 
-      let int prefix_status = utf8_prefix_status(
+      let int prefix_status = imports::utf8_prefix_status(
         cursor.input,
         start,
         expected_width
@@ -606,12 +606,12 @@ fnc parse_literal(
 
     if cursor.index >= cursor.input.length then
       need_more(cursor);
-      return value_null();
+      return imports::value_null();
     fi
 
     if cursor.input[cursor.index] != expected[i] then
       fail(cursor, "invalid_literal", "invalid JSON literal");
-      return value_null();
+      return imports::value_null();
     fi
 
     cursor.index = cursor.index + 1;
@@ -640,26 +640,26 @@ fnc parse_number(JsonCursor mut cursor): Value {
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 45 then
     if !push_number_byte(cursor, lexeme, 45) then
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
   fi
 
   if cursor.index >= cursor.input.length then
     need_more(cursor);
-    return value_number_lexeme(lexeme);
+    return imports::value_number_lexeme(lexeme);
   fi
 
   let int first = cursor.input[cursor.index];
 
   if first == 48 then
     if !push_number_byte(cursor, lexeme, first) then
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
     if cursor.index < cursor.input.length && is_digit(cursor.input[cursor.index]) then
       fail(cursor, "invalid_number", "JSON number cannot contain a leading zero");
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
   elseif is_nonzero_digit(first) then
     loop do
@@ -671,28 +671,28 @@ fnc parse_number(JsonCursor mut cursor): Value {
         break;
       fi
       if !push_number_byte(cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
     done
   else
     fail(cursor, "invalid_number", "invalid JSON integer component");
-    return value_number_lexeme(lexeme);
+    return imports::value_number_lexeme(lexeme);
   fi
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 46 then
     if !push_number_byte(cursor, lexeme, 46) then
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
     cursor.index = cursor.index + 1;
 
     if cursor.index >= cursor.input.length then
       need_more(cursor);
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
     if !is_digit(cursor.input[cursor.index]) then
       fail(cursor, "invalid_number", "fraction requires at least one digit");
-      return value_number_lexeme(lexeme);
+      return imports::value_number_lexeme(lexeme);
     fi
 
     loop do
@@ -704,7 +704,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
         break;
       fi
       if !push_number_byte(cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
     done
@@ -714,30 +714,30 @@ fnc parse_number(JsonCursor mut cursor): Value {
     let int byte = cursor.input[cursor.index];
     if byte == 101 || byte == 69 then
       if !push_number_byte(cursor, lexeme, byte) then
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
       cursor.index = cursor.index + 1;
 
       if cursor.index >= cursor.input.length then
         need_more(cursor);
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
 
       let int sign = cursor.input[cursor.index];
       if sign == 43 || sign == 45 then
         if !push_number_byte(cursor, lexeme, sign) then
-          return value_number_lexeme(lexeme);
+          return imports::value_number_lexeme(lexeme);
         fi
         cursor.index = cursor.index + 1;
       fi
 
       if cursor.index >= cursor.input.length then
         need_more(cursor);
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
       if !is_digit(cursor.input[cursor.index]) then
         fail(cursor, "invalid_number", "exponent requires at least one digit");
-        return value_number_lexeme(lexeme);
+        return imports::value_number_lexeme(lexeme);
       fi
 
       loop do
@@ -749,7 +749,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
           break;
         fi
         if !push_number_byte(cursor, lexeme, exp_byte) then
-          return value_number_lexeme(lexeme);
+          return imports::value_number_lexeme(lexeme);
         fi
         cursor.index = cursor.index + 1;
       done
@@ -760,7 +760,7 @@ fnc parse_number(JsonCursor mut cursor): Value {
     fail(cursor, "number_limit", "JSON number exceeds max_number_bytes");
   fi
 
-  return value_number_lexeme(lexeme);
+  return imports::value_number_lexeme(lexeme);
 }
 
 // Collision work and logical index slots are cumulative per operation.
@@ -840,32 +840,32 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
 
   expect_byte(cursor, 91, "expected '['");
   if cursor.failed || cursor.incomplete then
-    return value_array(values);
+    return imports::value_array(values);
   fi
 
   skip_whitespace(cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 93 then
     cursor.index = cursor.index + 1;
-    return value_array(values);
+    return imports::value_array(values);
   fi
 
   loop do
     if values.length >= cursor.options.max_array_entries then
       fail(cursor, "array_limit", "JSON array exceeds max_array_entries");
-      return value_array(values);
+      return imports::value_array(values);
     fi
 
     let Value item = parse_value(cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
-      return value_array(values);
+      return imports::value_array(values);
     fi
     values.add(item);
 
     skip_whitespace(cursor);
     let int separator = peek(cursor);
     if cursor.failed || cursor.incomplete then
-      return value_array(values);
+      return imports::value_array(values);
     fi
 
     if separator == 44 then
@@ -880,33 +880,33 @@ fnc parse_array(JsonCursor mut cursor, int depth): Value {
     fi
 
     fail(cursor, "array_separator", "expected ',' or ']' after JSON array value");
-    return value_array(values);
+    return imports::value_array(values);
   done
 
-  return value_array(values);
+  return imports::value_array(values);
 }
 
 fnc parse_object(JsonCursor mut cursor, int depth): Value {
   val List<WireMember> members = new List<WireMember>();
   expect_byte(cursor, 123, "expected '{'");
   if cursor.failed || cursor.incomplete then
-    return value_object(members);
+    return imports::value_object(members);
   fi
 
   skip_whitespace(cursor);
 
   if cursor.index < cursor.input.length && cursor.input[cursor.index] == 125 then
     cursor.index = cursor.index + 1;
-    return value_object(members);
+    return imports::value_object(members);
   fi
   // Preserve the existing map-entry limit and incomplete-frame diagnostics.
   if cursor.options.max_map_entries == 0 then
     fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
-    return value_object(members);
+    return imports::value_object(members);
   fi
   if cursor.index >= cursor.input.length then
     need_more(cursor);
-    return value_object(members);
+    return imports::value_object(members);
   fi
   // Remaining bytes upper-bound possible entries even for the smallest
   // valid JSON pair, so avoid reserving large head tables for tiny frames.
@@ -915,7 +915,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
   val int slots = capacity > 256 ? 256 : capacity;
   if capacity == 0 || slots > cursor.key_storage_remaining then
     fail(cursor, "map_complexity_limit", "JSON key index storage budget exhausted");
-    return value_object(members);
+    return imports::value_object(members);
   fi
   cursor.key_storage_remaining = cursor.key_storage_remaining - slots;
   val WireHashIndex buckets = new WireHashIndex(capacity, cursor.key_work_remaining);
@@ -923,50 +923,50 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
   loop do
     if members.length >= cursor.options.max_map_entries then
       fail(cursor, "map_limit", "JSON object exceeds max_map_entries");
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     if peek(cursor) != 34 then
       if !cursor.failed && !cursor.incomplete then
         fail(cursor, "object_key", "JSON object key must be a string");
       fi
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     let Utf8Text key = parse_string(cursor);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     skip_whitespace(cursor);
     expect_byte(cursor, 58, "expected ':' after JSON object key");
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     skip_whitespace(cursor);
     let Value field_value = parse_value(cursor, depth + 1);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     // Nested field decoding may have consumed the shared operation budget.
     buckets.limit_work(cursor.key_work_remaining);
     if !buckets.charge_work(1 + key.bytes.length) then
       fail(cursor, "map_complexity_limit", "JSON key hashing budget exhausted");
-      return value_object(members);
+      return imports::value_object(members);
     fi
     val int hash = json_key_hash(rt borrow key);
     let int existing = member_index(rt borrow members, rt mut borrow buckets, rt borrow key, hash);
     cursor.key_work_remaining = buckets.work_left();
     if existing == -2 then
       fail(cursor, "map_complexity_limit", "JSON key collision budget exhausted");
-      return value_object(members);
+      return imports::value_object(members);
     fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         fail(cursor, "duplicate_key", "duplicate JSON object key");
-        return value_object(members);
+        return imports::value_object(members);
       elseif cursor.options.duplicate_key_policy == 2 then
         members[existing] = new WireMember(key, field_value);
       fi
@@ -975,7 +975,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
       let int index = members.length;
       if cursor.key_storage_remaining < 2 || buckets.insert(hash) != index then
         fail(cursor, "map_complexity_limit", "JSON key index storage budget exhausted");
-        return value_object(members);
+        return imports::value_object(members);
       fi
       cursor.key_storage_remaining = cursor.key_storage_remaining - 2;
       members.add(new WireMember(key, field_value));
@@ -984,7 +984,7 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     skip_whitespace(cursor);
     let int separator = peek(cursor);
     if cursor.failed || cursor.incomplete then
-      return value_object(members);
+      return imports::value_object(members);
     fi
 
     if separator == 44 then
@@ -999,39 +999,39 @@ fnc parse_object(JsonCursor mut cursor, int depth): Value {
     fi
 
     fail(cursor, "object_separator", "expected ',' or '}' after JSON object member");
-    return value_object(members);
+    return imports::value_object(members);
   done
 
-  return value_object(members);
+  return imports::value_object(members);
 }
 
 fnc parse_value(JsonCursor mut cursor, int depth): Value {
   if depth > cursor.options.max_depth then
     fail(cursor, "depth_limit", "JSON nesting exceeds max_depth");
-    return value_null();
+    return imports::value_null();
   fi
 
   skip_whitespace(cursor);
 
   let int byte = peek(cursor);
   if cursor.failed || cursor.incomplete then
-    return value_null();
+    return imports::value_null();
   fi
 
   if byte == 110 then
-    return parse_literal(cursor, new List<int>(110, 117, 108, 108), value_null());
+    return parse_literal(cursor, new List<int>(110, 117, 108, 108), imports::value_null());
   fi
 
   if byte == 116 then
-    return parse_literal(cursor, new List<int>(116, 114, 117, 101), value_bool(true));
+    return parse_literal(cursor, new List<int>(116, 114, 117, 101), imports::value_bool(true));
   fi
 
   if byte == 102 then
-    return parse_literal(cursor, new List<int>(102, 97, 108, 115, 101), value_bool(false));
+    return parse_literal(cursor, new List<int>(102, 97, 108, 115, 101), imports::value_bool(false));
   fi
 
   if byte == 34 then
-    return value_string(parse_string(cursor));
+    return imports::value_string(parse_string(cursor));
   fi
 
   if byte == 91 then
@@ -1047,28 +1047,28 @@ fnc parse_value(JsonCursor mut cursor, int depth): Value {
   fi
 
   fail(cursor, "unexpected_token", "invalid JSON value token");
-  return value_null();
+  return imports::value_null();
 }
 
 pub fnc decode_attempt(
   List<int> input,
   DecodeOptions options
 ): DecodeAttempt {
-  if !decode_options_valid(options) then
+  if !imports::decode_options_valid(options) then
     return new DecodeAttempt(
       2,
-      value_null(),
+      imports::value_null(),
       0,
-      decode_error("invalid_options", 0, "invalid or unsafe JSON decode options")
+      imports::decode_error("invalid_options", 0, "invalid or unsafe JSON decode options")
     );
   fi
 
   if input.length > options.max_input_bytes then
     return new DecodeAttempt(
       2,
-      value_null(),
+      imports::value_null(),
       0,
-      decode_error("input_limit", 0, "JSON input exceeds max_input_bytes")
+      imports::decode_error("input_limit", 0, "JSON input exceeds max_input_bytes")
     );
   fi
 
@@ -1077,9 +1077,9 @@ pub fnc decode_attempt(
     if byte < 0 || byte > 255 then
       return new DecodeAttempt(
         2,
-        value_null(),
+        imports::value_null(),
         byte_index,
-        decode_error("invalid_byte", byte_index, "JSON input bytes must be 0..255")
+        imports::decode_error("invalid_byte", byte_index, "JSON input bytes must be 0..255")
       );
     fi
     byte_index = byte_index + 1;
@@ -1101,17 +1101,17 @@ pub fnc decode_attempt(
     false,
     key_budget > 8000000 ? 8000000 : key_budget,
     storage_budget > 8000000 ? 8000000 : storage_budget,
-    empty_decode_error()
+    imports::empty_decode_error()
   );
 
   let Value value = parse_value(cursor, 0);
 
   if cursor.incomplete then
-    return new DecodeAttempt(1, value_null(), cursor.index, cursor.error);
+    return new DecodeAttempt(1, imports::value_null(), cursor.index, cursor.error);
   fi
 
   if cursor.failed then
-    return new DecodeAttempt(2, value_null(), cursor.index, cursor.error);
+    return new DecodeAttempt(2, imports::value_null(), cursor.index, cursor.error);
   fi
 
   skip_whitespace(cursor);
@@ -1119,13 +1119,13 @@ pub fnc decode_attempt(
   if !allow_trailing_data && cursor.index != input_length then
     return new DecodeAttempt(
       2,
-      value_null(),
+      imports::value_null(),
       cursor.index,
-      decode_error("trailing_data", cursor.index, "trailing bytes after JSON value")
+      imports::decode_error("trailing_data", cursor.index, "trailing bytes after JSON value")
     );
   fi
 
-  return new DecodeAttempt(0, value, cursor.index, empty_decode_error());
+  return new DecodeAttempt(0, value, cursor.index, imports::empty_decode_error());
 }
 
 pub fnc decode(
@@ -1142,7 +1142,7 @@ pub fnc decode(
 }
 
 pub fnc decode_default(List<int> input): Result<DecodedValue, DecodeError> {
-  return decode(input, default_decode_options());
+  return decode(input, imports::default_decode_options());
 }
 
 fnc valid_number_lexeme(List<int> bytes): bool {
@@ -1166,7 +1166,7 @@ fnc valid_number_lexeme(List<int> bytes): bool {
     false,
     0,
     0,
-    empty_decode_error()
+    imports::empty_decode_error()
   );
 
   let Value value = parse_number(cursor);
@@ -1260,7 +1260,7 @@ fnc write_json_string(JsonWriter mut writer, Utf8Text text): void {
       continue;
     fi
 
-    let int width = utf8_sequence_length(text.bytes, i);
+    let int width = imports::utf8_sequence_length(text.bytes, i);
     if width < 2 then
       writer_fail(writer, "invalid_utf8", "cannot encode invalid UTF-8 string");
       return;
@@ -1398,8 +1398,8 @@ pub fnc encode(
   Value value,
   EncodeOptions options
 ): Result<List<int>, EncodeError> {
-  if !encode_options_valid(options) then
-    return Err(encode_error("invalid_options", "invalid or unsafe JSON encode options"));
+  if !imports::encode_options_valid(options) then
+    return Err(imports::encode_error("invalid_options", "invalid or unsafe JSON encode options"));
   fi
 
   val int key_budget = options.max_output_bytes > 1000000 ? 8000000 : 256 + options.max_output_bytes * 8;
@@ -1443,12 +1443,12 @@ pub fnc new_incremental_decoder(
 // rescanning the entire input (at most four bytes are revisited).
 // 0 = need more, 1 = valid scalar consumed, 2 = malformed scalar.
 fnc scan_utf8_scalar(JsonIncrementalDecoder mut decoder): int {
-  let int width = utf8_expected_width(decoder.buffer[decoder.scan_index]);
+  let int width = imports::utf8_expected_width(decoder.buffer[decoder.scan_index]);
   if width < 2 then
     return 2;
   fi
 
-  let int status = utf8_prefix_status(
+  let int status = imports::utf8_prefix_status(
     decoder.buffer,
     decoder.scan_index,
     width
