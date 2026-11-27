@@ -113,3 +113,11 @@ pub fn typespec_fields(tsp: &str) -> BTreeMap<String, BTreeSet<String>> {
     }
     result
 }
+
+pub mod shape_digest;
+
+pub mod serde_receipts;
+
+pub mod native_input_manifest;
+
+pub mod native_receipt;

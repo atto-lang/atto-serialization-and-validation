@@ -819,5 +819,272 @@
       ]
     },
     "valid": false
+  },
+  {
+    "name": "flatbuffers-scalar",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "ScalarRecord",
+      "nodes": [
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 2,
+              "name": "count",
+              "target": "U32"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        }
+      ]
+    },
+    "valid": true
+  },
+  {
+    "name": "flatbuffers-shuffled",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "ScalarRecord",
+      "nodes": [
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 2,
+              "name": "count",
+              "target": "U32"
+            }
+          ]
+        }
+      ]
+    },
+    "valid": true,
+    "equal": "flatbuffers-scalar"
+  },
+  {
+    "name": "flatbuffers-recursion",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "ScalarRecord",
+      "nodes": [
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "ScalarRecord"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 2,
+              "name": "count",
+              "target": "U32"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "flatbuffers-slot-gap",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "ScalarRecord",
+      "nodes": [
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 3,
+              "name": "count",
+              "target": "U32"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "flatbuffers-empty-table",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "ScalarRecord",
+      "nodes": [
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": []
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
+  },
+  {
+    "name": "flatbuffers-non-table-root",
+    "descriptor": {
+      "codec": "flatbuffers",
+      "version": 1,
+      "root": "Bool",
+      "nodes": [
+        {
+          "id": "ScalarRecord",
+          "kind": "table",
+          "fields": [
+            {
+              "slot": 0,
+              "name": "paid",
+              "target": "Bool"
+            },
+            {
+              "slot": 1,
+              "name": "total",
+              "target": "I64"
+            },
+            {
+              "slot": 2,
+              "name": "count",
+              "target": "U32"
+            }
+          ]
+        },
+        {
+          "id": "Bool",
+          "kind": "bool",
+          "fields": []
+        },
+        {
+          "id": "I64",
+          "kind": "i64",
+          "fields": []
+        },
+        {
+          "id": "U32",
+          "kind": "u32",
+          "fields": []
+        }
+      ]
+    },
+    "valid": false
   }
 ]

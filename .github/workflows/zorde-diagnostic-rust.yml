@@ -1,0 +1,42 @@
+name: Rust Zorde diagnostic migration candidate
+on:
+  pull_request:
+    paths: ['scripts/zorde-diagnostic.rs', '.github/workflows/zorde-diagnostic-rust.yml']
+permissions:
+  contents: read
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - name: Compile and run exact-head Rust candidate
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          rustc --edition=2021 -D warnings --test scripts/zorde-diagnostic.rs -o "$RUNNER_TEMP/zorde-diagnostic-tests"
+          "$RUNNER_TEMP/zorde-diagnostic-tests"
+          rustc --edition=2021 -D warnings scripts/zorde-diagnostic.rs -o "$RUNNER_TEMP/zorde-diagnostic"
+          printf '%s\n' 'error: ZordePrivateCompiledEntry is private' > "$RUNNER_TEMP/positive.log"
+          "$RUNNER_TEMP/zorde-diagnostic" "$RUNNER_TEMP/positive.log" private-entry-import
+          printf '%s\n' 'error: Other.entries is private' > "$RUNNER_TEMP/negative.log"
+          status=0
+          "$RUNNER_TEMP/zorde-diagnostic" "$RUNNER_TEMP/negative.log" private-storage-access || status=$?
+          test "$status" = 1
+          status=0
+          "$RUNNER_TEMP/zorde-diagnostic" "$RUNNER_TEMP/positive.log" unknown-fixture || status=$?
+          test "$status" = 2
+          status=0
+          "$RUNNER_TEMP/zorde-diagnostic" "$RUNNER_TEMP/absent.log" private-entry-import || status=$?
+          test "$status" = 1
+          ln -s "$RUNNER_TEMP/positive.log" "$RUNNER_TEMP/link.log"
+          status=0
+          "$RUNNER_TEMP/zorde-diagnostic" "$RUNNER_TEMP/link.log" private-entry-import || status=$?
+          test "$status" = 1
+          echo NATIVE_COMPILER_NOT_EXECUTED
