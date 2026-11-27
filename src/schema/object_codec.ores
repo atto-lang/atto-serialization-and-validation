@@ -133,6 +133,21 @@ fnc decode_object_attempt(
     return new ObjectDecodeAttempt(1, empty_decoded_object(), error);
   fi
 
+  // A typed schema admission boundary must never discard conflicting bytes
+  // or accept a valid prefix as a complete object. Generic dynamic codecs
+  // may offer these policies; the typed bridge must fail closed for both.
+  // Reconciles the strict JSON admission contract from PR #24.
+  if decode_options.duplicate_key_policy != 0 || decode_options.allow_trailing_data then
+    let ObjectCodecError error = object_codec_error(
+      1,
+      empty_metadata_error(),
+      new DecodeError("unsafe_decode_options", 0,
+        "metadata-driven object decode requires duplicate-key rejection and complete input"),
+      empty_validation_report()
+    );
+    return new ObjectDecodeAttempt(2, empty_decoded_object(), error);
+  fi
+
   if messagepack then
     let DecodeAttempt attempt = decode_messagepack_attempt(input, decode_options);
     return project_object_attempt(attempt, metadata, validation_options, true);

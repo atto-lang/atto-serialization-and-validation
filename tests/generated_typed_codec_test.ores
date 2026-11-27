@@ -130,7 +130,40 @@ fnc require_user_codec_bytes(List<int> actual, List<int> expected): void {
   return;
 }
 
+fnc user_messagepack_bytes(): List<int> {
+  return new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42);
+}
+
+fnc require_unsafe_policy_denied(ObjectDecodeAttempt attempt): void {
+  require_int(attempt.status, 2, "unsafe typed policy must be a decode failure");
+  require_int(attempt.error.kind, 1, "unsafe typed policy error kind");
+  require_true(attempt.error.decode_error.code == "unsafe_decode_options", "unsafe typed policy diagnostic");
+  require_int(attempt.decoded.consumed, 0, "unsafe typed policy must publish no consumed bytes");
+  require_int(attempt.decoded.source_object.object_value.length, 0, "unsafe typed policy must publish no source fields");
+  require_int(attempt.decoded.wire_object.object_value.length, 0, "unsafe typed policy must publish no wire fields");
+  return;
+}
+
+fnc unsafe_policy(int duplicate, bool trailing): DecodeOptions {
+  return new DecodeOptions(duplicate, trailing, 128, 512, 512, 512, 512, 16, 16);
+}
+
+fnc check_typed_policy_gate(int duplicate, bool trailing): void {
+  require_unsafe_policy_denied(decode_json_object_attempt(
+    user_json_bytes(), unsafe_policy(duplicate, trailing), user_metadata(), default_validation_options()
+  ));
+  require_unsafe_policy_denied(decode_messagepack_object_attempt(
+    user_messagepack_bytes(), unsafe_policy(duplicate, trailing), user_metadata(), default_validation_options()
+  ));
+  return;
+}
+
 pub fnc run_generated_typed_codec_tests(): void {
+  // Refuse unsafe policy even for clean, otherwise valid full frames.
+  check_typed_policy_gate(1, false);
+  check_typed_policy_gate(2, false);
+  check_typed_policy_gate(0, true);
+
   val List<int> input = user_json_bytes();
   val int expected_length = input.length;
 
@@ -224,5 +257,11 @@ pub fnc run_generated_typed_codec_tests(): void {
   require_true(packed_suffix.is_err(), "typed MessagePack trailing byte must reject");
   let Result<User, ObjectCodecError> packed_scalar = decode_user_messagepack(new List<int>(42));
   require_true(packed_scalar.is_err(), "typed MessagePack scalar root must reject");
+  let Result<User, ObjectCodecError> packed_extra = decode_user_messagepack(new List<int>(131, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101, 42, 161, 120, 0));
+  require_true(packed_extra.is_err(), "typed MessagePack unknown field must reject");
+  let Result<User, ObjectCodecError> packed_truncated = decode_user_messagepack(new List<int>(130, 171, 100, 105, 115, 112, 108, 97, 121, 78, 97, 109, 101, 164, 65, 108, 101, 120, 163, 97, 103, 101));
+  require_true(packed_truncated.is_err(), "typed MessagePack truncated value must reject");
+  let Result<User, ObjectCodecError> packed_nonstring = decode_user_messagepack(new List<int>(129, 1, 42));
+  require_true(packed_nonstring.is_err(), "typed MessagePack non-string key must reject");
   return;
 }
