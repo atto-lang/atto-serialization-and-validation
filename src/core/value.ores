@@ -229,7 +229,15 @@ pub fnc bytes_equal(List<int> left, List<int> right): bool {
 }
 
 pub fnc text_equal(Utf8Text left, Utf8Text right): bool {
-  return bytes_equal(left.bytes, right.bytes);
+  // Compare scalar projections without handing off either owner's list.
+  if left.bytes.length != right.bytes.length then return false; fi
+  let int i = 0;
+  loop do
+    if i >= left.bytes.length then break; fi
+    if left.bytes[i] != right.bytes[i] then return false; fi
+    i = i + 1;
+  done
+  return true;
 }
 
 fnc object_find_index_borrow(borrow Value object, borrow Utf8Text key): int {
