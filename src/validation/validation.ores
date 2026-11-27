@@ -214,11 +214,61 @@ pub fnc field_rule(
   return new FieldRule(key, required, forbidden, value_rule);
 }
 
+// Refused builders must stay invalid. Returning an empty or partially copied
+// schema would silently relax required-field or unknown-field policy.
+fnc refused_object_schema(bool reject_unknown_fields): ObjectSchema {
+  val List<FieldRule> invalid = new List<FieldRule>();
+  // 0xff is never a legal standalone UTF-8 key, so object_schema_valid()
+  // deterministically rejects this sentinel.
+  invalid.add(new FieldRule(
+    new Utf8Text(new List<int>(255)), false, false, any_rule()
+  ));
+  return new ObjectSchema(invalid, reject_unknown_fields);
+}
+
 pub fnc object_schema(
   List<FieldRule> fields,
   bool reject_unknown_fields
 ): ObjectSchema {
-  return new ObjectSchema(fields, reject_unknown_fields);
+  // A schema must not change when the originating mutable List or Utf8Text
+  // key buffer is edited after construction. Snapshot both levels rather than
+  // retaining caller-owned aliases. ValueRule stores only scalar fields.
+  // This is input detachment, NOT a frozen/shareable schema or Valid<T> proof:
+  // ObjectSchema.fields remains mutable and must remain actor-local.
+  if fields.length > max_schema_fields() then
+    return refused_object_schema(reject_unknown_fields);
+  fi
+
+  // Bound the aggregate *before* copying anything. Per-key limits alone
+  // permit 4096 x 65536 bytes of schema metadata. Check with subtraction,
+  // never with a potentially overflowing accumulated byte count.
+  let int remaining_key_bytes = max_schema_total_key_bytes();
+  for const field of fields do
+    if field.key.bytes.length > max_schema_key_bytes() ||
+       field.key.bytes.length > remaining_key_bytes then
+      return refused_object_schema(reject_unknown_fields);
+    fi
+    remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
+  done
+
+  val List<FieldRule> snapshot = new List<FieldRule>();
+  for const field of fields do
+    // Bound allocation before copying a potentially attacker-sized key.
+    if field.key.bytes.length > max_schema_key_bytes() then
+      return refused_object_schema(reject_unknown_fields);
+    fi
+    val List<int> key_bytes = new List<int>();
+    for const byte of field.key.bytes do
+      key_bytes.add(byte);
+    done
+    snapshot.add(new FieldRule(
+      new Utf8Text(key_bytes),
+      field.required,
+      field.forbidden,
+      field.value_rule
+    ));
+  done
+  return new ObjectSchema(snapshot, reject_unknown_fields);
 }
 
 
@@ -329,6 +379,12 @@ pub fnc max_schema_key_bytes(): int {
   return 65536;
 }
 
+// One MiB across all schema field keys, independent of the per-key ceiling.
+// Also applies to directly constructed schemas and input objects.
+pub fnc max_schema_total_key_bytes(): int {
+  return 1048576;
+}
+
 fnc object_schema_valid(ObjectSchema schema): bool {
   if schema.fields.length > max_schema_fields() then
     return false;
@@ -336,6 +392,7 @@ fnc object_schema_valid(ObjectSchema schema): bool {
 
   val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let int i = 0;
+  let int remaining_key_bytes = max_schema_total_key_bytes();
 
   loop do
     if i >= schema.fields.length then
@@ -345,9 +402,11 @@ fnc object_schema_valid(ObjectSchema schema): bool {
     let FieldRule field = schema.fields[i];
 
     if field.key.bytes.length > max_schema_key_bytes() ||
+       field.key.bytes.length > remaining_key_bytes ||
        !utf8_is_valid(field.key.bytes) then
       return false;
     fi
+    remaining_key_bytes = remaining_key_bytes - field.key.bytes.length;
 
     if field.required && field.forbidden then
       return false;
@@ -898,6 +957,13 @@ fnc validate_rule_at(
   ValidationOptions options,
   List<PathSegment> path
 ): void {
+  // Any-kind rules must not admit a caller-forged discriminant. A malformed
+  // Value is not a valid wire value even when no schema field is constrained.
+  if value.kind < 0 || value.kind > 8 then
+    add_error(report, options, "invalid_value_kind", path,
+      "value has an unsupported wire kind");
+    return;
+  fi
   if rule.expected_kind >= 0 && value.kind != rule.expected_kind then
     add_error(report, options, "type", path, "value has the wrong wire type");
     return;
@@ -1177,15 +1243,20 @@ pub fnc validate_object(
     return report;
   fi
 
-  // Do not permit malformed bytes in object keys, even when unknown fields
-  // are allowed. Unknown-schema keys would otherwise evade field rules.
+  // Enforce both per-key and aggregate key-byte budgets for direct Values.
+  // Checking only individual keys allows a 4096-field object to carry
+  // hundreds of MiB in keys before the collision check or schema lookup.
+  let int remaining_input_key_bytes = max_schema_total_key_bytes();
   for const member of value.object_value do
     if member.key.bytes.length > max_schema_key_bytes() ||
+       member.key.bytes.length > remaining_input_key_bytes ||
        !utf8_is_valid(member.key.bytes) then
       add_error(report, options, "invalid_object_key", new List<PathSegment>(),
-        "input object key is oversized or is not valid UTF-8");
+        "input object keys exceed size limits or contain invalid UTF-8");
       return report;
     fi
+    remaining_input_key_bytes =
+      remaining_input_key_bytes - member.key.bytes.length;
   done
 
   if !object_keys_unique(value) then
@@ -1285,11 +1356,176 @@ pub fnc report_is_valid(ValidationReport report): bool {
 }
 
 
+// These are *dynamic checked-API* work limits, not nominal typestate proof
+// limits. Caller-built Value trees can bypass all wire decoders, including
+// decoder depth and size settings. A bounded preflight is therefore required
+// before any checked API returns Ok(value). It examines only active-kind
+// payloads; the returned Value remains mutable and is never Valid<T>.
+pub fnc max_checked_value_nodes(): int { return 65536; }
+pub fnc max_checked_value_depth(): int { return 64; }
+pub fnc max_checked_value_bytes(): int { return 16777216; }
+
+// Bounded semantic equality after hash collisions; this is a whole-checked-
+// operation budget shared across every general map in the Value graph.
+pub fnc max_checked_map_key_comparisons(): int { return 256; }
+
+// Iterative traversal avoids stack overflows on hostile nested arrays/maps.
+// A cycle or repeated shared subtree cannot cause unbounded work: the finite
+// node and depth budgets bound inspection, without relying on object identity.
+fnc checked_value_tree_valid(Value root): bool {
+  val List<Value> pending = new List<Value>();
+  val List<int> depths = new List<int>();
+  // Delay general-map key equality until after the entire graph has passed
+  // discriminant, byte, nesting, and numeric-lexeme validation.
+  val List<Value> general_maps = new List<Value>();
+  pending.add(root);
+  depths.add(0);
+
+  let int cursor = 0;
+  let int inspected_bytes = 0;
+  loop do
+    if cursor >= pending.length then break; fi
+    val Value value = pending[cursor];
+    val int depth = depths[cursor];
+    cursor = cursor + 1;
+
+    if value.kind < 0 || value.kind > 8 then return false; fi
+
+    if value.kind == 2 then
+      if value.number_lexeme.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.number_lexeme.length;
+      if !number_lexeme_valid(rt borrow value) then return false; fi
+    fi
+
+    if value.kind == 3 then
+      if value.string_value.bytes.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.string_value.bytes.length;
+      if !utf8_is_valid(value.string_value.bytes) then return false; fi
+    fi
+
+    if value.kind == 4 || value.kind == 7 then
+      if value.bytes_value.length > max_checked_value_bytes() - inspected_bytes then
+        return false;
+      fi
+      inspected_bytes = inspected_bytes + value.bytes_value.length;
+      // The public Value constructor accepts List<int>, not a byte-specific
+      // type. Never allow out-of-octet numbers in raw bytes/extensions.
+      for const byte of value.bytes_value do
+        if byte < 0 || byte > 255 then return false; fi
+      done
+    fi
+
+    if value.kind == 5 then
+      if value.array_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.array_value.length > 0 then
+        return false;
+      fi
+      for const child of value.array_value do
+        pending.add(child);
+        depths.add(depth + 1);
+      done
+    fi
+
+    if value.kind == 6 then
+      if value.object_value.length > max_schema_fields() ||
+         value.object_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.object_value.length > 0 then
+        return false;
+      fi
+      let int remaining_object_key_bytes = max_schema_total_key_bytes();
+      for const member of value.object_value do
+        if member.key.bytes.length > max_schema_key_bytes() ||
+           member.key.bytes.length > remaining_object_key_bytes ||
+           member.key.bytes.length > max_checked_value_bytes() - inspected_bytes then
+          return false;
+        fi
+        remaining_object_key_bytes =
+          remaining_object_key_bytes - member.key.bytes.length;
+        inspected_bytes = inspected_bytes + member.key.bytes.length;
+        if !utf8_is_valid(member.key.bytes) then return false; fi
+        pending.add(member.value);
+        depths.add(depth + 1);
+      done
+      if !object_keys_unique(rt borrow value) then return false; fi
+    fi
+
+    if value.kind == 8 then
+      // Keep arithmetic integer-exact: in Oreslang '/' is real division,
+      // and a hostile length must never overflow the remaining node budget.
+      if value.map_value.length > max_checked_value_nodes() - pending.length then
+        return false;
+      fi
+      if value.map_value.length >
+         max_checked_value_nodes() - pending.length - value.map_value.length then
+        return false;
+      fi
+      if depth >= max_checked_value_depth() && value.map_value.length > 0 then
+        return false;
+      fi
+      general_maps.add(value);
+      for const entry of value.map_value do
+        pending.add(entry.key);
+        depths.add(depth + 1);
+        pending.add(entry.value);
+        depths.add(depth + 1);
+      done
+    fi
+  done
+
+  // JSON objects already enforce unique text keys. A directly constructed
+  // general map (CBOR/MessagePack key domain) must obey the same strict
+  // duplicate-key policy; otherwise a checked result can contain two
+  // conflicting definitions of one semantic key. Use hash buckets plus
+  // semantic equality, never hash equality alone.
+  let int remaining_comparisons = max_checked_map_key_comparisons();
+  for const general_map of general_maps do
+    val Map<int, List<int>> buckets = new Map<int, List<int>>();
+    let int entry_index = 0;
+    for const entry of general_map.map_value do
+      val int hash = value_hash(entry.key);
+      if buckets.contains(hash) then
+        val List<int> candidates = buckets.get(hash);
+        for const candidate_index of candidates do
+          if remaining_comparisons <= 0 then return false; fi
+          remaining_comparisons = remaining_comparisons - 1;
+          if value_deep_equal(
+            general_map.map_value[candidate_index].key, entry.key
+          ) then
+            return false;
+          fi
+        done
+        candidates.add(entry_index);
+      else
+        val List<int> candidates = new List<int>();
+        candidates.add(entry_index);
+        buckets.set(hash, candidates);
+      fi
+      entry_index = entry_index + 1;
+    done
+  done
+
+  return true;
+}
+
 pub fnc validate_value_checked(
   Value value,
   ValueRule rule,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"
+    ));
+  fi
   let ValidationReport report = validate_value(value, rule, options);
   if report_is_valid(report) then
     return Ok(value);
@@ -1302,6 +1538,12 @@ pub fnc validate_object_checked(
   ObjectSchema schema,
   ValidationOptions options
 ): Result<Value, ValidationReport> {
+  if !checked_value_tree_valid(rt borrow value) then
+    return Err(config_report(
+      "invalid_value_tree",
+      "dynamic value tree is malformed or exceeds checked-validation limits"
+    ));
+  fi
   let ValidationReport report = validate_object(value, schema, options);
   if report_is_valid(report) then
     return Ok(value);

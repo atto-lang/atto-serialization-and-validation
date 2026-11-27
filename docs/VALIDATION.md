@@ -80,6 +80,39 @@ compiler-minted with inaccessible constructors, no forged casts/subclasses,
 frozen/owned nested graph, schema digest/version/generation binding, and
 lifetime-safe actor/FFI/hot-reload transitions. Dynamic results are not that.
 
+## Checked dynamic wire-graph preflight (experimental)
+
+Directly constructed `Value` trees bypass all JSON/CBOR/MessagePack decoder
+limits and well-formedness checks. Before returning `Ok(Value)`, the two
+dynamic checked validators now inspect the **entire active-kind graph** using
+an iterative, bounded queue: at most 65,536 visited nodes, at most 64 nested
+container edges, and at most 16,777,216 inspected payload/key bytes.
+Oversized or invalid trees return a payload-free `invalid_value_tree`
+`ValidationReport` and never return `Ok`.
+
+The walk checks wire kinds (0..8), numeric JSON lexemes, UTF-8 strings and
+object keys, **0..255 octets for raw binary and extension payloads**, duplicate
+object keys at every depth, child arrays, object values, and both map keys
+and values. Every object, including nested open-schema objects, must stay
+within a **1 MiB aggregate key-byte limit**. General maps also reject
+semantically duplicate keys, including deeply equal reordered object keys.
+After the full wire graph is checked, the map-key equality pass uses
+hash buckets with a **256-comparison operation-wide limit**, rejecting
+collision-heavy values instead of performing unbounded deep equality.
+
+It does **not** recursively apply an arbitrary
+object or element schema, authenticate an authoring authority or freeze the
+returned mutable `Value`. Higher-level typed schema validation and
+immutable compiler-minted `Valid<T, SchemaId>` remain separate release gates.
+The quota is deliberately enforced on the direct checked APIs, not claimed
+for all lower-level report-only validators or all decoder paths. A caller must
+not rely on report-only validation as an authoritative trust boundary.
+
+The preflight does not preserve/prove graph identity, schema freshness or
+alias stability. Revalidate on later trust boundaries until ownership and
+schema provenance are enforced by the compiler/loader. No native compiler
+test result is implied merely by the presence of guest-source regressions.
+
 ## Schema-bound decoder policy
 
 `decode_and_validate_object` is a **strict** JSON trust-boundary helper:
@@ -132,6 +165,27 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
 
+## Object-schema builder ownership
+
+`object_schema(fields, reject_unknown_fields)` snapshots the caller-supplied
+field collection and each field's UTF-8 key-byte list. Mutating the original
+builder list or key buffers afterward must not change which field the schema
+requires. The constructor checks field count, **65,536 bytes per key**, and
+**1,048,576 total key bytes** before copying. The same aggregate budget is
+enforced independently when validating directly constructed `ObjectSchema`
+instances or untrusted dynamic object `Value` keys; bypassing the builder
+cannot bypass the quota. Checks use subtraction from the remaining allowance
+to avoid overflow. Over-limit builder input yields an invalid-schema sentinel;
+it must never become an empty, weakened, or partially copied usable schema.
+
+This is builder-input detachment, **not** an immutable schema or a trusted
+validation proof. `ObjectSchema.fields` and its nested lists remain publicly
+mutable, and the dynamic `Result<Value, ValidationReport>` still contains a
+mutable `Value`. Do not share mutable schemas between actors or cache
+validation successes as `Valid<T, SchemaId>`. Compiler-backed ownership,
+deep freezing, nominal authority, and complete wire-graph verification are
+separate release gates.
+
 ## Oreslang `with` numeric refinement integration (staged exact-int kernel)
 
 The compiler/shared contract normalizes all three spellings to the **same**
@@ -171,8 +225,8 @@ schema fingerprint **never** mint compiler-authoritative
 `with` parsing, static implication and checked-constructor codegen,
 trusted schema-identity admission, generated decode-time dispatch, and
 Java/LLVM executable parity are still pending. The existing
-`validate_value_checked` / `ValidValue` path is an ordinary dynamic
-validation report wrapper, not a substitute for the reserved proof type.
+`validate_value_checked` API returns an ordinary dynamic `Value` after
+checking, not a substitute for the reserved proof type.
 Do not silently lower a refined `int` to plain `int` or route exact bounds
 through float-based `number_rule`; fail compilation instead until typed
 end-to-end lowering is verified.
