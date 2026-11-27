@@ -1,0 +1,5 @@
+# Deferred native transport contract integration
+
+This draft preserves the proposed distinct network and actor DATA source declarations and ownership documents from the original #18 legacy scope. The immutable full snapshot (including legacy Python static checks and original decimal tests) is `7be82118534913252d9a98a894a6c514c99bf466`, branch `recovery/dual-serde-legacy-full-snapshot-20261125`. Do not reintroduce its division-based integer converter or restore the removed Python audit. Current main's exact signed-int64 implementation is retained; four additional original regression cases have been folded into the canonical test fixture.
+
+Before ready/merge: migrate the legacy declaration to current canonical Atto syntax and file conventions, port static guards to Rust without losing mutation coverage, reconcile with current compiler and specification contracts, execute the native tests and verify independent network versus actor DATA admission/ownership. No compiler, runtime, guest, AOT, or production codec capability is claimed by this draft.
