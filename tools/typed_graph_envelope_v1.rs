@@ -78,6 +78,23 @@ pub fn decode(
     envelope: Envelope<'_>, expected_root_type: u32,
     limits: Limits, cancelled: &AtomicBool,
 ) -> Result<Graph, Reject> {
+    validate(&envelope, expected_root_type, limits, cancelled)?;
+    let mut nodes = Vec::new();
+    nodes.try_reserve_exact(envelope.objects.len()).map_err(|_| Reject::Allocation)?;
+    for record in envelope.objects {
+        check_cancel(cancelled)?;
+        nodes.push(*record);
+    }
+    check_cancel(cancelled)?;
+    Ok(Graph { root: envelope.root, nodes })
+}
+
+// Shared validation for borrowed and owned staging paths. The logical work
+// charge is identical, including publication cost, irrespective of framing.
+fn validate(
+    envelope: &Envelope<'_>, expected_root_type: u32,
+    limits: Limits, cancelled: &AtomicBool,
+) -> Result<(), Reject> {
     check_cancel(cancelled)?;
     if envelope.version != 1 { return Err(Reject::Version); }
     if !matches!(expected_root_type, 1 | 2) { return Err(Reject::Schema); }
@@ -137,14 +154,7 @@ pub fn decode(
     // patching, recursion or refcounts. Reserve before any output is visible.
     charge(&mut work, n, limits.work)?;
     check_cancel(cancelled)?;
-    let mut nodes = Vec::new();
-    nodes.try_reserve_exact(n).map_err(|_| Reject::Allocation)?;
-    for record in envelope.objects {
-        check_cancel(cancelled)?;
-        nodes.push(*record);
-    }
-    check_cancel(cancelled)?;
-    Ok(Graph { root: envelope.root, nodes })
+    Ok(())
 }
 
 /// Restricted deterministic CBOR framing for the logical graph envelope:
@@ -214,8 +224,9 @@ impl CborReader<'_> {
 }
 
 /// Framing work is bounded by input bytes and the fixed five-field record
-/// shape. Staging is explicitly separate from logical scratch/output budgets;
-/// callers must reserve their combined peak, not assume any one cap is total.
+/// shape. The owned staging table becomes the output after validation;
+/// staging and output limits both apply to that same allocation. Logical
+/// traversal scratch remains separate and may coexist with staging.
 /// The borrowed input is stable; no partially decoded graph escapes.
 pub fn decode_cbor(
     bytes: &[u8], expected_root_type: u32,
@@ -250,8 +261,18 @@ pub fn decode_cbor(
         });
     }
     if reader.pos != bytes.len() { return Err(WireReject::Trailing); }
-    decode(Envelope { version, root, objects: &records }, expected_root_type,
-        limits.graph, cancelled).map_err(Into::into)
+    finish_owned_graph(version, root, records, expected_root_type, limits.graph, cancelled)
+        .map_err(Into::into)
+}
+
+fn finish_owned_graph(
+    version: u32, root: u32, records: Vec<Record>, expected_root_type: u32,
+    limits: Limits, cancelled: &AtomicBool,
+) -> Result<Graph, Reject> {
+    validate(&Envelope { version, root, objects: &records }, expected_root_type,
+        limits, cancelled)?;
+    check_cancel(cancelled)?;
+    Ok(Graph { root, nodes: records })
 }
 
 fn argument_size(value: u64) -> usize {
@@ -441,6 +462,50 @@ mod tests {
         cancelled.store(true, Ordering::Release);
         assert_eq!(encode_cbor(&graph, 100, &cancelled), Err(Reject::Cancelled.into()));
         assert_eq!(decode_cbor(&dangling, 1, CBOR_LIMITS, &cancelled), Err(Reject::Cancelled.into()));
+    }
+
+    #[test]
+    fn owned_staging_reuses_allocation_and_preserves_validation() {
+        let cancelled = AtomicBool::new(false);
+        let records = vec![node(0, Some(1), Some(1)), node(1, Some(0), None)];
+        let allocation = records.as_ptr();
+        let expected = run(&records, 0, LIMITS).unwrap();
+        let graph = finish_owned_graph(1, 0, records, 1, LIMITS, &cancelled).unwrap();
+        assert_eq!(graph.nodes.as_ptr(), allocation);
+        assert_eq!(graph, expected);
+
+        let bad = vec![node(0, Some(1), None)];
+        assert_eq!(finish_owned_graph(1, 0, bad, 1, LIMITS, &cancelled),
+            Err(Reject::Dangling));
+        let unreachable = vec![node(0, None, None), node(1, Some(1), None)];
+        assert_eq!(finish_owned_graph(1, 0, unreachable, 1, LIMITS, &cancelled),
+            Err(Reject::Unreachable));
+        cancelled.store(true, Ordering::Release);
+        assert_eq!(finish_owned_graph(1, 0, vec![node(0, Some(0), None)],
+            1, LIMITS, &cancelled), Err(Reject::Cancelled));
+    }
+
+    #[test]
+    fn cbor_owned_path_keeps_exact_logical_budget() {
+        let cancelled = AtomicBool::new(false);
+        let records = [node(0, Some(0), Some(0))];
+        let exact = Limits { nodes: 1, edges: 2, work: 7,
+            output_bytes: std::mem::size_of::<Record>(),
+            scratch_bytes: 1 + std::mem::size_of::<usize>() };
+        let graph = run(&records, 0, exact).unwrap();
+        let bytes = encode_cbor(&graph, 100, &cancelled).unwrap();
+        let limits = CborLimits { graph: exact, wire_bytes: bytes.len(),
+            staging_bytes: exact.output_bytes };
+        assert_eq!(decode_cbor(&bytes, 1, limits, &cancelled).unwrap(), graph);
+        for graph in [
+            Limits { work: 6, ..exact },
+            Limits { edges: 1, ..exact },
+            Limits { output_bytes: exact.output_bytes - 1, ..exact },
+            Limits { scratch_bytes: exact.scratch_bytes - 1, ..exact },
+        ] {
+            assert_eq!(decode_cbor(&bytes, 1, CborLimits { graph, ..limits },
+                &cancelled), Err(Reject::Budget.into()));
+        }
     }
 
     #[test]
