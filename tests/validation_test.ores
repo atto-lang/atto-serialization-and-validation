@@ -444,6 +444,50 @@ pub fnc run_validation_tests(): void {
   );
   require_true(!report_is_valid(rt borrow too_many_members_report),
     "direct object rejects excessive distinct member count");
+  // Object schemas must detach caller-owned field lists AND UTF-8 key
+  // buffers. Mutating the builder after object_schema() must not rewrite
+  // which field the schema requires, nor add a new required field.
+  val List<int> caller_key_bytes = new List<int>(97);
+  val List<FieldRule> caller_fields = new List<FieldRule>();
+  caller_fields.add(field_rule(
+    new Utf8Text(caller_key_bytes), true, false,
+    number_rule(false, 0.0, false, false, 0.0, false)
+  ));
+  val ObjectSchema detached_schema = object_schema(caller_fields, true);
+  caller_key_bytes[0] = 98;
+  caller_fields.add(field_rule(
+    new Utf8Text(new List<int>(121)), true, false,
+    number_rule(false, 0.0, false, false, 0.0, false)
+  ));
+  require_int(detached_schema.fields.length, 1,
+    "object schema must snapshot field count");
+  require_int(detached_schema.fields[0].key.bytes[0], 97,
+    "object schema must snapshot nested field-key bytes");
+  val List<WireMember> detached_members = new List<WireMember>();
+  detached_members.add(new WireMember(
+    new Utf8Text(new List<int>(97)), value_int(1)
+  ));
+  val ValidationReport detached_report = validate_object(
+    value_object(detached_members), rt borrow detached_schema,
+    default_validation_options()
+  );
+  require_true(report_is_valid(rt borrow detached_report),
+    "original required key must still validate after builder mutation");
+
+  // A refused oversized builder must not return a usable empty/partial
+  // schema. A deliberately malformed sentinel remains invalid at parse.
+  val List<FieldRule> oversized_key_schema_fields = new List<FieldRule>();
+  oversized_key_schema_fields.add(field_rule(
+    new Utf8Text(oversized_key_bytes), false, false, any_rule()
+  ));
+  val ObjectSchema refused_snapshot = object_schema(oversized_key_schema_fields, false);
+  val ValidationReport refused_snapshot_report = validate_object(
+    value_object(new List<WireMember>()), rt borrow refused_snapshot,
+    default_validation_options()
+  );
+  require_true(!report_is_valid(rt borrow refused_snapshot_report),
+    "oversized key must not be converted into a permissive empty schema");
+
   // Checked dynamic APIs return plain Value, never authoritative proof.
   val Result<Value, ValidationReport> accepted_dynamic = validate_value_checked(
     value_string(new Utf8Text(new List<int>(111, 107))),

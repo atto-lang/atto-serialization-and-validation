@@ -164,6 +164,23 @@ Error reports are bounded by `ValidationOptions.max_errors`, and validation erro
 Pattern/regex engines, custom validator registries, cross-field rules, and compiler-generated nested typed validators remain integration work. They should lower into the same `ValidationReport` model instead of creating format-specific validation systems.
 
 
+## Object-schema builder ownership
+
+`object_schema(fields, reject_unknown_fields)` snapshots the caller-supplied
+field collection and each field's UTF-8 key-byte list. Mutating the original
+builder list or key buffers afterward must not change which field the schema
+requires. The constructor checks the field-count and per-key byte limits
+**before** copying. Over-limit input yields an invalid-schema sentinel;
+it must never become an empty, weakened, or partially copied usable schema.
+
+This is builder-input detachment, **not** an immutable schema or a trusted
+validation proof. `ObjectSchema.fields` and its nested lists remain publicly
+mutable, and the dynamic `Result<Value, ValidationReport>` still contains a
+mutable `Value`. Do not share mutable schemas between actors or cache
+validation successes as `Valid<T, SchemaId>`. Compiler-backed ownership,
+deep freezing, nominal authority, and complete wire-graph verification are
+separate release gates.
+
 ## Oreslang `with` numeric refinement integration (staged exact-int kernel)
 
 The compiler/shared contract normalizes all three spellings to the **same**
