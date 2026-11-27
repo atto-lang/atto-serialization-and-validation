@@ -412,13 +412,48 @@ test('reviewed corpus SHA-256 is sensitive to positives, negatives, names and sy
   } finally{rmSync(tmp,{recursive:true,force:true});}
 });
 
+// Keep the single-declaration fixtures used by the generic lowering tests.
+function completePilotFixture(tmp){
+  const {ir,report}=fixture();
+  const root=writePilotCorpus(tmp);
+  writeFileSync(join(root,'Port','valid','middle.json'),'443\n');
+  writeFileSync(join(root,'Port','invalid','above.json'),'65536\n');
+  for(const lane of ['valid','invalid'])mkdirSync(join(root,'ShortLabel',lane),{recursive:true,mode:0o700});
+  writeFileSync(join(root,'ShortLabel','valid','one.json'),JSON.stringify('a')+'\n');
+  writeFileSync(join(root,'ShortLabel','valid','max.json'),JSON.stringify('a'.repeat(64))+'\n');
+  writeFileSync(join(root,'ShortLabel','invalid','empty.json'),JSON.stringify('')+'\n');
+  writeFileSync(join(root,'ShortLabel','invalid','too-long.json'),JSON.stringify('a'.repeat(65))+'\n');
+  const schema={type:'string',minLength:1,maxLength:64};
+  const d=structuredClone(ir.declarations[0]);
+  d.id='Zorde.Validation.ShortLabel';
+  d.names={typespec:d.id,generatedJsonSchema:'ShortLabel',authoredJsonSchema:'ShortLabel'};
+  d.assertionSchema=schema;
+  d.assertionDigest=canonicalDigest(schema);
+  for(const lane of Object.values(d.lanes)){
+    lane.normalizedSchema=structuredClone(schema);
+    lane.schemaDigest=canonicalDigest(schema);
+  }
+  ir.declarations.push(d);
+  ir.admission.scope.admittedDeclarations=2;
+  report.declarationMap.push({typespec:d.id,kind:'scalar',generated:'ShortLabel',authored:'ShortLabel'});
+  const port=report.differential.declarations[0];
+  port.reviewedCorpus={accepted:3,rejected:2,unasserted:0,total:5};
+  report.differential.declarations.push({...structuredClone(port),typespec:d.id,
+    generated:'ShortLabel',authored:'ShortLabel',reviewedCorpus:{accepted:2,rejected:2,unasserted:0,total:4}});
+  Object.assign(report.differential.summary,{probesEvaluated:44,comparedDeclarations:2,
+    corpusInstances:9,matchedReviewedCorpusInstances:9,reviewedAcceptedInstances:5,
+    reviewedRejectedInstances:4,declarationsWithReviewedPositiveAndNegative:2});
+  const reviewed=attachReviewedCorpus(ir,report,root);
+  return {ir,report,corpusRoot:root,reviewed};
+}
+
 test('Node CLI emits complete write-once artifact and refuses output symlink',()=>{
   const tmp=mkdtempSync(join(realpathSync(tmpdir()),'zorde-plan-'));
   try {
-    const {ir,report}=fixture();
-    const corpusRoot=writePilotCorpus(tmp);
-    const reviewed=attachReviewedCorpus(ir,report,corpusRoot);
-    assert.equal(reviewed.corpus.length,3);
+    const {ir,report,corpusRoot,reviewed}=completePilotFixture(tmp);
+    assert.equal(reviewed.corpus.length,9);
+    assert.deepEqual(deriveStaticRegistry(ir,report).entries.map(x=>x.schemaId),
+      ['Zorde.Validation.Port','Zorde.Validation.ShortLabel']);
     const irFile=join(tmp,'contract-ir.json'),reportFile=join(tmp,'report.json');
     const ib=Buffer.from(JSON.stringify(ir)),rb=Buffer.from(JSON.stringify(report));
     writeFileSync(irFile,ib);writeFileSync(reportFile,rb);
@@ -437,7 +472,7 @@ test('Node CLI emits complete write-once artifact and refuses output symlink',()
     assert.equal(marker.guestSha256,hash(guest));
     assert.equal(marker.smokeSha256,hash(smoke));
     assert.equal(marker.reviewedCorpusDigest,reviewed.digest);
-    assert.equal(marker.reviewedCorpusInstances,3);
+    assert.equal(marker.reviewedCorpusInstances,9);
     assert.equal(marker.guestSmokeCompiled,false);
     assert.equal(marker.guestSmokeExecuted,false);
     assert.equal(marker.nativeGuestExecuted,false);

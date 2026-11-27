@@ -36,7 +36,10 @@ try {
   const fakeBytes=Buffer.from('#!/bin/sh\nexit 99\n');
   writeFileSync(fakeExecutable,fakeBytes,{mode:0o700});
   const trustedTestDigest=createHash('sha256').update(fakeBytes).digest('hex');
-  const base={...envBase,ZORDE_EVIDENCE_DIR:join(tmp,'private-evidence')};
+  // Inert executable supplies the reviewed Node inputs needed to reach each
+  // intended preflight denial. None of these cases may execute it.
+  const base={...envBase,ZORDE_EVIDENCE_DIR:join(tmp,'private-evidence'),
+    NODE_BIN:fakeExecutable,EXPECTED_NODE_SHA256:trustedTestDigest};
   const withExecutable={...base,ORESLANG_BIN:fakeExecutable,
     EXPECTED_COMPILER_SHA256:trustedTestDigest};
   const cases=[
@@ -44,10 +47,12 @@ try {
     ['malformed source SHA',{...base,EXPECTED_SOURCE_SHA:'not-hex'},/invalid expected source SHA/],
     ['malformed source tree',{...base,EXPECTED_SOURCE_TREE:'bad'},/invalid expected root tree/],
     ['malformed compiler digest',{...base,EXPECTED_COMPILER_SHA256:'0'},/invalid expected compiler digest/],
+    ['missing Node approval',{...base,EXPECTED_NODE_SHA256:''},/required reviewed environment input missing/],
+    ['malformed Node digest',{...base,EXPECTED_NODE_SHA256:'0'},/invalid expected Node digest/],
     ['absent independent IR digest',{...base,EXPECTED_CONTRACT_IR_SHA256:''},/required reviewed environment input missing/],
     ['malformed parity digest',{...base,EXPECTED_PARITY_REPORT_SHA256:'invalid'},/invalid externally reviewed evidence digest/],
     ['malformed consumer receipt digest',{...base,EXPECTED_VERIFICATION_SHA256:'invalid'},/invalid externally reviewed evidence digest/],
-    ['evidence symlink',{...withExecutable,ZORDE_EVIDENCE_DIR:destination},/evidence directory must preexist/],
+    ['evidence symlink',{...withExecutable,ZORDE_EVIDENCE_DIR:destination},/evidence directory must be an absolute preexisting real directory/],
     ['wrong reviewed commit',withExecutable,/source SHA changed/],
     ['compiler missing',{...base},/compiler must be an absolute real executable/],
   ];
@@ -104,7 +109,7 @@ test('native manifest covers exact recursive Zorde guest import closure',()=>{
   assert.deepEqual([...done].sort(),expected.sort());
   const guard=readFileSync(script,'utf8');
   assert.match(guard,/staticGuestImportClosure/);
-  assert.match(guard,/len\(manifest\["files"\]\)==18\+len\(manifest\["staticGuestImportClosure"\]\)/);
+  assert.match(guard,/len\(manifest\["files"\]\)==19\+len\(manifest\["staticGuestImportClosure"\]\)/);
   assert.match(guard,/static_guest_import_closure_sealed/);
 });
 
@@ -169,10 +174,15 @@ test('source-local Node TAP gate rejects TODO and preserves exact passing receip
   const binaryDigest=createHash('sha256').update(readFileSync(bin)).digest('hex');
   function git(args){
     const proc=spawnSync('git',args,{cwd:repo,encoding:'utf8',timeout:12000});
-    assert.equal(proc.status,0,proc.stderr);
+    assert.equal(proc.status,0,JSON.stringify(args)+': '+proc.stdout+' '+proc.stderr);
     return proc.stdout.trim();
   }
   function runCase(mode){
+    // Each case must begin with regular files. A prior symlink-negative
+    // case otherwise makes writeFileSync mutate the outside target instead
+    // of staging a new checkout file, leaving no commit for the next case.
+    rmSync(checkoutFile,{force:true});
+    rmSync(bridgeFile,{force:true});
     // The same known-good suite must fail admission for TODO markers,
     // symlink-substituted logs, and oversized log bytes without producing
     // a receipt. Run the literal Bash script in a synthetic source checkout.
