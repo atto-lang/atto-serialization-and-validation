@@ -6,6 +6,11 @@ on:
   push:
     paths:
       - '.github/workflows/zorde-source-org-runner-diagnostic.yml'
+  pull_request:
+    paths:
+      - 'src/schema/object_codec.ores'
+      - 'tests/ai_scalar_record_test.ores'
+      - '.github/workflows/zorde-source-org-runner-diagnostic.yml'
 permissions: {}
 jobs:
   source-org-runner-allocation:
