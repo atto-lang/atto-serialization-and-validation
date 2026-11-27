@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 const kinds = {
   cbor: new Set(["bool","i64","f64","text","list","record"]),
   protobuf: new Set(["varint","fixed32","fixed64","bytes","message","packed"]),
+  flatbuffers: new Set(["table","bool","i64","u32","f64"]),
 };
 const ascii = (s) => typeof s === "string" && s.length>=1 && s.length<=128 && !/[^A-Za-z0-9_.:-]/.test(s);
 const uint = (n,max) => Number.isSafeInteger(n) && n>=0 && n<=max;
@@ -34,16 +35,18 @@ export function canonicalShape(d) {
       names.add(f.name);slots.add(f.slot);fields.push(f);
     }
     fields.sort((a,b)=>a.slot-b.slot);
-    if(n.kind==="record") require(fields.every((f,i)=>f.slot===i));
+    if(n.kind==="record" || n.kind==="table") require(fields.every((f,i)=>f.slot===i));
     else if(n.kind==="list" || n.kind==="packed")
       require(fields.length===1 && fields[0].slot===0 && fields[0].name==="element");
     else if(n.kind!=="message") require(fields.length===0);
     table.set(n.id,{kind:n.kind,fields});
   }
   require(table.has(d.root));
+  if(d.codec==="flatbuffers") require(table.get(d.root).kind==="table" && table.get(d.root).fields.length>=1 && table.get(d.root).fields.length<=64);
   for(const n of table.values())for(const f of n.fields) {
     require(table.has(f.target));
     if(n.kind==="packed") require(["varint","fixed32","fixed64"].includes(table.get(f.target).kind));
+    if(n.kind==="table") require(["bool","i64","u32","f64"].includes(table.get(f.target).kind));
   }
   const seen=new Set(), work=[d.root];
   while(work.length){const id=work.pop();if(seen.has(id))continue;seen.add(id);for(const f of table.get(id).fields)work.push(f.target);}

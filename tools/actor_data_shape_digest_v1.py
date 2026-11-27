@@ -3,7 +3,8 @@ import hashlib
 import re
 
 KINDS = {"cbor": {"bool","i64","f64","text","list","record"},
-         "protobuf": {"varint","fixed32","fixed64","bytes","message","packed"}}
+         "protobuf": {"varint","fixed32","fixed64","bytes","message","packed"},
+         "flatbuffers": {"table","bool","i64","u32","f64"}}
 def require(ok):
     if not ok:
         raise ValueError("invalid schema descriptor")
@@ -37,7 +38,7 @@ def canonical_shape(d):
             names.add(f["name"])
             slots.add(f["slot"])
         fields=sorted(n["fields"],key=lambda f:f["slot"])
-        if n["kind"]=="record":
+        if n["kind"] in ("record","table"):
             require(all(f["slot"]==i for i,f in enumerate(fields)))
         elif n["kind"] in ("list","packed"):
             require(len(fields)==1 and fields[0]["slot"]==0 and fields[0]["name"]=="element")
@@ -45,11 +46,15 @@ def canonical_shape(d):
             require(not fields)
         table[n["id"]]=(n["kind"],fields)
     require(d["root"] in table)
+    if d["codec"]=="flatbuffers":
+        require(table[d["root"]][0]=="table" and 1<=len(table[d["root"]][1])<=64)
     for kind,fields in table.values():
         for f in fields:
             require(f["target"] in table)
             if kind=="packed":
                 require(table[f["target"]][0] in ("varint","fixed32","fixed64"))
+            if kind=="table":
+                require(table[f["target"]][0] in ("bool","i64","u32","f64"))
     seen=set()
     work=[d["root"]]
     while work:

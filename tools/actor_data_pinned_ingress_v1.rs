@@ -5,9 +5,10 @@
 #[path="actor_data_cbor_preflight_v1.rs"] pub mod cbor;
 #[path="actor_data_protobuf_recursive_v1.rs"] pub mod proto;
 #[path="actor_data_mailbox_credits_v1.rs"] pub mod mailbox;
+#[path="actor_data_flatbuffers_scalar_v1.rs"] pub mod flat;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation }
+pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Flat(flat::Reject), Mailbox(mailbox::Reject), Allocation }
 
 pub struct VerifiedMetadata<'a> {
     pub codec: &'a str, pub version: u32, pub schema: &'a str,
@@ -16,6 +17,7 @@ pub struct VerifiedMetadata<'a> {
 enum Decoder<'a> {
     Cbor(&'a cbor::Shape<'a>, cbor::Limits),
     Protobuf(&'a proto::Schema<'a>, proto::Limits),
+    Flat(&'a [flat::Kind], flat::Limits),
 }
 pub struct Endpoint<'a> {
     binding: policy::Binding<'a>, generation:u64,
@@ -31,6 +33,14 @@ impl<'a> Endpoint<'a> {
                     generation:u64, shape:&'a proto::Schema<'a>, limits:proto::Limits,
                     mailbox:mailbox::Mailbox)->Result<Self,Reject>{
         Self::register("protobuf",2,schema,version,digest,allowed,generation,Decoder::Protobuf(shape,limits),mailbox)
+    }
+    /// Restricted host reference: only owned wire snapshots, not zero-copy
+    /// views or a production verified-supported registration.
+    pub fn flatbuffers_scalar(schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
+                             generation:u64,shape:&'a [flat::Kind],limits:flat::Limits,
+                             mailbox:mailbox::Mailbox)->Result<Self,Reject>{
+        flat::validate_profile(shape,limits).map_err(Reject::Flat)?;
+        Self::register("flatbuffers",8,schema,version,digest,allowed,generation,Decoder::Flat(shape,limits),mailbox)
     }
     #[allow(clippy::too_many_arguments)]
     fn register(codec:&str,supported:u8,schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
@@ -51,6 +61,7 @@ impl<'a> Endpoint<'a> {
         match self.decoder {
             Decoder::Cbor(shape,limits)=>{cbor::preflight_typed(bytes,limits,shape).map_err(Reject::Cbor)?;}
             Decoder::Protobuf(shape,limits)=>{proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?;}
+            Decoder::Flat(shape,limits)=>{flat::preflight(bytes,shape,limits).map_err(Reject::Flat)?;}
         }
         let mut copy=Vec::new();
         copy.try_reserve_exact(bytes.len()).map_err(|_|Reject::Allocation)?;
@@ -107,4 +118,27 @@ mod tests {
         assert_eq!(e.admit_after_authentication(&meta("cbor"),&[0xf5]),Err(Reject::Mailbox(mailbox::Reject::Stale)));
         assert!(m.pop(2).unwrap().is_none());
     }
+    #[test] fn scalar_flatbuffers_auth_metadata_and_owned_credit(){
+        let m=mailbox::Mailbox::new(1,64,1).unwrap();
+        let shape=[flat::Kind::Bool];
+        let limits=flat::Limits{wire:64,logical:1024,work:1024};
+        assert!(matches!(Endpoint::flatbuffers_scalar("order.v1",1,H,4,1,&shape,limits,m.clone()),Err(Reject::Binding(policy::Reject::Denied))));
+        let e=Endpoint::flatbuffers_scalar("order.v1",1,H,8,1,&shape,limits,m.clone()).unwrap();
+        // root=12, vtable=4, size=6, object=8, field offset=4
+        let b=[12,0,0,0,6,0,8,0,4,0,0,0,8,0,0,0,1,0,0,0];
+        assert_eq!(e.admit_after_authentication(&meta("cbor"),&b),Err(Reject::Binding(policy::Reject::Mismatch)));
+        let mut bad=b;bad[16]=2;
+        assert_eq!(e.admit_after_authentication(&meta("flatbuffers"),&bad),Err(Reject::Flat(flat::Reject::Scalar)));
+        assert_eq!(m.usage().unwrap(),(0,0));
+        let mut input=b;
+        e.admit_after_authentication(&meta("flatbuffers"),&input).unwrap();
+        input[16]=0;
+        assert_ne!(input,b);
+        let d=m.pop(1).unwrap().unwrap();assert_eq!(d.bytes(),&b);
+        assert_eq!(e.admit_after_authentication(&meta("flatbuffers"),&b),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        drop(d);assert_eq!(m.usage().unwrap(),(0,0));
+        m.restart(1).unwrap();
+        assert_eq!(e.admit_after_authentication(&meta("flatbuffers"),&b),Err(Reject::Mailbox(mailbox::Reject::Stale)));
+    }
+
 }

@@ -21,9 +21,13 @@ fn charge(n:&mut usize,add:usize,cap:usize)->Result<(),Reject>{
     *n=n.checked_add(add).ok_or(Reject::Budget)?;
     if *n>cap{return Err(Reject::Budget)} Ok(())
 }
-fn parse(b:&[u8],shape:&[Kind],limits:Limits,materialize:bool)->Result<(Option<Vec<Value>>,Usage),Reject>{
+pub fn validate_profile(shape:&[Kind],limits:Limits)->Result<(),Reject>{
     if limits.wire==0||limits.wire>4096||limits.logical==0||limits.logical>65536||
         limits.work==0||limits.work>65536||shape.is_empty()||shape.len()>64{return Err(Reject::Limits)}
+    Ok(())
+}
+fn parse(b:&[u8],shape:&[Kind],limits:Limits,materialize:bool)->Result<(Option<Vec<Value>>,Usage),Reject>{
+    validate_profile(shape,limits)?;
     if b.len()>limits.wire{return Err(Reject::Budget)}
     let mut u=Usage::default();
     // Bound all scanning and fixed scratch before any result allocation.
