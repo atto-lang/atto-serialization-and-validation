@@ -476,7 +476,7 @@ fnc equal_bounded(borrow Value left, borrow Value right, borrow mut WireWorkBudg
     return 1;
   fi
   if left.kind == 6 then
-    val int count = left.object_value.length;
+    let int count = left.object_value.length;
     if count != right.object_value.length then return 0; fi
     if count == 0 then return 1; fi
     if count > 1000000 then return -1; fi
@@ -523,7 +523,7 @@ fnc equal_bounded(borrow Value left, borrow Value right, borrow mut WireWorkBudg
     return 1;
   fi
   if left.kind == 8 then
-    val int count = left.map_value.length;
+    let int count = left.map_value.length;
     if count != right.map_value.length then return 0; fi
     if count == 0 then return 1; fi
     if count > 1000000 then return -1; fi
@@ -589,7 +589,7 @@ pub fnc map_index_lookup_checked(borrow List<MapEntry> entries, borrow mut WireH
 }
 
 pub fnc map_keys_checked(borrow List<MapEntry> entries, borrow mut WireWorkBudget budget): int {
-  val int count = entries.length;
+  let int count = entries.length;
   if count == 0 then return 1; fi
   if count > 1000000 then return -1; fi
   val int slots = count > 256 ? 256 : count;
@@ -610,7 +610,7 @@ pub fnc map_keys_checked(borrow List<MapEntry> entries, borrow mut WireWorkBudge
 }
 
 pub fnc object_keys_checked(borrow List<WireMember> members, borrow mut WireWorkBudget budget): int {
-  val int count = members.length;
+  let int count = members.length;
   if count == 0 then return 1; fi
   if count > 1000000 then return -1; fi
   val int slots = count > 256 ? 256 : count;
