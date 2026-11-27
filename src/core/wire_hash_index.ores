@@ -1,0 +1,123 @@
+// Candidate owner-local scalar index for codec hash collision chains.
+// No Map<int,List<int>>, no exposed mutable backing storage, no raw pointers.
+// The caller must charge storage for capacity before construction and charge
+// semantic key comparison separately; this index meters every chain step.
+// JSON candidate uses this index; other dynamic codecs still require migration.
+pub define class WireHashIndex as
+  let mut List<int> heads;
+  let mut List<int> links;
+  let mut List<int> hashes;
+  val int capacity;
+  val int slots;
+  let int remaining;
+
+  pub constructor(int capacity, int work_budget) {
+    // Invalid capacities produce a disabled index, never a large allocation.
+    let int bounded = capacity;
+    if bounded < 1 || bounded > 1000000 || work_budget < 0 then
+      bounded = 0;
+    fi
+    self.capacity = bounded;
+    self.slots = bounded > 256 ? 256 : bounded;
+    self.remaining = work_budget;
+    self.heads = new List<int>();
+    self.links = new List<int>();
+    self.hashes = new List<int>();
+    let int i = 0;
+    loop do
+      if i >= self.slots then break; fi
+      self.heads.add(-1);
+      i = i + 1;
+    done
+    return;
+  }
+
+  // Caller carries the remaining operation budget across nested indices.
+  pub work_left(): int { return self.remaining; }
+  pub limit_work(mut self)(int available): void {
+    if available < 0 then
+      self.remaining = 0;
+    elseif available < self.remaining then
+      self.remaining = available;
+    fi
+    return;
+  }
+  pub charge_work(mut self)(int cost): bool {
+    if cost < 0 || cost > self.remaining then
+      self.remaining = 0;
+      return false;
+    fi
+    self.remaining = self.remaining - cost;
+    return true;
+  }
+
+  // Each stored index is the next sequential member index. A failed
+  // insertion returns -1 without altering existing members or links.
+  pub insert(mut self)(int hash): int {
+    if self.capacity == 0 || self.links.length >= self.capacity then
+      return -1;
+    fi
+    val int slot = Integer.mod(hash, self.slots);
+    val int index = self.links.length;
+    self.links.add(self.heads[slot]);
+    self.hashes.add(hash);
+    self.heads[slot] = index;
+    return index;
+  }
+
+  // -1 = exhausted chain, -2 = exhausted work or invalid cursor.
+  // Call again with the previous returned index to enumerate same-hash
+  // candidates. Hash equality is never a substitute for semantic equality.
+  pub find(mut self)(int hash, int after): int {
+    if self.capacity == 0 || after < -1 || after >= self.links.length then
+      return -2;
+    fi
+    let int cursor = -1;
+    if after == -1 then
+      cursor = self.heads[Integer.mod(hash, self.slots)];
+    else
+      if self.hashes[after] != hash then return -2; fi
+      cursor = self.links[after];
+    fi
+    loop do
+      if cursor == -1 then return -1; fi
+      if self.remaining <= 0 then return -2; fi
+      self.remaining = self.remaining - 1;
+      if self.hashes[cursor] == hash then return cursor; fi
+      cursor = self.links[cursor];
+    done
+    return -2;
+  }
+end
+
+// Monotone operation budget. Storage is a conservative cumulative logical
+// count (not a physical allocation guarantee); exhaustion is sticky.
+pub define class WireWorkBudget as
+  let int work;
+  let int storage;
+  let bool exhausted;
+  pub constructor(int work, int storage) {
+    self.work = work < 0 ? 0 : work;
+    self.storage = storage < 0 ? 0 : storage;
+    self.exhausted = work < 0 || storage < 0;
+    return;
+  }
+  pub work_left(): int { return self.work; }
+  pub failed(): bool { return self.exhausted; }
+  pub charge(mut self)(int cost): bool {
+    if self.exhausted || cost < 0 || cost > self.work then
+      self.exhausted = true;
+      return false;
+    fi
+    self.work = self.work - cost;
+    return true;
+  }
+  pub reserve(mut self)(int count): bool {
+    if self.exhausted || count < 0 || count > self.storage then
+      self.exhausted = true;
+      return false;
+    fi
+    self.storage = self.storage - count;
+    return true;
+  }
+end

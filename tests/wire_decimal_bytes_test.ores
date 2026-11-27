@@ -1,0 +1,30 @@
+import fnc wire_int_to_decimal_bytes from '../src/core/bytes';
+import fnc require_int from './assert';
+
+fnc check(int n, String expected): void {
+  let List<int> got = imports::wire_int_to_decimal_bytes(n);
+  // Compare ASCII string converted with the existing Bytes primitive; this
+  // keeps this source-level guest independent of Value and Map<K,V>.
+  val Bytes want = Bytes.from_string(expected);
+  imports::require_int(got.length, want.size(), "exact decimal length");
+  let int i = 0;
+  loop do
+    if i >= got.length then break; fi
+    imports::require_int(got[i], want.byte_at(i), "exact decimal byte");
+    i = i + 1;
+  done
+  return;
+}
+
+pub fnc main(): void {
+  check(0, "0");
+  check(-1, "-1");
+  check(1000, "1000");
+  check(-1000, "-1000");
+  check(9007199254740993, "9007199254740993");
+  check(-9007199254740993, "-9007199254740993");
+  check(9223372036854775807, "9223372036854775807");
+  check(-9223372036854775807 - 1, "-9223372036854775808");
+  stdio.stdout.println("isolated decimal byte guest passed");
+  return;
+}

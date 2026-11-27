@@ -6,18 +6,20 @@
 // primitives are available.
 
 import class Value, Utf8Text, WireMember, MapEntry, IntParse from '../core/value';
-import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_deep_equal, value_hash, parse_int from '../core/value';
+import fnc value_null, value_bool, value_int, value_string, value_bytes, value_array, value_object, value_map, value_extension, value_index_hash, map_index_lookup_checked, map_keys_checked, object_keys_checked, parse_int from '../core/value';
 import fnc bytes_equal from '../core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue from '../core/options';
+import class WireHashIndex, WireWorkBudget from '../core/wire_hash_index';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt from '../core/options';
 import fnc empty_decode_error, decode_error, encode_error, decode_options_valid, encode_options_valid from '../core/options';
 import fnc utf8_is_valid from '../core/utf8';
-import fnc byte_list_valid, byte_range_fits from '../core/bytes';
+import fnc byte_list_valid, byte_range_fits, wire_floor_div from '../core/bytes';
 
 define class MsgpackCursor as
   pub val List<int> input;
   pub val DecodeOptions options;
   pub let int index;
   pub let bool failed;
+  pub let WireWorkBudget key_budget;
   pub let DecodeError error;
 end
 
@@ -25,6 +27,7 @@ define class MsgpackWriter as
   pub let List<int> output;
   pub val EncodeOptions options;
   pub let bool failed;
+  pub let WireWorkBudget key_budget;
   pub let EncodeError error;
 end
 
@@ -195,66 +198,6 @@ fnc read_bytes(
   return output;
 }
 
-fnc map_entry_index(
-  List<MapEntry> entries,
-  Map<int, List<int>> buckets,
-  Value key
-): int {
-  let int hash = value_hash(key);
-
-  if !buckets.contains(hash) then
-    return -1;
-  fi
-
-  val List<int> candidates = buckets.get(hash);
-  for const index of candidates do
-    if value_deep_equal(entries[index].key, key) then
-      return index;
-    fi
-  done
-
-  return -1;
-}
-
-fnc remember_map_entry(
-  Map<int, List<int>> buckets,
-  Value key,
-  int index
-): void {
-  let int hash = value_hash(key);
-
-  if buckets.contains(hash) then
-    val List<int> candidates = buckets.get(hash);
-    candidates.add(index);
-    return;
-  fi
-
-  val List<int> candidates = new List<int>();
-  candidates.add(index);
-  buckets.set(hash, candidates);
-  return;
-}
-
-fnc map_keys_unique(List<MapEntry> entries): bool {
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
-  let int i = 0;
-
-  loop do
-    if i >= entries.length then
-      break;
-    fi
-
-    let MapEntry entry = entries[i];
-    if map_entry_index(entries, buckets, entry.key) >= 0 then
-      return false;
-    fi
-
-    remember_map_entry(buckets, entry.key, i);
-    i = i + 1;
-  done
-
-  return true;
-}
 
 fnc decode_string(
   MsgpackCursor mut cursor,
@@ -286,8 +229,18 @@ fnc decode_array(
 ): Value {
   val List<Value> values = new List<Value>();
 
+  if cursor.failed then
+    return value_array(values);
+  fi
+
   if count > cursor.options.max_array_entries then
     cursor_fail(cursor, "array_limit", "MessagePack array exceeds max_array_entries");
+    return value_array(values);
+  fi
+
+  // A complete frame must contain at least one byte per element. Count has already passed its bounded option cap.
+  if count > cursor.input.length - cursor.index then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack array");
     return value_array(values);
   fi
 
@@ -315,14 +268,28 @@ fnc decode_map(
   int depth
 ): Value {
   val List<MapEntry> entries = new List<MapEntry>();
-  val Map<int, List<int>> buckets = new Map<int, List<int>>();
   let bool all_text_keys = true;
+
+  if cursor.failed then
+    return value_map(entries);
+  fi
 
   if count > cursor.options.max_map_entries then
     cursor_fail(cursor, "map_limit", "MessagePack map exceeds max_map_entries");
     return value_map(entries);
   fi
 
+  // Preflight before allocating the collision index. Two bytes minimum per pair.
+  if count + count > cursor.input.length - cursor.index then
+    cursor_fail(cursor, "unexpected_eof", "truncated MessagePack map");
+    return value_map(entries);
+  fi
+  val int slots = count > 256 ? 256 : count;
+  if !cursor.key_budget.reserve(slots) then
+    cursor_fail(cursor, "map_complexity_limit", "MessagePack key index storage exhausted");
+    return value_map(entries);
+  fi
+  val WireHashIndex buckets = new WireHashIndex(count, cursor.key_budget.work_left());
   let int i = 0;
   loop do
     if i >= count then
@@ -343,7 +310,16 @@ fnc decode_map(
       all_text_keys = false;
     fi
 
-    let int existing = map_entry_index(entries, buckets, key);
+    val int hash = value_index_hash(rt borrow key, rt mut borrow cursor.key_budget);
+    if hash < 0 then
+      cursor_fail(cursor, "map_complexity_limit", "MessagePack key hash budget exhausted");
+      return value_map(entries);
+    fi
+    let int existing = map_index_lookup_checked(rt borrow entries, rt mut borrow buckets, rt borrow key, hash, rt mut borrow cursor.key_budget);
+    if existing == -2 then
+      cursor_fail(cursor, "map_complexity_limit", "MessagePack key comparison budget exhausted");
+      return value_map(entries);
+    fi
     if existing >= 0 then
       if cursor.options.duplicate_key_policy == 0 then
         cursor_fail(cursor, "duplicate_key", "duplicate MessagePack map key");
@@ -353,8 +329,11 @@ fnc decode_map(
       fi
     else
       let int index = entries.length;
+      if !cursor.key_budget.reserve(2) || buckets.insert(hash) != index then
+        cursor_fail(cursor, "map_complexity_limit", "MessagePack key index storage exhausted");
+        return value_map(entries);
+      fi
       entries.add(new MapEntry(key, member_value));
-      remember_map_entry(buckets, key, index);
     fi
 
     i = i + 1;
@@ -558,41 +537,49 @@ fnc decode_value(
   return value_null();
 }
 
-pub fnc decode(
+// Complete-input diagnostic surface, reconciled with the decode_attempt
+// design in atto-serialization-and-validation #26. Never return partial values.
+pub fnc decode_messagepack_attempt(
   List<int> input,
   DecodeOptions options
-): Result<DecodedValue, DecodeError> {
+): DecodeAttempt {
   if !decode_options_valid(options) then
-    return Err(decode_error("invalid_options", 0, "invalid or unsafe decode options"));
+    return new DecodeAttempt(2, value_null(), 0, decode_error("invalid_options", 0, "invalid or unsafe decode options"));
   fi
-
   if input.length > options.max_input_bytes then
-    return Err(decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
+    return new DecodeAttempt(2, value_null(), 0, decode_error("input_limit", 0, "MessagePack input exceeds max_input_bytes"));
   fi
-
   if !byte_list_valid(input) then
-    return Err(decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
+    return new DecodeAttempt(2, value_null(), 0, decode_error("invalid_byte", 0, "MessagePack input values must all be bytes 0..255"));
   fi
 
-  let MsgpackCursor cursor = new MsgpackCursor(
-    input,
-    options,
-    0,
-    false,
-    empty_decode_error()
-  );
-
+  val int input_length = input.length;
+  val bool allow_trailing_data = options.allow_trailing_data;
+  val int key_limit = input_length > 1000000 ? 8000000 : 256 + input_length * 8;
+  val int key_slots = input_length > 1000000 ? 8000000 : 256 + input_length * 8;
+  let MsgpackCursor cursor = new MsgpackCursor(input, options, 0, false, new WireWorkBudget(key_limit, key_slots), empty_decode_error());
   let Value value = decode_value(cursor, 0);
-
   if cursor.failed then
-    return Err(cursor.error);
+    return new DecodeAttempt(2, value_null(), cursor.index, cursor.error);
   fi
-
-  if !options.allow_trailing_data && cursor.index != input.length then
-    return Err(decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
+  if !allow_trailing_data && cursor.index != input_length then
+    return new DecodeAttempt(2, value_null(), cursor.index, decode_error("trailing_data", cursor.index, "trailing bytes after MessagePack value"));
   fi
+  return new DecodeAttempt(0, value, cursor.index, empty_decode_error());
+}
 
-  return Ok(new DecodedValue(value, cursor.index));
+// Retain the generic diagnostic name proposed in #26, while exposing an
+// unambiguous format-specific name for modules importing both codecs.
+pub fnc decode_attempt(List<int> input, DecodeOptions options): DecodeAttempt {
+  return decode_messagepack_attempt(input, options);
+}
+
+pub fnc decode(List<int> input, DecodeOptions options): Result<DecodedValue, DecodeError> {
+  let DecodeAttempt attempt = decode_messagepack_attempt(input, options);
+  if attempt.status == 0 then
+    return Ok(new DecodedValue(attempt.value, attempt.consumed));
+  fi
+  return Err(attempt.error);
 }
 
 fnc append_byte(MsgpackWriter mut writer, int byte): void {
@@ -638,12 +625,12 @@ fnc append_uint_be(
       break;
     fi
 
-    let int byte = remaining / divisor;
+    let int byte = wire_floor_div(remaining, divisor);
     append_byte(writer, byte);
-    remaining = remaining % divisor;
+    remaining = Integer.rem(remaining, divisor);
 
     if divisor > 1 then
-      divisor = divisor / 256;
+      divisor = wire_floor_div(divisor, 256);
     fi
 
     j = j + 1;
@@ -665,13 +652,10 @@ fnc append_signed64(
       break;
     fi
 
-    let int byte = current % 256;
-    if byte < 0 then
-      byte = byte + 256;
-    fi
+    val int byte = Integer.mod(current, 256);
 
     reversed.add(byte);
-    current = (current - byte) / 256;
+    current = wire_floor_div(current, 256);
     i = i + 1;
   done
 
@@ -920,11 +904,12 @@ fnc encode_value(
   fi
 
   if value.kind == 6 then
-    val List<MapEntry> object_entries = new List<MapEntry>();
-    for const member of value.object_value do
-      object_entries.add(new MapEntry(value_string(member.key), member.value));
-    done
-    if !map_keys_unique(object_entries) then
+    val int unique = object_keys_checked(rt borrow value.object_value, rt mut borrow writer.key_budget);
+    if unique < 0 then
+      writer_fail(writer, "map_complexity_limit", "MessagePack key index budget exhausted");
+      return;
+    fi
+    if unique == 0 then
       writer_fail(writer, "duplicate_key", "cannot encode MessagePack object with duplicate keys");
       return;
     fi
@@ -952,7 +937,12 @@ fnc encode_value(
   fi
 
   if value.kind == 8 then
-    if !map_keys_unique(value.map_value) then
+    val int unique = map_keys_checked(rt borrow value.map_value, rt mut borrow writer.key_budget);
+    if unique < 0 then
+      writer_fail(writer, "map_complexity_limit", "MessagePack key index budget exhausted");
+      return;
+    fi
+    if unique == 0 then
       writer_fail(writer, "duplicate_key", "cannot encode MessagePack map with duplicate keys");
       return;
     fi
@@ -997,10 +987,12 @@ pub fnc encode(
     return Err(encode_error("invalid_options", "invalid or unsafe encode options"));
   fi
 
+  val int key_limit = options.max_output_bytes > 1000000 ? 8000000 : 256 + options.max_output_bytes * 8;
   let MsgpackWriter writer = new MsgpackWriter(
     new List<int>(),
     options,
     false,
+    new WireWorkBudget(key_limit, key_limit),
     new EncodeError("", "")
   );
 
