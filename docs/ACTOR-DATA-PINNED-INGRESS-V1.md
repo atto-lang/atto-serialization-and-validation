@@ -50,3 +50,20 @@ compatibility interfaces and do not provide dispatch fencing. This is a host
 reference only: no asynchronous callback, guest actor, actor heap, scheduler
 or external side effect is certified. Actual runtime integration must use
 this fence or equivalent across every lifecycle and dispatch entrypoint.
+
+## Owned cooperative suspension fence
+
+`begin_suspended_receive` returns a non-cloneable host delivery with an
+owned lifecycle fence and its original logical admission lease. Short
+mailbox/gate locking establishes exclusivity; no mutex guard is retained
+across suspension. A per-dispatch cancellation handle sets an atomic flag;
+old handles cannot cancel subsequent dispatches. Checkpoints refuse further
+access after observed cancellation, but cannot revoke existing borrows or
+undo side effects. Restart, close and fenced dispatch remain Busy until the
+whole delivery is dropped. Field order releases values and credits before
+the lifecycle fence. Empty, stale and rejected receives leave no active
+fence. This is a cooperative scheduler adapter, not a Future implementation,
+forced cancellation, actual actor execution, panic recovery protocol or
+physical heap quota. The scheduler must checkpoint on resumption and drop
+the task's owned delivery on completion/cancellation before lifecycle changes.
+Legacy raw receive/pop remain trusted unfenced interfaces.
