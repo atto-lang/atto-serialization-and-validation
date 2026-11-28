@@ -90,3 +90,28 @@ fn check(t:&Temp)->Result<(),String>{verify(&t.0,&"a".repeat(40),&"b".repeat(40)
     std::os::unix::fs::symlink(t.0.join("java-graalvm.json"),&p).unwrap();assert!(check(&t).is_err());
     fs::remove_file(&p).unwrap();write(&t,&base);check(&t).unwrap();
 }
+
+#[test]fn legacy_malformed_rows_and_removed_fields(){
+    let t=Temp::new();let baseline=synthetic();
+    let mut rows=baseline.clone();rows[1]["cases"]=json!(vec![Value::Null;21]);write(&t,&rows);assert!(check(&t).is_err());
+    for key in ["guest_artifact_sha256","stdout_sha256"] {
+        let mut data=baseline.clone();data[1].as_object_mut().unwrap().remove(key);write(&t,&data);assert!(check(&t).is_err());
+    }
+    write(&t,&baseline);check(&t).unwrap();
+}
+#[test]fn hardlinked_receipt_refused(){
+    let t=Temp::new();let external=Temp::new();write(&t,&synthetic());
+    fs::hard_link(t.0.join("llvm.json"),external.0.join("alias")).unwrap();
+    assert!(check(&t).is_err());
+    fs::remove_file(external.0.join("alias")).unwrap();check(&t).unwrap();
+}
+#[test]fn command_line_accepts_reordered_flags_and_refuses_duplicates(){
+    let t=Temp::new();write(&t,&synthetic());
+    let bin=env!("CARGO_BIN_EXE_verify-serde-receipts");
+    let h="a".repeat(40);let tree="b".repeat(40);
+    let good=std::process::Command::new(bin).args(["--tree",&tree,"--head",&h,"--receipts"]).arg(&t.0).output().unwrap();
+    assert!(good.status.success(),"{:?}",good);
+    let msg=String::from_utf8(good.stdout).unwrap();assert!(msg.contains("STRUCTURAL_RECEIPT_GATE=PASS"));assert!(msg.contains("INDEPENDENT_RUN_AND_ARTIFACT_VERIFICATION=STILL_REQUIRED"));
+    let bad=std::process::Command::new(bin).args(["--tree",&tree,"--head",&h,"--head",&h]).output().unwrap();
+    assert_eq!(bad.status.code(),Some(2));
+}

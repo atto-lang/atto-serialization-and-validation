@@ -1,18 +1,29 @@
 name: Serde receipt structure host tests
 on:
   pull_request:
-    paths: ['fixtures/serde/adversarial-v1.json','scripts/verify-serde-receipts.py','tests/source_free/test_serde_receipt_gate.py','.github/workflows/serde-receipt-structure.yml']
+    paths: ['fixtures/serde/adversarial-v1.json','src/serde_receipts.rs','src/bin/verify-serde-receipts.rs','src/lib.rs','tests/serde_receipts.rs','Cargo.toml','Cargo.lock','.github/workflows/serde-receipt-structure.yml']
   push:
     branches: [main]
-    paths: ['fixtures/serde/adversarial-v1.json','scripts/verify-serde-receipts.py','tests/source_free/test_serde_receipt_gate.py','.github/workflows/serde-receipt-structure.yml']
+    paths: ['fixtures/serde/adversarial-v1.json','src/serde_receipts.rs','src/bin/verify-serde-receipts.rs','src/lib.rs','tests/serde_receipts.rs','Cargo.toml','Cargo.lock','.github/workflows/serde-receipt-structure.yml']
 permissions:
   contents: read
 jobs:
   synthetic-host-only:
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - run: python3 -B tests/source_free/test_serde_receipt_gate.py -v
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Exact-head Rust structural gate
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          cargo +1.88.0 test --locked --test serde_receipts --verbose
+          cargo +1.88.0 build --locked --bin verify-serde-receipts
+          echo NATIVE_COMPILER_NOT_EXECUTED
