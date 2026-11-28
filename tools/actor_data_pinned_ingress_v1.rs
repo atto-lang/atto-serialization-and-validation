@@ -9,7 +9,7 @@
 use std::sync::{Arc, Mutex, TryLockError};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation, Expansion, Session, Sequence, SequenceExhausted }
+pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation, Expansion, Session, Sequence, SequenceExhausted, Work }
 
 pub struct VerifiedMetadata<'a> {
     pub codec: &'a str, pub version: u32, pub schema: &'a str,
@@ -54,6 +54,17 @@ impl SuspendedDelivery {
     }
     pub fn expansion_credit(&self)->usize { self.delivery.expansion_credit() }
 }
+// Reserve one credit per owned wire copy byte, and conservatively reserve
+// the same planned materialization work for both passes. Planning charges
+// hypothetical writes as well, so this intentionally overestimates ingress.
+// The cap is per message, not a tenant rate limit or wall-clock guarantee.
+fn pass_work_cap(total:usize,wire:usize)->Result<usize,Reject> {
+    if total==0 || total>4*1024*1024 { return Err(Reject::Work); }
+    let remaining=total.checked_sub(wire).ok_or(Reject::Work)?;
+    let cap=remaining/2;
+    if cap==0 { return Err(Reject::Work); }
+    Ok(cap)
+}
 impl<'a> Endpoint<'a> {
     pub fn cbor(schema:&'a str, version:u32, digest:[u8;32], allowed:u8,
                 generation:u64, shape:&'a cbor::Shape<'a>, limits:cbor::Limits,
@@ -81,15 +92,23 @@ impl<'a> Endpoint<'a> {
         self.binding.matches(meta.codec,meta.version,meta.schema,meta.shape_digest).map_err(Reject::Binding)?;
         if meta.recipient_generation!=self.generation{return Err(Reject::Generation);}
         let mut lease=self.mailbox.reserve(self.generation,bytes.len()).map_err(Reject::Mailbox)?;
-        let expansion=match self.decoder {
-            Decoder::Cbor(shape,limits)=>cbor::preflight_materialization(bytes,limits,shape).map_err(Reject::Cbor)?.expanded,
-            Decoder::Protobuf(shape,limits)=>proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?.logical,
+        let (expansion,planned_work)=match self.decoder {
+            Decoder::Cbor(shape,mut limits)=>{
+                limits.work=pass_work_cap(limits.work,bytes.len())?;
+                let usage=cbor::preflight_materialization(bytes,limits,shape).map_err(Reject::Cbor)?;
+                (usage.expanded,usage.work)
+            }
+            Decoder::Protobuf(shape,mut limits)=>{
+                limits.work=pass_work_cap(limits.work,bytes.len())?;
+                let usage=proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?;
+                (usage.logical,usage.work)
+            }
         };
         lease.reserve_expansion(expansion).map_err(Reject::Mailbox)?;
         let mut copy=Vec::new();
         copy.try_reserve_exact(bytes.len()).map_err(|_|Reject::Allocation)?;
         copy.extend_from_slice(bytes);
-        lease.publish_bound(copy.into_boxed_slice(),&self.binding_token).map_err(Reject::Mailbox)
+        lease.publish_bound_with_work(copy.into_boxed_slice(),&self.binding_token,planned_work).map_err(Reject::Mailbox)
     }
     /// Synchronous fenced host dispatch. Busy does not dequeue or consume
     /// a frame; restart and close cannot advance while the handler runs.
@@ -126,17 +145,23 @@ impl<'a> Endpoint<'a> {
         };
         let credit=delivery.expansion_credit();
         if credit==0 { return Err(Reject::Expansion); }
+        let planned_work=delivery.planned_work();
+        if planned_work==0 { return Err(Reject::Work); }
         let value=match self.decoder {
             Decoder::Cbor(shape,mut limits)=>{
                 limits.expanded=limits.expanded.min(credit);
+                limits.work=limits.work.min(planned_work);
                 let (value,usage)=cbor::decode_typed(delivery.bytes(),limits,shape).map_err(Reject::Cbor)?;
                 if usage.expanded!=credit { return Err(Reject::Expansion); }
+                if usage.work!=planned_work { return Err(Reject::Work); }
                 MaterializedValue::Cbor(value)
             }
             Decoder::Protobuf(shape,mut limits)=>{
                 limits.logical=limits.logical.min(credit);
+                limits.work=limits.work.min(planned_work);
                 let (value,usage)=proto::decode(delivery.bytes(),shape,limits).map_err(Reject::Proto)?;
                 if usage.logical!=credit { return Err(Reject::Expansion); }
+                if usage.work!=planned_work { return Err(Reject::Work); }
                 MaterializedValue::Protobuf(value)
             }
         };
@@ -543,7 +568,7 @@ mod tests {
         let bytes=[0x82,0x61,b'a',0x62,b'b',b'c'];
         let t=mailbox::TenantBudget::new_with_expansion(64,4,1024).unwrap();
         let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
-        let insufficient=cbor::Limits{work:16,..cl()};
+        let insufficient=cbor::Limits{work:39,..cl()};
         let e=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,insufficient,m.clone(),SESSION).unwrap();
         assert!(cbor::preflight_typed(&bytes,insufficient,&shape).is_ok());
         for _ in 0..2 {
@@ -552,11 +577,51 @@ mod tests {
             assert_eq!(t.usage().unwrap(),(0,0));
             assert_eq!(t.expansion_usage().unwrap(),0);
         }
-        let exact=cbor::Limits{work:17,..cl()};
+        let exact=cbor::Limits{work:40,..cl()};
         let ok=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,exact,m.clone(),[11;32]).unwrap();
         let metadata=SequencedMetadata{session:&[11;32],..seq_meta("cbor",1)};
         ok.admit_after_authentication(&metadata,&bytes).unwrap();
         assert_eq!(ok.dispatch_next(|v|assert_eq!(v,&MaterializedValue::Cbor(cbor::Value::List(vec![cbor::Value::Text("a".into()),cbor::Value::Text("bc".into())])))),Ok(true));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+
+    #[test] fn cumulative_work_exact_protobuf_boundary_and_rollback(){
+        let schema=proto::Schema{fields:&[proto::Field{number:1,kind:proto::Kind::Varint}]};
+        let bytes=[8,42];
+        let plan=proto::preflight(&bytes,&schema,pl()).unwrap();
+        let total=2*plan.work+bytes.len();
+        let t=mailbox::TenantBudget::new_with_expansion(64,2,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let under=Endpoint::protobuf("order.v1",1,H,2,1,&schema,proto::Limits{work:total-1,..pl()},m.clone()).unwrap();
+        assert_eq!(under.admit_after_authentication(&meta("protobuf"),&bytes),Err(Reject::Proto(proto::Reject::Budget)));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+        let exact=Endpoint::protobuf("order.v1",1,H,2,1,&schema,proto::Limits{work:total,..pl()},m.clone()).unwrap();
+        exact.admit_after_authentication(&meta("protobuf"),&bytes).unwrap();
+        let delivery=exact.receive_materialized().unwrap().unwrap();
+        assert_eq!(delivery.delivery.planned_work(),plan.work);
+        assert_eq!(delivery.value(),&MaterializedValue::Protobuf(vec![proto::FieldValue{number:1,value:proto::Value::Scalar(proto::Scalar::Varint(42))}]));
+        drop(delivery);
+        assert_eq!(t.usage().unwrap(),(0,0));
+    }
+    #[test] fn cumulative_work_invalid_and_oversize_caps_refused(){
+        for (total,wire) in [(0,0),(1,0),(1,2),(2,1),(4*1024*1024+1,0),(usize::MAX,0)] {
+            assert_eq!(pass_work_cap(total,wire),Err(Reject::Work));
+        }
+        assert_eq!(pass_work_cap(40,6),Ok(17));
+        assert_eq!(pass_work_cap(39,6),Ok(16));
+        assert_eq!(pass_work_cap(4*1024*1024,0),Ok(2*1024*1024));
+    }
+    #[test] fn unplanned_bound_frame_never_materializes(){
+        let shape=cbor::Shape::Bool;
+        let t=mailbox::TenantBudget::new_with_expansion(64,2,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        let mut lease=m.reserve(1,1).unwrap();
+        lease.reserve_expansion(32).unwrap();
+        lease.publish_bound(vec![0xf5].into_boxed_slice(),&e.binding_token).unwrap();
+        assert!(matches!(e.receive_materialized(),Err(Reject::Work)));
         assert_eq!(t.usage().unwrap(),(0,0));
         assert_eq!(t.expansion_usage().unwrap(),0);
     }

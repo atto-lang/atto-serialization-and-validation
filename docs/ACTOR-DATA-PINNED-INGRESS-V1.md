@@ -95,3 +95,20 @@ are refused before publication or sequence commit. The limit applies to
 one planned decode; aggregate ingress and receiver CPU work are not yet
 metered together. Allocation failures, actual allocator capacity and guest
 heap quotas remain independent requirements.
+
+## Cumulative two-pass work ceiling
+
+Endpoint codec `Limits.work` now means the total logical work ceiling for
+planning, owned wire copy and receiver decoding (standalone codec limits
+retain their original per-operation meaning). To avoid a second planning
+traversal or unmetered writes, ingress conservatively reserves one credit
+per copied wire byte and caps its allocation-free materialization plan at
+floor((total - wire)/2). The plan includes hypothetical writes, so the
+same work charge conservatively covers each pass. The admitted frame carries
+the exact planned receiver work, and decoding is clamped to that credit and
+must report the same usage. Legacy bound frames without a plan are refused
+by materialized receive. Failure rolls back reservations and sequence
+admission. This intentionally tightens endpoint budget semantics; callers
+with old per-pass configurations must migrate their limits. This is a
+logical per-message cap, not aggregate tenant CPU throttling, physical heap
+accounting, authentication cost, allocator overhead or wall-clock time.

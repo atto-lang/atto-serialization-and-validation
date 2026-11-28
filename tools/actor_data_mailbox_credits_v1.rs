@@ -57,13 +57,15 @@ impl Drop for TenantLease {
 }
 // Tenant credit follows the owned frame through the queue and receiver delivery.
 // Only borrowed access is exposed; a trusted receiver must separately account copies.
-pub struct Delivery { frame:Box<[u8]>, binding:Option<Arc<()>>, _tenant:TenantLease }
+pub struct Delivery { frame:Box<[u8]>, binding:Option<Arc<()>>, planned_work:usize, _tenant:TenantLease }
 impl Delivery {
     pub fn bytes(&self)->&[u8] { &self.frame }
     pub fn len(&self)->usize { self.frame.len() }
     pub fn is_empty(&self)->bool { self.frame.is_empty() }
     /// Admission-time logical estimate; no actual heap measurement.
     pub fn expansion_credit(&self)->usize { self._tenant.expansion }
+    /// Admission-time receiver work credit; zero denotes an unplanned frame.
+    pub fn planned_work(&self)->usize { self.planned_work }
 }
 struct State {
     generation: u64, closed: bool, bytes: usize, slots: usize,
@@ -235,12 +237,18 @@ impl Reservation {
     }
     // Consumes non-cloneable lease. Failure drops it after lock release.
     pub fn publish(self, frame:Box<[u8]>) -> Result<(),Reject> {
-        self.publish_inner(frame,None)
+        self.publish_inner(frame,None,0)
     }
     pub fn publish_bound(self, frame:Box<[u8]>, binding:&Arc<()>) -> Result<(),Reject> {
-        self.publish_inner(frame,Some(binding.clone()))
+        self.publish_inner(frame,Some(binding.clone()),0)
     }
-    fn publish_inner(mut self, frame:Box<[u8]>, binding:Option<Arc<()>>) -> Result<(),Reject> {
+    /// Trusted planned publication. Wire-only compatibility paths carry no
+    /// planned receiver budget and cannot qualify for materialized ingress.
+    pub fn publish_bound_with_work(self,frame:Box<[u8]>,binding:&Arc<()>,planned_work:usize)->Result<(),Reject> {
+        if planned_work==0 || planned_work>4*1024*1024 { return Err(Reject::Size); }
+        self.publish_inner(frame,Some(binding.clone()),planned_work)
+    }
+    fn publish_inner(mut self, frame:Box<[u8]>, binding:Option<Arc<()>>, planned_work:usize) -> Result<(),Reject> {
         if frame.len()!=self.bytes { return Err(Reject::Size); }
         {
             let mut s=self.mailbox.lock()?;
@@ -248,7 +256,7 @@ impl Reservation {
             if s.generation!=self.generation { return Err(Reject::Stale); }
             s.queue.try_reserve(1).map_err(|_|Reject::Allocation)?;
             let tenant=self.tenant.take().ok_or(Reject::Closed)?;
-            s.queue.push_back(Delivery { frame, binding, _tenant:tenant });
+            s.queue.push_back(Delivery { frame, binding, planned_work, _tenant:tenant });
             self.live=false; // credit now belongs to queue entry
         }
         Ok(())
