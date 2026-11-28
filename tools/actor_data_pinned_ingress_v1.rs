@@ -6,10 +6,10 @@
 #[path="actor_data_protobuf_recursive_v1.rs"] pub mod proto;
 #[path="actor_data_mailbox_credits_v1.rs"] pub mod mailbox;
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, TryLockError};
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation, Expansion }
+pub enum Reject { Binding(policy::Reject), Generation, Cbor(cbor::Reject), Proto(proto::Reject), Mailbox(mailbox::Reject), Allocation, Expansion, Session, Sequence, SequenceExhausted }
 
 pub struct VerifiedMetadata<'a> {
     pub codec: &'a str, pub version: u32, pub schema: &'a str,
@@ -144,6 +144,68 @@ impl<'a> Endpoint<'a> {
         Ok(Some(MaterializedDelivery{value,delivery,generation:self.generation}))
     }
 }
+/// The trusted transport must authenticate session, sequence, all binding
+/// metadata and exact payload as one envelope. This is not a MAC verifier.
+pub struct SequencedMetadata<'a> {
+    pub binding:VerifiedMetadata<'a>,
+    pub session:&'a [u8;32],
+    pub sequence:u64,
+}
+
+/// Strict ordered-session admission. Owns the underlying endpoint and does
+/// not expose an unsequenced admission API. A trusted registrar must never
+/// recreate an endpoint with a previously used session identity; recovery
+/// requires persistent replay state or a fresh authenticated session.
+pub struct SequencedEndpoint<'a> {
+    endpoint:Endpoint<'a>,
+    session:[u8;32],
+    next:Mutex<Option<u64>>,
+}
+impl<'a> SequencedEndpoint<'a> {
+    fn register(endpoint:Endpoint<'a>,session:[u8;32])->Result<Self,Reject> {
+        if session==[0;32] { return Err(Reject::Session); }
+        Ok(Self{endpoint,session,next:Mutex::new(Some(1))})
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn cbor(schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
+                generation:u64,shape:&'a cbor::Shape<'a>,limits:cbor::Limits,
+                mailbox:mailbox::Mailbox,session:[u8;32])->Result<Self,Reject> {
+        Self::register(Endpoint::cbor(schema,version,digest,allowed,generation,shape,limits,mailbox)?,session)
+    }
+    #[allow(clippy::too_many_arguments)]
+    pub fn protobuf(schema:&'a str,version:u32,digest:[u8;32],allowed:u8,
+                    generation:u64,shape:&'a proto::Schema<'a>,limits:proto::Limits,
+                    mailbox:mailbox::Mailbox,session:[u8;32])->Result<Self,Reject> {
+        Self::register(Endpoint::protobuf(schema,version,digest,allowed,generation,shape,limits,mailbox)?,session)
+    }
+
+    /// A sequence is consumed only after successful mailbox publication.
+    /// The replay lock spans bounded preflight/copy/publication; concurrent
+    /// admissions fail Busy rather than wait. Nothing acquires this lock
+    /// from mailbox or tenant code. A poisoned lock fails closed.
+    pub fn admit_after_authentication(&self,meta:&SequencedMetadata<'_>,bytes:&[u8])->Result<(),Reject> {
+        if meta.session!=&self.session { return Err(Reject::Session); }
+        self.endpoint.binding.matches(meta.binding.codec,meta.binding.version,meta.binding.schema,meta.binding.shape_digest).map_err(Reject::Binding)?;
+        if meta.binding.recipient_generation!=self.endpoint.generation { return Err(Reject::Generation); }
+        let mut next=match self.next.try_lock() {
+            Ok(guard)=>guard,
+            Err(TryLockError::WouldBlock)=>return Err(Reject::Mailbox(mailbox::Reject::Busy)),
+            Err(TryLockError::Poisoned(_))=>return Err(Reject::Mailbox(mailbox::Reject::Closed)),
+        };
+        let expected=next.ok_or(Reject::SequenceExhausted)?;
+        if meta.sequence!=expected { return Err(Reject::Sequence); }
+        self.endpoint.admit_after_authentication(&meta.binding,bytes)?;
+        *next=expected.checked_add(1);
+        Ok(())
+    }
+    pub fn dispatch_next(&self,handler:impl FnOnce(&MaterializedValue))->Result<bool,Reject> {
+        self.endpoint.dispatch_next(handler)
+    }
+    pub fn begin_suspended_receive(&self)->Result<Option<SuspendedDelivery>,Reject> {
+        self.endpoint.begin_suspended_receive()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,6 +468,74 @@ mod tests {
             assert!(matches!(e.begin_suspended_receive(),Err(Reject::Mailbox(mailbox::Reject::Busy))));
         }),Ok(true));
         assert_eq!(m.restart(1),Ok(2));
+    }
+
+    const SESSION:[u8;32]=[9;32];
+    fn seq_meta(codec:&str,sequence:u64)->SequencedMetadata<'_>{
+        SequencedMetadata{binding:meta(codec),session:&SESSION,sequence}
+    }
+    #[test] fn ordered_replay_rejects_duplicate_gap_and_wrong_session(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,4).unwrap();
+        assert!(matches!(SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone(),[0;32]),Err(Reject::Session)));
+        let e=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone(),SESSION).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",0),&[0xff]),Err(Reject::Sequence));
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",2),&[0xff]),Err(Reject::Sequence));
+        assert_eq!(e.admit_after_authentication(&SequencedMetadata{session:&[8;32],..seq_meta("cbor",1)},&[0xff]),Err(Reject::Session));
+        assert_eq!(m.usage().unwrap(),(0,0));
+        e.admit_after_authentication(&seq_meta("cbor",1),&[0xf5]).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",1),&[0xf5]),Err(Reject::Sequence));
+        e.admit_after_authentication(&seq_meta("cbor",2),&[0xf4]).unwrap();
+        assert_eq!(m.usage().unwrap(),(2,2));
+        assert_eq!(e.dispatch_next(|v|assert_eq!(v,&MaterializedValue::Cbor(cbor::Value::Bool(true)))),Ok(true));
+        assert_eq!(e.dispatch_next(|v|assert_eq!(v,&MaterializedValue::Cbor(cbor::Value::Bool(false)))),Ok(true));
+    }
+    #[test] fn sequence_not_consumed_on_malformed_or_full_admission(){
+        let shape=cbor::Shape::Bool;
+        let t=mailbox::TenantBudget::new_with_expansion(64,1,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,1,t.clone()).unwrap();
+        let e=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone(),SESSION).unwrap();
+        assert!(matches!(e.admit_after_authentication(&seq_meta("cbor",1),&[0xff]),Err(Reject::Cbor(_))));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        e.admit_after_authentication(&seq_meta("cbor",1),&[0xf5]).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",2),&[0xf5]),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        let delivery=e.begin_suspended_receive().unwrap().unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("cbor",2),&[0xf5]),Err(Reject::Mailbox(mailbox::Reject::Full)));
+        drop(delivery);
+        e.admit_after_authentication(&seq_meta("cbor",2),&[0xf5]).unwrap();
+        m.close().unwrap();
+        assert_eq!(t.usage().unwrap(),(0,0));
+    }
+    #[test] fn concurrent_duplicate_publishes_at_most_once(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,4).unwrap();
+        let e=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone(),SESSION).unwrap();
+        let start=std::sync::Barrier::new(3);
+        let results=std::thread::scope(|scope|{
+            let a=scope.spawn(||{start.wait();e.admit_after_authentication(&seq_meta("cbor",1),&[0xf5])});
+            let b=scope.spawn(||{start.wait();e.admit_after_authentication(&seq_meta("cbor",1),&[0xf5])});
+            start.wait();
+            [a.join().unwrap(),b.join().unwrap()]
+        });
+        assert_eq!(results.iter().filter(|r|r.is_ok()).count(),1);
+        assert!(results.iter().all(|r|matches!(r,Ok(())|Err(Reject::Sequence)|Err(Reject::Mailbox(mailbox::Reject::Busy)))));
+        assert_eq!(m.usage().unwrap(),(1,1));
+    }
+    #[test] fn exhausted_sequence_never_wraps_and_restart_never_reuses_session(){
+        let schema=proto::Schema{fields:&[proto::Field{number:1,kind:proto::Kind::Varint}]};
+        let m=mailbox::Mailbox::new(1,64,4).unwrap();
+        let e=SequencedEndpoint::protobuf("order.v1",1,H,2,1,&schema,pl(),m.clone(),SESSION).unwrap();
+        *e.next.lock().unwrap()=Some(u64::MAX);
+        e.admit_after_authentication(&seq_meta("protobuf",u64::MAX),&[8,1]).unwrap();
+        assert_eq!(e.admit_after_authentication(&seq_meta("protobuf",u64::MAX),&[8,1]),Err(Reject::SequenceExhausted));
+        assert_eq!(e.admit_after_authentication(&seq_meta("protobuf",0),&[8,1]),Err(Reject::SequenceExhausted));
+        assert_eq!(m.restart(1),Ok(2));
+        let fresh=SequencedEndpoint::protobuf("order.v1",1,H,2,2,&schema,pl(),m.clone(),[10;32]).unwrap();
+        let old=SequencedMetadata{binding:VerifiedMetadata{recipient_generation:2,..meta("protobuf")},session:&SESSION,sequence:1};
+        assert_eq!(fresh.admit_after_authentication(&old,&[8,1]),Err(Reject::Session));
+        let new=SequencedMetadata{session:&[10;32],..old};
+        fresh.admit_after_authentication(&new,&[8,1]).unwrap();
+        assert_eq!(m.usage().unwrap(),(2,1));
     }
 
 }

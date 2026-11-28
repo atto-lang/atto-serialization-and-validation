@@ -67,3 +67,20 @@ forced cancellation, actual actor execution, panic recovery protocol or
 physical heap quota. The scheduler must checkpoint on resumption and drop
 the task's owned delivery on completion/cancellation before lifecycle changes.
 Legacy raw receive/pop remain trusted unfenced interfaces.
+
+## Ordered authenticated-session replay admission
+
+`SequencedEndpoint` is an opt-in strict ordered host profile with one fixed
+nonzero 32-byte session identity and a sequence beginning at 1. The trusted
+transport must authenticate the session, sequence, endpoint identity, all
+binding metadata and payload as one envelope. No cryptographic authentication
+is implemented here. Duplicate, zero and out-of-order sequences are refused;
+a successful publication alone consumes the sequence. Malformed payloads,
+backpressure and failed publication leave it available for retry. Concurrent
+admission is serialized by a bounded try-lock; exhaustion at u64::MAX never
+wraps. The wrapper does not expose unsequenced admission; the existing raw
+Endpoint API remains a trusted legacy interface, not replay protected.
+The registrar MUST allocate fresh authenticated sessions on recreation or
+restore durable replay state before accepting traffic. This in-memory model
+cannot prevent replay after process loss, session reuse or untrusted metadata;
+no exactly-once effects, network authentication, guest or heap proof is claimed.
