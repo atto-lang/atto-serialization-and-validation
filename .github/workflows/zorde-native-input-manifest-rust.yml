@@ -1,0 +1,26 @@
+name: Rust native input manifest candidate
+on:
+  pull_request:
+    paths: ['src/native_input_manifest.rs','src/bin/zorde-native-input-manifest.rs','tests/native_input_manifest.rs','src/lib.rs','src/serde_receipts.rs','.github/workflows/zorde-native-input-manifest-rust.yml']
+permissions:
+  contents: read
+jobs:
+  manifest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Exact head and synthetic manifest tests
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git rev-parse 'HEAD^{tree}'
+          cargo +1.88.0 test --locked --test native_input_manifest --test serde_receipts --verbose
+          cargo +1.88.0 build --locked --bin zorde-native-input-manifest
+          echo NATIVE_COMPILER_NOT_EXECUTED
