@@ -2,9 +2,17 @@ import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc value_int, value_bool, value_string, value_array, value_object, value_deep_equal, value_lookup_path from '../src/core/value';
-import class DecodeOptions, DecodeError, EncodeError, DecodedValue from '../src/core/options';
+import class DecodeOptions, DecodeError, EncodeError, DecodedValue, DecodeAttempt from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
-import fnc encode, decode from '../src/messagepack/messagepack';
+import fnc encode, decode, decode_attempt from '../src/messagepack/messagepack';
+
+// Source-level verification does not substitute for executing these guest
+// diagnostics on each toolchain. Exact codes are part of the wire contract.
+fnc require_messagepack_error(List<int> input, String expected_code): void {
+  val DecodeAttempt result = decode_attempt(input, default_decode_options());
+  require_int(result.status, 2, "malformed MessagePack must reject");
+  require_true(result.error.code == expected_code, "MessagePack DecodeError.code mismatch");
+}
 
 pub fnc run_messagepack_tests(): void {
   val List<Value> values = new List<Value>();
@@ -146,6 +154,189 @@ pub fnc run_messagepack_tests(): void {
     tiny_input
   );
   require_true(input_limited.is_err(), "MessagePack max_input_bytes must fail closed");
+
+  // Security regression matrix: truncated structures and length-prefix bombs.
+  // These inputs must reject before any oversized container allocation.
+  val Result<DecodedValue, DecodeError> truncated_fixarray = decode(
+    new List<int>(146, 1),
+    default_decode_options()
+  );
+  require_true(truncated_fixarray.is_err(), "MessagePack truncated fixarray must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_fixmap = decode(
+    new List<int>(129, 161, 97),
+    default_decode_options()
+  );
+  require_true(truncated_fixmap.is_err(), "MessagePack missing fixmap value must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_ext8 = decode(
+    new List<int>(199, 3, 1, 9, 8),
+    default_decode_options()
+  );
+  require_true(truncated_ext8.is_err(), "MessagePack truncated ext8 payload must reject");
+
+  val Result<DecodedValue, DecodeError> overlong_utf8 = decode(
+    new List<int>(217, 2, 192, 175),
+    default_decode_options()
+  );
+  require_true(overlong_utf8.is_err(), "MessagePack non-shortest UTF-8 must reject");
+
+  val Result<DecodedValue, DecodeError> reserved_marker = decode(
+    new List<int>(193),
+    default_decode_options()
+  );
+  require_true(reserved_marker.is_err(), "MessagePack reserved C1 marker must reject");
+
+  val Result<DecodedValue, DecodeError> array32_bomb = decode(
+    new List<int>(221, 255, 255, 255, 255),
+    default_decode_options()
+  );
+  require_true(array32_bomb.is_err(), "MessagePack array32 length bomb must reject");
+
+  val Result<DecodedValue, DecodeError> map32_bomb = decode(
+    new List<int>(223, 255, 255, 255, 255),
+    default_decode_options()
+  );
+  require_true(map32_bomb.is_err(), "MessagePack map32 length bomb must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_str32_header = decode(
+    new List<int>(219, 0, 0),
+    default_decode_options()
+  );
+  require_true(truncated_str32_header.is_err(), "MessagePack truncated str32 header must reject");
+
+  // Declared collection sizes below the configured entry limit still cannot
+  // exceed the minimum encoded bytes remaining in the guest input.
+  val Result<DecodedValue, DecodeError> array32_under_limit_but_truncated = decode(
+    new List<int>(221, 0, 0, 255, 255),
+    default_decode_options()
+  );
+  require_true(
+    array32_under_limit_but_truncated.is_err(),
+    "MessagePack array32 with plausible count but no elements must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> map32_under_limit_but_truncated = decode(
+    new List<int>(223, 0, 0, 255, 255),
+    default_decode_options()
+  );
+  require_true(
+    map32_under_limit_but_truncated.is_err(),
+    "MessagePack map32 with plausible count but no pairs must reject"
+  );
+
+  val Result<DecodedValue, DecodeError> array16_one_short = decode(
+    new List<int>(220, 0, 2, 1),
+    default_decode_options()
+  );
+  require_true(array16_one_short.is_err(), "MessagePack array16 count must fit actual bytes");
+
+  val Result<DecodedValue, DecodeError> map16_one_short = decode(
+    new List<int>(222, 0, 2, 1, 2),
+    default_decode_options()
+  );
+  require_true(map16_one_short.is_err(), "MessagePack map16 pair count must fit actual bytes");
+
+  // Positive neighbors prove the preflight preserves valid collection headers.
+  val Result<DecodedValue, DecodeError> array16_exact = decode(
+    new List<int>(220, 0, 2, 1, 2),
+    default_decode_options()
+  );
+  require_true(!array16_exact.is_err(), "MessagePack complete array16 must still decode");
+  val DecodedValue array16_decoded = array16_exact.unwrap();
+  require_int(array16_decoded.value.array_value.length, 2, "MessagePack array16 length");
+  require_int(array16_decoded.value.array_value[0].kind, 2, "MessagePack array16 first integer kind");
+  require_int(array16_decoded.value.array_value[0].number_lexeme[0], 49, "MessagePack array16 first value");
+  require_int(array16_decoded.value.array_value[1].kind, 2, "MessagePack array16 second integer kind");
+  require_int(array16_decoded.value.array_value[1].number_lexeme[0], 50, "MessagePack array16 second value");
+
+  val Result<DecodedValue, DecodeError> map16_exact = decode(
+    new List<int>(222, 0, 1, 1, 2),
+    default_decode_options()
+  );
+  require_true(!map16_exact.is_err(), "MessagePack complete map16 must still decode");
+  val DecodedValue map16_decoded = map16_exact.unwrap();
+  require_int(map16_decoded.value.kind, 8, "MessagePack map16 general map kind");
+  require_int(map16_decoded.value.map_value.length, 1, "MessagePack map16 length");
+  require_int(map16_decoded.value.map_value[0].key.kind, 2, "MessagePack map16 key integer kind");
+  require_int(map16_decoded.value.map_value[0].key.number_lexeme[0], 49, "MessagePack map16 key");
+  require_int(map16_decoded.value.map_value[0].value.kind, 2, "MessagePack map16 value integer kind");
+  require_int(map16_decoded.value.map_value[0].value.number_lexeme[0], 50, "MessagePack map16 value");
+
+  // Exercise the same exact vectors through the native typed diagnostic API.
+  require_messagepack_error(new List<int>(146, 1), "unexpected_eof");
+  require_messagepack_error(new List<int>(129, 161, 97), "unexpected_eof");
+  require_messagepack_error(new List<int>(199, 3, 1, 9, 8), "unexpected_eof");
+  require_messagepack_error(new List<int>(217, 2, 192, 175), "invalid_utf8");
+  require_messagepack_error(new List<int>(193), "reserved_marker");
+  require_messagepack_error(new List<int>(221, 255, 255, 255, 255), "array_limit");
+  require_messagepack_error(new List<int>(223, 255, 255, 255, 255), "map_limit");
+  require_messagepack_error(new List<int>(219, 0, 0), "unexpected_eof");
+  require_messagepack_error(new List<int>(221, 0, 0, 255, 255), "unexpected_eof");
+  require_messagepack_error(new List<int>(223, 0, 0, 255, 255), "unexpected_eof");
+  require_messagepack_error(new List<int>(220, 0, 2, 1), "unexpected_eof");
+  require_messagepack_error(new List<int>(222, 0, 2, 1, 2), "unexpected_eof");
+
+  // Resource-policy boundaries are independent of input-buffer truncation.
+  val DecodeOptions one_array_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 1, 16
+  );
+  val Result<DecodedValue, DecodeError> array_limit = decode(
+    new List<int>(146, 1, 2),
+    one_array_entry
+  );
+  require_true(array_limit.is_err(), "MessagePack array count must be checked against max_array_entries");
+
+  val DecodeOptions one_map_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 16, 1
+  );
+  val Result<DecodedValue, DecodeError> map_limit = decode(
+    new List<int>(130, 1, 2, 3, 4),
+    one_map_entry
+  );
+  require_true(map_limit.is_err(), "MessagePack map count must be checked against max_map_entries");
+
+  val DecodeOptions one_binary_byte = new DecodeOptions(
+    0, false, 128, 64, 64, 1, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> binary_limit = decode(
+    new List<int>(196, 2, 1, 2),
+    one_binary_byte
+  );
+  require_true(binary_limit.is_err(), "MessagePack binary length must be checked before copying");
+
+  val Result<DecodedValue, DecodeError> extension_limit = decode(
+    new List<int>(199, 2, 7, 1, 2),
+    one_binary_byte
+  );
+  require_true(extension_limit.is_err(), "MessagePack extension length must be checked before reading type or payload");
+
+  val Result<DecodedValue, DecodeError> binary32_header_truncated = decode(
+    new List<int>(198, 0, 0),
+    default_decode_options()
+  );
+  require_true(binary32_header_truncated.is_err(), "MessagePack truncated bin32 header must reject");
+
+  val Result<DecodedValue, DecodeError> extension32_header_truncated = decode(
+    new List<int>(201, 0, 0, 0),
+    default_decode_options()
+  );
+  require_true(extension32_header_truncated.is_err(), "MessagePack truncated ext32 header must reject");
+
+  val Result<DecodedValue, DecodeError> extension32_bomb = decode(
+    new List<int>(201, 255, 255, 255, 255),
+    one_binary_byte
+  );
+  require_true(extension32_bomb.is_err(), "MessagePack ext32 length bomb must reject before type or payload read");
+
+  val DecodeOptions one_string_byte = new DecodeOptions(
+    0, false, 128, 64, 1, 64, 64, 16, 16
+  );
+  val Result<DecodedValue, DecodeError> string32_limit = decode(
+    new List<int>(219, 0, 0, 0, 2),
+    one_string_byte
+  );
+  require_true(string32_limit.is_err(), "MessagePack str32 declared length must obey max_string_bytes before payload read");
 
   return;
 }

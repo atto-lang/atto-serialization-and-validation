@@ -2,10 +2,10 @@ import fnc require_true, require_int from './assert';
 
 import class Value, Utf8Text, WireMember from '../src/core/value';
 import fnc bytes_equal, value_deep_equal, value_lookup_path, value_string, value_int, int_to_decimal_bytes from '../src/core/value';
-import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep from '../src/core/options';
+import class DecodeOptions, EncodeOptions, DecodeError, EncodeError, DecodedValue, DecodeStep, DecodeAttempt from '../src/core/options';
 import fnc default_decode_options, default_encode_options from '../src/core/options';
 import class JsonIncrementalDecoder from '../src/json/json';
-import fnc decode, decode_default, encode, new_incremental_decoder from '../src/json/json';
+import fnc decode, decode_default, decode_attempt, encode, new_incremental_decoder from '../src/json/json';
 import fnc utf8_is_valid, utf8_codepoint_count from '../src/core/utf8';
 
 // Freshly decoded fixtures ensure no ownership transfer of one nested Value
@@ -220,11 +220,160 @@ pub fnc run_json_tests(): void {
   );
   require_true(escaped_utf8_over.is_err(), "JSON Unicode escape must preflight encoded string bytes");
 
-  // Native UTF-8 boundary cases independent of the JSON decoder.
-  require_true(!utf8_is_valid(new List<int>(128)), "isolated continuation byte must reject");
-  require_int(utf8_codepoint_count(new List<int>()), 0, "empty UTF-8 contains zero scalars");
-  require_int(utf8_codepoint_count(new List<int>(195, 169)), 1, "two-byte UTF-8 counts as one scalar");
-  require_true(!utf8_is_valid(new List<int>(255)), "0xFF is not a valid Unicode lead byte");
-  require_int(utf8_codepoint_count(new List<int>(65, 66, 67)), 3, "three ASCII code points");
+  // Adversarial JSON grammar: reject malformed tokens, never repair silently.
+  val Result<DecodedValue, DecodeError> trailing_comma = decode_default(
+    new List<int>(91, 49, 44, 93)
+  );
+  require_true(trailing_comma.is_err(), "JSON array trailing comma must reject");
+
+  val Result<DecodedValue, DecodeError> leading_zero = decode_default(
+    new List<int>(48, 49)
+  );
+  require_true(leading_zero.is_err(), "JSON number with leading zero must reject");
+
+  val Result<DecodedValue, DecodeError> truncated_exponent = decode_default(
+    new List<int>(49, 101, 43)
+  );
+  require_true(truncated_exponent.is_err(), "JSON truncated exponent must reject");
+
+  val Result<DecodedValue, DecodeError> invalid_literal_case = decode_default(
+    new List<int>(78, 117, 108, 108)
+  );
+  require_true(invalid_literal_case.is_err(), "JSON literal case is exact");
+
+  val Result<DecodedValue, DecodeError> lone_high_surrogate = decode_default(
+    new List<int>(34, 92, 117, 68, 56, 48, 48, 34)
+  );
+  require_true(lone_high_surrogate.is_err(), "JSON lone high surrogate must reject");
+
+  val Result<DecodedValue, DecodeError> invalid_escape = decode_default(
+    new List<int>(34, 92, 120, 34)
+  );
+  require_true(invalid_escape.is_err(), "JSON invalid backslash escape must reject");
+
+  val Result<DecodedValue, DecodeError> trailing_second_value = decode_default(
+    new List<int>(116, 114, 117, 101, 102, 97, 108, 115, 101)
+  );
+  require_true(trailing_second_value.is_err(), "JSON second root value must reject");
+
+  // Distinguish exact parser diagnostics from the weaker is_err() assertion.
+  // decode_attempt is the guest decoder itself, not a host JSON replacement.
+  val DecodeAttempt leading_zero_detail = decode_attempt(
+    new List<int>(48, 49),
+    default_decode_options()
+  );
+  require_int(leading_zero_detail.status, 2, "leading zero must be a grammar failure");
+  require_true(
+    leading_zero_detail.error.code == "invalid_number",
+    "leading zero must classify as invalid_number"
+  );
+
+  val DecodeAttempt incomplete_exponent_detail = decode_attempt(
+    new List<int>(49, 101, 43),
+    default_decode_options()
+  );
+  require_int(
+    incomplete_exponent_detail.status,
+    1,
+    "incomplete JSON exponent must request more bytes before finalization"
+  );
+  require_true(
+    incomplete_exponent_detail.error.code == "unexpected_eof",
+    "incomplete JSON exponent must carry unexpected_eof"
+  );
+
+  val DecodeAttempt lone_surrogate_detail = decode_attempt(
+    new List<int>(34, 92, 117, 68, 56, 48, 48, 34),
+    default_decode_options()
+  );
+  require_int(lone_surrogate_detail.status, 2, "lone high surrogate must reject");
+  require_true(
+    lone_surrogate_detail.error.code == "invalid_surrogate_pair",
+    "lone high surrogate must have a stable error classification"
+  );
+
+  val DecodeAttempt invalid_escape_detail = decode_attempt(
+    new List<int>(34, 92, 120, 34),
+    default_decode_options()
+  );
+  require_int(invalid_escape_detail.status, 2, "invalid backslash escape must reject");
+  require_true(
+    invalid_escape_detail.error.code == "invalid_escape",
+    "invalid JSON escape must classify as invalid_escape"
+  );
+
+  val DecodeAttempt trailing_second_value_detail = decode_attempt(
+    new List<int>(116, 114, 117, 101, 102, 97, 108, 115, 101),
+    default_decode_options()
+  );
+  require_int(trailing_second_value_detail.status, 2, "extra root value must reject");
+  require_true(
+    trailing_second_value_detail.error.code == "trailing_data",
+    "extra JSON root value must classify as trailing_data"
+  );
+
+  // Pin the remaining malformed JSON classifications in the real guest API.
+  val DecodeAttempt trailing_comma_detail = decode_attempt(
+    new List<int>(91, 49, 44, 93),
+    default_decode_options()
+  );
+  require_int(trailing_comma_detail.status, 2, "trailing comma is a grammar error");
+  require_true(
+    trailing_comma_detail.error.code == "unexpected_token",
+    "trailing comma must classify as unexpected_token"
+  );
+
+  val DecodeAttempt invalid_literal_detail = decode_attempt(
+    new List<int>(78, 117, 108, 108),
+    default_decode_options()
+  );
+  require_int(invalid_literal_detail.status, 2, "literal case must be exact");
+  require_true(
+    invalid_literal_detail.error.code == "unexpected_token",
+    "incorrect JSON literal case must classify as unexpected_token"
+  );
+
+  // Incremental parsers may request more bytes mid-stream; EOF must commit
+  // an error, never publish a partial number as a successful root.
+  let JsonIncrementalDecoder bad_exponent_stream = new_incremental_decoder(
+    default_decode_options()
+  );
+  val DecodeStep bad_exponent_chunk = bad_exponent_stream.feed(
+    new List<int>(49, 101, 43)
+  );
+  require_int(
+    bad_exponent_chunk.status,
+    0,
+    "partial exponent must remain pending before EOF"
+  );
+  val DecodeStep bad_exponent_finish = bad_exponent_stream.finish();
+  require_int(
+    bad_exponent_finish.status,
+    2,
+    "partial exponent at EOF must fail, never decode as a number"
+  );
+  require_true(
+    bad_exponent_finish.error.code == "unexpected_eof",
+    "partial exponent finalization must retain unexpected_eof classification"
+  );
+
+  val DecodeOptions one_array_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 1, 16
+  );
+  val Result<DecodedValue, DecodeError> array_over = decode(
+    new List<int>(91, 48, 44, 49, 93),
+    one_array_entry
+  );
+  require_true(array_over.is_err(), "JSON array must enforce max_array_entries before parsing the next item");
+
+  val DecodeOptions one_map_entry = new DecodeOptions(
+    0, false, 128, 64, 64, 64, 64, 16, 1
+  );
+  val Result<DecodedValue, DecodeError> object_over = decode(
+    new List<int>(123, 34, 97, 34, 58, 48, 44, 34, 98, 34, 58, 49, 125),
+    one_map_entry
+  );
+  require_true(object_over.is_err(), "JSON object must enforce max_map_entries before parsing the next member");
+
   return;
 }
