@@ -28,7 +28,7 @@ pub enum Shape<'a> { Bool, I64, F64, Text, List(&'a Shape<'a>), Record(&'a [Shap
 pub enum Value { Bool(bool), I64(i64), F64(f64), Text(String), List(Vec<Value>), Record(Vec<Value>) }
 
 struct Reader<'a> {
-    bytes: &'a [u8], pos: usize, limits: Limits, usage: Usage, materialize: bool,
+    bytes: &'a [u8], pos: usize, limits: Limits, usage: Usage, materialize: bool, charge_materialization: bool,
 }
 
 fn charge(counter: &mut usize, amount: usize, cap: usize) -> Result<(), Reject> {
@@ -88,7 +88,7 @@ impl Reader<'_> {
                 let expanded = n.checked_mul(4).ok_or(Reject::Budget)?;
                 charge(&mut self.usage.expanded, expanded, self.limits.expanded)?;
                 charge(&mut self.usage.work, n, self.limits.work)?;
-                if self.materialize { charge(&mut self.usage.work, n, self.limits.work)?; }
+                if self.charge_materialization { charge(&mut self.usage.work, n, self.limits.work)?; }
                 let materialize = self.materialize;
                 let text = std::str::from_utf8(self.take(n)?).map_err(|_| Reject::Utf8)?;
                 if materialize {
@@ -114,7 +114,7 @@ impl Reader<'_> {
                 if let Some(expected) = shape {
                     // Charge element writes and all minimum child-node costs
                     // before allocation; recursive calls charge their own nodes.
-                    if self.materialize { charge(&mut self.usage.work, n, self.limits.work)?; }
+                    if self.charge_materialization { charge(&mut self.usage.work, n, self.limits.work)?; }
                     let min_children = n.checked_mul(32).ok_or(Reject::Budget)?;
                     // Every child needs at least one visit and one head-byte
                     // read. Check this lower bound without double charging:
@@ -167,26 +167,34 @@ impl Reader<'_> {
 }
 
 pub fn preflight(bytes: &[u8], limits: Limits) -> Result<Usage, Reject> {
-    parse(bytes, limits, None, false).map(|(_, usage)| usage)
+    parse(bytes, limits, None, false, false).map(|(_, usage)| usage)
 }
 
 /// Single pass, immutable input, pinned caller-owned descriptor; charges
 /// materialization in addition to parsing. Caller still needs tenant and
 /// receiver heap credit, authenticated codec binding and atomic publication.
 pub fn decode_typed(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<(Value, Usage), Reject> {
-    let (value, usage) = parse(bytes, limits, Some(shape), true)?;
+    let (value, usage) = parse(bytes, limits, Some(shape), true, true)?;
     Ok((value.ok_or(Reject::Shape)?, usage))
 }
 
 /// Allocation-free shape validation for authenticated ingress; not a materialization receipt.
 pub fn preflight_typed(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<Usage, Reject> {
-    parse(bytes, limits, Some(shape), false).map(|(_, usage)| usage)
+    parse(bytes, limits, Some(shape), false, false).map(|(_, usage)| usage)
 }
 
-fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>, materialize: bool) -> Result<(Option<Value>, Usage), Reject> {
+/// Allocation-free admission with exactly the same logical work charges
+/// as typed decode, including future writes. Does not predict allocator
+/// success or certify actual heap usage. Validation-only preflight remains
+/// available for callers that do not intend to materialize.
+pub fn preflight_materialization(bytes: &[u8], limits: Limits, shape: &Shape<'_>) -> Result<Usage, Reject> {
+    parse(bytes, limits, Some(shape), false, true).map(|(_, usage)| usage)
+}
+
+fn parse(bytes: &[u8], limits: Limits, shape: Option<&Shape<'_>>, materialize: bool, charge_materialization: bool) -> Result<(Option<Value>, Usage), Reject> {
     validate_limits(limits)?;
     if bytes.len() > limits.wire { return Err(Reject::Budget); }
-    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default(), materialize };
+    let mut r = Reader { bytes, pos: 0, limits, usage: Usage::default(), materialize, charge_materialization };
     let value = r.item(0, shape)?;
     if r.pos != bytes.len() { return Err(Reject::Trailing); }
     Ok((value, r.usage))
@@ -522,4 +530,34 @@ mod tests {
             let _=preflight(&b,limits());
         }
     }
+    #[test]
+    fn materialization_preflight_matches_decode_at_exact_work_boundary() {
+        let shape=Shape::List(&Shape::Text);
+        let bytes=[0x82,0x61,b'a',0x62,b'b',b'c'];
+        // Three node visits, six wire bytes, three UTF-8 scan credits,
+        // three string writes and two array writes: 17 work credits.
+        let exact=Limits {wire:6,expanded:124,nodes:3,elements:2,work:17,depth:1};
+        let expected=Usage {expanded:124,nodes:3,elements:2,work:17};
+        assert_eq!(preflight_materialization(&bytes,exact,&shape),Ok(expected));
+        assert_eq!(decode_typed(&bytes,exact,&shape).unwrap().1,expected);
+        let under=Limits{work:16,..exact};
+        assert!(preflight_typed(&bytes,under,&shape).is_ok());
+        assert_eq!(preflight_materialization(&bytes,under,&shape),Err(Reject::Budget));
+        assert_eq!(decode_typed(&bytes,under,&shape),Err(Reject::Budget));
+    }
+
+    #[test]
+    fn materialization_preflight_matches_decode_for_nested_and_invalid_inputs() {
+        let fields=[Shape::Bool,Shape::List(&Shape::Text)];
+        let shape=Shape::Record(&fields);
+        let valid=[0x82,0xf5,0x82,0x60,0x62,0xc3,0xa9];
+        for work in 1..=40 {
+            let l=Limits{work,..limits()};
+            for bytes in [valid.as_slice(),&valid[..valid.len()-1],&[0x82,0xf5,0x81,0x61,0xff],&[0x82,0xf5,0x80,0xf4]] {
+                assert_eq!(preflight_materialization(bytes,l,&shape),
+                    decode_typed(bytes,l,&shape).map(|(_,usage)|usage));
+            }
+        }
+    }
+
 }

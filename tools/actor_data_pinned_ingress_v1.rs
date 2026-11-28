@@ -82,7 +82,7 @@ impl<'a> Endpoint<'a> {
         if meta.recipient_generation!=self.generation{return Err(Reject::Generation);}
         let mut lease=self.mailbox.reserve(self.generation,bytes.len()).map_err(Reject::Mailbox)?;
         let expansion=match self.decoder {
-            Decoder::Cbor(shape,limits)=>cbor::preflight_typed(bytes,limits,shape).map_err(Reject::Cbor)?.expanded,
+            Decoder::Cbor(shape,limits)=>cbor::preflight_materialization(bytes,limits,shape).map_err(Reject::Cbor)?.expanded,
             Decoder::Protobuf(shape,limits)=>proto::preflight(bytes,shape,limits).map_err(Reject::Proto)?.logical,
         };
         lease.reserve_expansion(expansion).map_err(Reject::Mailbox)?;
@@ -536,6 +536,29 @@ mod tests {
         let new=SequencedMetadata{session:&[10;32],..old};
         fresh.admit_after_authentication(&new,&[8,1]).unwrap();
         assert_eq!(m.usage().unwrap(),(2,1));
+    }
+
+    #[test] fn materialization_work_refused_before_publication_and_sequence_commit(){
+        let shape=cbor::Shape::List(&cbor::Shape::Text);
+        let bytes=[0x82,0x61,b'a',0x62,b'b',b'c'];
+        let t=mailbox::TenantBudget::new_with_expansion(64,4,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let insufficient=cbor::Limits{work:16,..cl()};
+        let e=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,insufficient,m.clone(),SESSION).unwrap();
+        assert!(cbor::preflight_typed(&bytes,insufficient,&shape).is_ok());
+        for _ in 0..2 {
+            assert_eq!(e.admit_after_authentication(&seq_meta("cbor",1),&bytes),Err(Reject::Cbor(cbor::Reject::Budget)));
+            assert_eq!(m.usage().unwrap(),(0,0));
+            assert_eq!(t.usage().unwrap(),(0,0));
+            assert_eq!(t.expansion_usage().unwrap(),0);
+        }
+        let exact=cbor::Limits{work:17,..cl()};
+        let ok=SequencedEndpoint::cbor("order.v1",1,H,4,1,&shape,exact,m.clone(),[11;32]).unwrap();
+        let metadata=SequencedMetadata{session:&[11;32],..seq_meta("cbor",1)};
+        ok.admit_after_authentication(&metadata,&bytes).unwrap();
+        assert_eq!(ok.dispatch_next(|v|assert_eq!(v,&MaterializedValue::Cbor(cbor::Value::List(vec![cbor::Value::Text("a".into()),cbor::Value::Text("bc".into())])))),Ok(true));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
     }
 
 }
