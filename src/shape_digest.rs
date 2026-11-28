@@ -36,6 +36,7 @@ fn allowed(codec: &str, kind: &str) -> bool {
     match codec {
         "cbor" => matches!(kind,"bool"|"i64"|"f64"|"text"|"list"|"record"),
         "protobuf" => matches!(kind,"varint"|"fixed32"|"fixed64"|"bytes"|"message"|"packed"),
+        "flatbuffers" => matches!(kind,"table"|"bool"|"i64"|"u32"|"f64"),
         _ => false,
     }
 }
@@ -45,7 +46,7 @@ fn allowed(codec: &str, kind: &str) -> bool {
 pub fn canonical_shape(raw: &[u8]) -> Result<Vec<u8>> {
     require(raw.len() <= MAX_INPUT)?;
     let d: Descriptor = serde_json::from_slice(raw).map_err(|e| e.to_string())?;
-    require(matches!(d.codec.as_str(),"cbor"|"protobuf") && token(&d.root))?;
+    require(matches!(d.codec.as_str(),"cbor"|"protobuf"|"flatbuffers") && token(&d.root))?;
     let version = uint(&d.version, u32::MAX)?;
     require(version != 0 && (1..=256).contains(&d.nodes.len()))?;
     let mut table = BTreeMap::new();
@@ -68,7 +69,7 @@ pub fn canonical_shape(raw: &[u8]) -> Result<Vec<u8>> {
         }
         fields.sort_by_key(|f|f.0);
         match n.kind.as_str() {
-            "record" => require(fields.iter().enumerate().all(|(i,f)|f.0 as usize == i))?,
+            "record"|"table" => require(fields.iter().enumerate().all(|(i,f)|f.0 as usize == i))?,
             "list"|"packed" => require(fields.len()==1 && fields[0].0==0 && fields[0].1=="element")?,
             "message" => (),
             _ => require(fields.is_empty())?,
@@ -76,10 +77,15 @@ pub fn canonical_shape(raw: &[u8]) -> Result<Vec<u8>> {
         table.insert(n.id,(n.kind,fields));
     }
     require(table.contains_key(&d.root))?;
+    if d.codec == "flatbuffers" {
+        let (kind,fields)=table.get(&d.root).ok_or("missing root")?;
+        require(kind=="table" && (1..=64).contains(&fields.len()))?;
+    }
     for (kind,fields) in table.values() {
         for (_,_,target) in fields {
             let (target_kind,_) = table.get(target).ok_or("dangling descriptor reference")?;
             if kind == "packed" { require(matches!(target_kind.as_str(),"varint"|"fixed32"|"fixed64"))?; }
+            if kind == "table" { require(matches!(target_kind.as_str(),"bool"|"i64"|"u32"|"f64"))?; }
         }
     }
     let mut seen = BTreeSet::new();
@@ -107,6 +113,7 @@ pub fn canonical_shape(raw: &[u8]) -> Result<Vec<u8>> {
 pub fn shape_digest(raw: &[u8]) -> Result<String> {
     let canonical = canonical_shape(raw)?;
     let mut child = Command::new("/usr/bin/sha256sum")
+        .env_clear().env("LC_ALL","C")
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null())
         .spawn().map_err(|e|e.to_string())?;
     let write = child.stdin.take().ok_or("missing digest stdin")
