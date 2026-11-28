@@ -75,6 +75,19 @@ impl<'a> Endpoint<'a> {
         copy.extend_from_slice(bytes);
         lease.publish_bound(copy.into_boxed_slice(),&self.binding_token).map_err(Reject::Mailbox)
     }
+    /// Synchronous fenced host dispatch. Busy does not dequeue or consume
+    /// a frame; restart and close cannot advance while the handler runs.
+    /// The handler borrows the materialized value; its lease is dropped
+    /// before the gate is released. Copies need independent accounting.
+    /// No asynchronous task, guest runtime, or external actor state is fenced.
+    pub fn dispatch_next(&self, handler:impl FnOnce(&MaterializedValue))->Result<bool,Reject> {
+        self.mailbox.with_generation_dispatch(self.generation, || {
+            let Some(delivery)=self.receive_materialized()? else { return Ok(false); };
+            handler(delivery.value());
+            Ok(true)
+        }).map_err(Reject::Mailbox)?
+    }
+
     /// Receiver-side host materialization. Only frames admitted by this
     /// endpoint instance are consumed. A second endpoint must not decode
     /// a frame using a different descriptor, even at the same generation.
@@ -230,6 +243,82 @@ mod tests {
         assert_eq!(t.expansion_usage().unwrap(),cost);
         drop(value);
         assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+
+    #[test] fn dispatch_excludes_restart_close_and_reentry_before_dequeue(){
+        let shape=cbor::Shape::Bool;
+        let t=mailbox::TenantBudget::new_with_expansion(64,4,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,4,t.clone()).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        for _ in 0..2 { e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap(); }
+        assert_eq!(e.dispatch_next(|v| {
+            assert_eq!(v,&MaterializedValue::Cbor(cbor::Value::Bool(true)));
+            assert_eq!(m.restart(1),Err(mailbox::Reject::Busy));
+            assert_eq!(m.close(),Err(mailbox::Reject::Busy));
+            assert_eq!(e.dispatch_next(|_| panic!("must not reenter")),Err(Reject::Mailbox(mailbox::Reject::Busy)));
+            assert_eq!(m.usage().unwrap(),(1,1));
+            assert_eq!(t.usage().unwrap(),(2,2));
+            // The gate is not the mailbox state lock. Enqueue can progress.
+            e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap();
+        }),Ok(true));
+        assert_eq!(m.usage().unwrap(),(2,2));
+        assert_eq!(t.usage().unwrap(),(2,2));
+        assert_eq!(m.restart(1),Ok(2));
+        assert_eq!(e.dispatch_next(|_| panic!("stale callback")),Err(Reject::Mailbox(mailbox::Reject::Stale)));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn dispatch_gate_shared_across_threads_and_clones(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap();
+        std::thread::scope(|scope| {
+            let (entered,ready)=std::sync::mpsc::channel();
+            let (release,resume)=std::sync::mpsc::channel();
+            let worker=scope.spawn(|| {
+                e.dispatch_next(move |_| {
+                    entered.send(()).unwrap();
+                    resume.recv().unwrap();
+                })
+            });
+            ready.recv().unwrap();
+            let other=m.clone();
+            assert_eq!(other.restart(1),Err(mailbox::Reject::Busy));
+            assert_eq!(other.close(),Err(mailbox::Reject::Busy));
+            assert_eq!(e.dispatch_next(|_| panic!("concurrent callback")),Err(Reject::Mailbox(mailbox::Reject::Busy)));
+            release.send(()).unwrap();
+            assert_eq!(worker.join().unwrap(),Ok(true));
+        });
+        assert_eq!(m.restart(1),Ok(2));
+    }
+    #[test] fn panicked_dispatch_drops_value_and_closes_gate(){
+        let shape=cbor::Shape::Bool;
+        let t=mailbox::TenantBudget::new_with_expansion(64,2,1024).unwrap();
+        let m=mailbox::Mailbox::new_with_tenant(1,64,2,t.clone()).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        for _ in 0..2 { e.admit_after_authentication(&meta("cbor"),&[0xf5]).unwrap(); }
+        let failed=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _=e.dispatch_next(|_| panic!("synthetic handler panic"));
+        }));
+        assert!(failed.is_err());
+        assert_eq!(t.usage().unwrap(),(1,1));
+        assert_eq!(e.dispatch_next(|_| panic!("poisoned callback")),Err(Reject::Mailbox(mailbox::Reject::Closed)));
+        assert_eq!(m.restart(1),Err(mailbox::Reject::Closed));
+        assert_eq!(m.close(),Ok(()));
+        assert_eq!(t.usage().unwrap(),(0,0));
+        assert_eq!(t.expansion_usage().unwrap(),0);
+    }
+    #[test] fn empty_and_wrong_binding_never_run_handler(){
+        let shape=cbor::Shape::Bool;
+        let m=mailbox::Mailbox::new(1,64,2).unwrap();
+        let e=Endpoint::cbor("order.v1",1,H,4,1,&shape,cl(),m.clone()).unwrap();
+        assert_eq!(e.dispatch_next(|_| panic!("empty")),Ok(false));
+        m.reserve(1,1).unwrap().publish(vec![0xf5].into_boxed_slice()).unwrap();
+        assert_eq!(e.dispatch_next(|_| panic!("wrong binding")),Err(Reject::Mailbox(mailbox::Reject::Binding)));
+        assert_eq!(m.usage().unwrap(),(1,1));
+        m.close().unwrap();
+        assert_eq!(e.dispatch_next(|_| panic!("closed")),Err(Reject::Mailbox(mailbox::Reject::Closed)));
     }
 
 }

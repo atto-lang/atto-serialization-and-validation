@@ -34,3 +34,19 @@ check is an observation before return, not atomic actor dispatch; actor runtime
 must fence use under its own generation lock. No physical allocator quota,
 nominal guest conversion, transport authentication or runtime integration
 is certified by this host reference.
+
+## Synchronous generation-fenced host dispatch
+
+`Endpoint::dispatch_next` holds a separate shared mailbox dispatch gate across
+binding checks, materialization, the synchronous borrowed handler and value
+destruction. All clones share the gate; restart, close and concurrent or
+recursive dispatch return Busy without changing generation or consuming a
+frame. Mailbox state and tenant locks are not held during the handler, so
+trusted enqueue can proceed. Gate poisoning after a handler panic rejects
+future fenced dispatch and restart; close can acquire the poisoned gate only
+to discard queued frames. Callers must retry Busy according to their own
+bounded scheduling policy. The raw receive/pop APIs remain trusted low-level
+compatibility interfaces and do not provide dispatch fencing. This is a host
+reference only: no asynchronous callback, guest actor, actor heap, scheduler
+or external side effect is certified. Actual runtime integration must use
+this fence or equivalent across every lifecycle and dispatch entrypoint.
