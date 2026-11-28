@@ -119,3 +119,5 @@ pub mod shape_digest;
 pub mod serde_receipts;
 
 pub mod native_input_manifest;
+
+pub mod native_receipt;

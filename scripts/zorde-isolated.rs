@@ -119,7 +119,7 @@ fn bootstrap(mode:&str,root:&Path,approved:&str)->Result<()>{
     let status=io(command.current_dir(root).args(["--noprofile","--norc"]).arg(&script).status())?;
     need(status.success(),"source-local gate refused or failed")
 }
-fn capture(directory:&Path,compiler:&Path,guest:&Path,seconds:u32)->Result<()>{
+pub(crate) fn capture(directory:&Path,compiler:&Path,guest:&Path,seconds:u32)->Result<Vec<u8>>{
     need((1..=180).contains(&seconds),"invalid timeout")?;
     let d=dir(directory)?;let before_dir=io(d.metadata())?;
     need(private(&before_dir),"evidence directory must be owned and private")?;
@@ -143,7 +143,8 @@ fn capture(directory:&Path,compiler:&Path,guest:&Path,seconds:u32)->Result<()>{
     let status=io(command.status())?;
     let after=io(out.metadata())?;
     let current_dir=io(dir(directory)?.metadata())?;
-    let current=io(open_child(d.as_raw_fd(),OsStr::new(LOG_NAME),NOFOLLOW|NONBLOCK,0)?.metadata())?;
+    let mut log=open_child(d.as_raw_fd(),OsStr::new(LOG_NAME),NOFOLLOW|NONBLOCK,0)?;
+    let current=io(log.metadata())?;
     need(status.success(),"timed compiler/guest failed")?;
     // Exact saturation is refused, even if a child caught SIGXFSZ or ignored
     // a write error and returned zero. No receipt is issued by this utility.
@@ -154,7 +155,9 @@ fn capture(directory:&Path,compiler:&Path,guest:&Path,seconds:u32)->Result<()>{
     need(stamp(&io(leaf(compiler)?.metadata())?)==stamp(&cm)&&stamp(&io(leaf(guest)?.metadata())?)==stamp(&gm),
         "compiler or guest changed during execution")?;
     io(out.sync_all())?;
-    Ok(())
+    let mut raw=Vec::new();io((&mut log).take(LOG_LIMIT+1).read_to_end(&mut raw))?;
+    need(raw.len() as u64==after.len()&&stamp(&io(log.metadata())?)==stamp(&after),"log changed during read")?;
+    Ok(raw)
 }
 fn main(){
     let a:Vec<OsString>=std::env::args_os().collect();
@@ -164,7 +167,7 @@ fn main(){
         }
         [_,cmd,directory,compiler,guest,seconds] if cmd=="capture"=>{
             match seconds.to_str().and_then(|s|s.parse::<u32>().ok()){
-                Some(n)=>capture(Path::new(directory),Path::new(compiler),Path::new(guest),n),
+                Some(n)=>capture(Path::new(directory),Path::new(compiler),Path::new(guest),n).map(|_|()),
                 None=>Err("invalid timeout".into())
             }
         }
@@ -182,4 +185,35 @@ mod tests{
     #[test]fn golden_digest(){
         assert_eq!(digest(b"abc").unwrap(),"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
     }
+}
+
+// Stream executable bytes without materializing them in memory.
+#[allow(dead_code)] // Used by the combined receipt library, not the standalone CLI.
+pub(crate) fn executable_digest(p:&Path)->Result<String>{
+    let mut f=leaf(p)?;let before=io(f.metadata())?;
+    need(before.mode()&0o111!=0&&before.len()>0&&before.len()<=512*1024*1024,"invalid executable size or mode")?;
+    let mut c=io(clean("/usr/bin/sha256sum").stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn())?;
+    let streamed=(||->Result<()>{
+        let mut pipe=c.stdin.take().ok_or("missing digest pipe")?;
+        let n=io(std::io::copy(&mut (&mut f).take(before.len()+1),&mut pipe))?;
+        need(n==before.len(),"executable size changed")
+    })();
+    if let Err(e)=streamed{let _=c.kill();let _=c.wait();return Err(e);}
+    let out=io(c.wait_with_output())?;
+    need(out.status.success(),"executable SHA256 failed")?;
+    let h=std::str::from_utf8(&out.stdout).map_err(|_|"invalid digest output")?.strip_suffix("  -\n").ok_or("invalid digest output")?;
+    need(hex(h,64)&&stamp(&io(f.metadata())?)==stamp(&before)&&stamp(&io(leaf(p)?.metadata())?)==stamp(&before),"executable changed or malformed digest")?;
+    Ok(h.into())
+}
+#[allow(dead_code)] // Used by the combined receipt library, not the standalone CLI.
+pub(crate) fn private_output(directory:&Path,name:&str,bytes:&[u8])->Result<()>{
+    need(name=="zorde-generated-smoke-native-receipt.json","unexpected receipt name")?;
+    let d=dir(directory)?;let before=io(d.metadata())?;
+    need(private(&before),"evidence directory not private")?;
+    let mut f=open_child(d.as_raw_fd(),OsStr::new(name),WRONLY|CREATE|EXCLUSIVE|NOFOLLOW|NONBLOCK,0o600)?;
+    let m=io(f.metadata())?;need(m.is_file()&&m.nlink()==1&&private(&m),"unsafe receipt output")?;
+    io(f.write_all(bytes))?;io(f.sync_all())?;
+    let after=io(f.metadata())?;let current=io(open_child(d.as_raw_fd(),OsStr::new(name),NOFOLLOW|NONBLOCK,0)?.metadata())?;
+    let again=io(dir(directory)?.metadata())?;
+    need(after.len()==bytes.len() as u64&&stamp(&after)==stamp(&current)&&before.dev()==again.dev()&&before.ino()==again.ino()&&private(&again),"receipt or directory changed")
 }
